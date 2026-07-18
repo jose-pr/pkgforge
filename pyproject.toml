@@ -23,7 +23,7 @@ classifiers = [
     "Topic :: System :: Software Distribution",
     "Typing :: Typed",
 ]
-dependencies = ["duho", "pyyaml"]
+dependencies = ["duho>=0.3.2", "pyyaml"]
 
 [project.optional-dependencies]
 dev = ["build", "twine", "hatchling", "pytest"]
