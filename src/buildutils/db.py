@@ -32,22 +32,59 @@ if typing.TYPE_CHECKING:
 #: A loaded DB: build path -> entry, or ``None`` for a removed path.
 Db = typing.Dict[str, "typing.Optional[FileEntry]"]
 
-#: File-suffix -> format name. Lowercased suffixes.
-SUFFIX_FORMATS = {
-    ".jsonl": "jsonl",
-    ".ndjson": "jsonl",
-    ".yaml": "yaml",
-    ".yml": "yaml",
-    ".db": "sqlite",
-    ".sqlite": "sqlite",
-    ".sqlite3": "sqlite",
-}
+#: Content sniffer: given a file's first bytes, return True if this format owns it.
+Sniffer = typing.Callable[[bytes], bool]
+
+#: Registered backends: format name -> provider class. Populated by
+#: :func:`register_provider` (the built-in three register themselves at import).
+PROVIDERS: "typing.Dict[str, typing.Type[DbProvider]]" = {}
+
+#: File-suffix (lowercased) -> format name. Populated by :func:`register_provider`.
+SUFFIX_FORMATS: "typing.Dict[str, str]" = {}
+
+#: Content sniffers, newest-registered first: (format-name, sniffer).
+_SNIFFERS: "typing.List[typing.Tuple[str, Sniffer]]" = []
 
 #: Format used when the suffix is unknown / absent.
 DEFAULT_FORMAT = "jsonl"
 
 #: SQLite file magic (first 16 bytes of any SQLite 3 database).
 _SQLITE_MAGIC = b"SQLite format 3\x00"
+
+
+def register_provider(
+    name: str,
+    provider_cls: "typing.Type[DbProvider]",
+    *,
+    suffixes: "typing.Iterable[str]" = (),
+    sniff: "typing.Optional[Sniffer]" = None,
+) -> "typing.Type[DbProvider]":
+    """Register a file-DB backend so :func:`open_db` can select it.
+
+    This is the extension seam that keeps third-party backends OUT of core
+    buildutils: an external package calls ``register_provider`` at import time
+    and its format becomes usable via ``--db-format <name>``, a matching file
+    suffix, or content sniffing.
+
+    * ``name`` -- the format name (used by ``--db-format`` and error messages).
+    * ``provider_cls`` -- a :class:`DbProvider` subclass constructed as
+      ``provider_cls(path)``.
+    * ``suffixes`` -- file suffixes (e.g. ``(".toml",)``, leading dot,
+      case-insensitive) that infer this format from a ``--db`` path.
+    * ``sniff`` -- optional ``sniff(head: bytes) -> bool`` that inspects a file's
+      first 16 bytes and returns True if this backend owns it. Registered
+      sniffers are consulted newest-first, before the built-in heuristics, so a
+      later registration can claim a shape an earlier one would.
+
+    Returns ``provider_cls`` so it can be used as a decorator. Re-registering a
+    name replaces the previous class for that name.
+    """
+    PROVIDERS[name] = provider_cls
+    for suffix in suffixes:
+        SUFFIX_FORMATS[suffix.lower()] = name
+    if sniff is not None:
+        _SNIFFERS.insert(0, (name, sniff))
+    return provider_cls
 
 
 def _record(path: str, entry: "typing.Optional[FileEntry]") -> dict:
@@ -277,14 +314,27 @@ class SqliteDb(DbProvider):
 
 
 # --------------------------------------------------------------------------
-# Selection
+# Built-in registration
 # --------------------------------------------------------------------------
 
-PROVIDERS: "typing.Dict[str, typing.Type[DbProvider]]" = {
-    "jsonl": JsonlDb,
-    "yaml": YamlDb,
-    "sqlite": SqliteDb,
-}
+register_provider(
+    "jsonl",
+    JsonlDb,
+    suffixes=(".jsonl", ".ndjson"),
+    sniff=lambda head: head.lstrip()[:1] == b"{",
+)
+register_provider("yaml", YamlDb, suffixes=(".yaml", ".yml"))
+register_provider(
+    "sqlite",
+    SqliteDb,
+    suffixes=(".db", ".sqlite", ".sqlite3"),
+    sniff=lambda head: head.startswith(_SQLITE_MAGIC),
+)
+
+
+# --------------------------------------------------------------------------
+# Selection
+# --------------------------------------------------------------------------
 
 
 def format_for_suffix(path: Path) -> str:
@@ -293,17 +343,28 @@ def format_for_suffix(path: Path) -> str:
 
 
 def sniff_format(path: Path) -> "typing.Optional[str]":
-    """Detect an existing file's format from its content, or ``None`` if unknown."""
+    """Detect an existing file's format from its content, or ``None`` if unknown.
+
+    Registered sniffers are tried newest-first; if none claims the file, the
+    built-in fallback treats a leading ``{`` as JSON Lines and any other
+    non-empty content as YAML.
+    """
     try:
         head = path.read_bytes()[:16]
     except OSError:
         return None
-    if head.startswith(_SQLITE_MAGIC):
-        return "sqlite"
+    for name, sniffer in _SNIFFERS:
+        try:
+            if sniffer(head):
+                return name
+        except Exception:  # pragma: no cover - a broken sniffer must not abort
+            continue
     stripped = head.lstrip()
     if not stripped:
         return None
-    return "jsonl" if stripped[:1] == b"{" else "yaml"
+    # Fallback: anything non-empty that no sniffer claimed is treated as YAML
+    # (the most permissive text format).
+    return "yaml"
 
 
 def open_db(

@@ -7,13 +7,16 @@ import json
 import pytest
 import yaml
 
+import buildutils.db as dbmod
 from buildutils.common import BuildUtils, FileType
 from buildutils.db import (
+    DbProvider,
     JsonlDb,
     SqliteDb,
     YamlDb,
     format_for_suffix,
     open_db,
+    register_provider,
     sniff_format,
 )
 
@@ -210,3 +213,100 @@ def test_buildutil_db_format_override(tmp_path):
     cmd.initdb()
     cmd.add_entry("/a", _entry())
     assert sniff_format(cmd.db) == "sqlite"
+
+
+# --------------------------------------------------------------------------
+# register_provider extension seam
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def restore_registries():
+    """Snapshot/restore the provider registries around a registration test."""
+    providers = dict(dbmod.PROVIDERS)
+    suffixes = dict(dbmod.SUFFIX_FORMATS)
+    sniffers = list(dbmod._SNIFFERS)
+    try:
+        yield
+    finally:
+        dbmod.PROVIDERS.clear()
+        dbmod.PROVIDERS.update(providers)
+        dbmod.SUFFIX_FORMATS.clear()
+        dbmod.SUFFIX_FORMATS.update(suffixes)
+        dbmod._SNIFFERS[:] = sniffers
+
+
+class _TsvDb(DbProvider):
+    """A toy tab-separated backend for the registration test."""
+
+    format = "tsv"
+    _MARK = "#buildutils-tsv\n"
+
+    def load(self):
+        if not self.path.exists():
+            return {}
+        db = {}
+        for line in self.path.read_text().splitlines():
+            if not line or line.startswith("#"):
+                continue
+            path, mode = line.split("\t")
+            db[path] = None if mode == "-" else {
+                "mode": mode, "owner": "-", "group": "-", "type": "file", "meta": {}
+            }
+        return db
+
+    def add(self, path, entry):
+        with self.path.open("a") as fh:
+            fh.write(f"{path}\t{entry['mode']}\n")
+
+    def remove(self, path):
+        with self.path.open("a") as fh:
+            fh.write(f"{path}\t-\n")
+
+    def compact(self):
+        db = self.load()
+        self.init()
+        for p, e in db.items():
+            if e is not None:
+                self.add(p, e)
+
+    def init(self):
+        self.path.write_text(self._MARK)
+
+
+def test_register_provider_selectable_by_name(restore_registries, tmp_path):
+    register_provider("tsv", _TsvDb, suffixes=(".tsv",))
+    p = open_db(tmp_path / "f.out", "tsv")
+    assert isinstance(p, _TsvDb)
+    p.init()
+    p.add("/a", _entry(mode="644"))
+    assert open_db(tmp_path / "f.out", "tsv").load()["/a"]["mode"] == "644"
+
+
+def test_register_provider_selectable_by_suffix(restore_registries, tmp_path):
+    register_provider("tsv", _TsvDb, suffixes=(".tsv",))
+    assert isinstance(open_db(tmp_path / "f.tsv"), _TsvDb)
+    assert format_for_suffix((tmp_path / "f.tsv")) == "tsv"
+
+
+def test_register_provider_sniffer_wins(restore_registries, tmp_path):
+    register_provider(
+        "tsv",
+        _TsvDb,
+        suffixes=(".tsv",),
+        sniff=lambda head: head.startswith(b"#buildutils-tsv"),
+    )
+    path = tmp_path / "noext"
+    open_db(path, "tsv").init()
+    # Content sniffed as tsv even though the suffix is unknown.
+    assert sniff_format(path) == "tsv"
+    assert open_db(path, for_read=True).format == "tsv"
+
+
+def test_register_provider_returns_class_for_decorator(restore_registries):
+    assert register_provider("tsv", _TsvDb) is _TsvDb
+
+
+def test_provider_registration_does_not_leak(tmp_path):
+    # After the restore fixture, "tsv" must be gone from the global registry.
+    assert "tsv" not in dbmod.PROVIDERS

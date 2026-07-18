@@ -8,6 +8,7 @@ root's subcommand tree.
 from __future__ import annotations
 
 from .common import BuildUtil, BuildUtils, FileEntry, FileEntryArgs, FileType
+from .db import DbProvider, open_db, register_provider
 from . import compact, dbdump, initdb, install, scan
 
 try:  # resolve the installed distribution version, if any
@@ -23,11 +24,14 @@ except ImportError:  # pragma: no cover - importlib.metadata always present on 3
 __all__ = [
     "BuildUtil",
     "BuildUtils",
+    "DbProvider",
     "FileEntry",
     "FileEntryArgs",
     "FileType",
     "__version__",
     "main",
+    "open_db",
+    "register_provider",
     "compact",
     "dbdump",
     "initdb",
