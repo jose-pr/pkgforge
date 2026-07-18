@@ -1,29 +1,39 @@
 # File DB & entries
 
-The file DB is an append-only **JSON Lines** log: one JSON object per line, each
-carrying a build-relative `path` plus the entry's fields (or
-`{"path": ..., "_removed": true}` to mark a removal). `initdb` truncates it, each
-`install`/`scan` appends a line, and on load the **last record for a path wins**.
+The file DB maps a build-relative **path → entry** (or a removal). It has three
+interchangeable storage **backends** — every command works the same regardless
+of which is used, because they all load to the same shape.
+
+## Backends
+
+| Format | Extensions | Model |
+| --- | --- | --- |
+| `jsonl` (default) | `.jsonl`, `.ndjson` | append-only JSON Lines, last record per path wins |
+| `yaml` | `.yaml`, `.yml` | append-only YAML documents, last mapping key wins |
+| `sqlite` | `.db`, `.sqlite`, `.sqlite3` | a real SQLite store, upserted in place |
+
+The backend is chosen from the `--db` file's **extension**; `--db-format`
+(or `BUILDUTILS_DB_FORMAT`) overrides it. When *reading* an existing file, its
+actual content is sniffed, so a legacy or mislabeled file still loads.
 
 ```jsonl
+# jsonl
 {"group": "root", "meta": {}, "mode": "755", "owner": "root", "path": "/usr/bin/tool", "type": "file"}
 {"group": "adm", "meta": {"rpmprefix": "%config(noreplace)"}, "mode": "640", "owner": "root", "path": "/etc/tool/config", "type": "file"}
 ```
 
-The append-log shape is fast to write and to parse (JSON, not YAML), and stays
-greppable — `grep '"/usr/bin/tool"' files.jsonl` finds every record for a path.
-
-!!! note "Legacy YAML DBs"
-    Databases written in the older single-document YAML format are still read
-    transparently (auto-detected on load) and are upgraded to JSON Lines in
-    place the next time an entry is written.
+The JSON Lines default is fast to write and parse and stays greppable —
+`grep '"/usr/bin/tool"' files.jsonl` finds every record for a path. SQLite suits
+very large DBs or when you want to query with SQL; YAML is the most
+human-editable.
 
 ## Compaction
 
-Because the DB is an append log, a path installed twice leaves two records (the
-later wins) and a removal leaves a tombstone. `BuildUtil.compactdb()` rewrites
-the file with one line per live path, dropping superseded records and removals.
-`initdb` starts a fresh, empty DB.
+The `jsonl` and `yaml` backends are append logs: a path installed twice leaves
+two records (the later wins) and a removal leaves a tombstone. The
+[`compact`](commands.md) command rewrites the log with one record per live path.
+The `sqlite` backend upserts in place, so it never accumulates history (compact
+just reclaims space). `initdb` starts a fresh, empty DB in any backend.
 
 ## Entry fields
 

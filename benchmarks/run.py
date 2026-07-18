@@ -27,8 +27,6 @@ import timeit
 from datetime import datetime, timezone
 from pathlib import Path
 
-import yaml
-
 import buildutils
 from buildutils.dbdump import _debian_artifacts, rpmspecfile
 
@@ -78,20 +76,6 @@ def measure():
     db = _make_db(DB_SIZE)
     entries = _entries_list(db)
 
-    # The two DB encodings, parsed the way loaddb() parses each.
-    jsonl_text = "".join(
-        json.dumps({"path": p, **e}, sort_keys=True) + "\n" for p, e in entries
-    )
-    yaml_text = yaml.safe_dump(db)
-
-    def _load_jsonl():
-        out = {}
-        for line in jsonl_text.splitlines():
-            if line.strip():
-                rec = json.loads(line)
-                out[rec.pop("path")] = rec
-        return out
-
     def _render_rpm():
         for path, entry in entries:
             rpmspecfile(path, entry)
@@ -99,13 +83,22 @@ def measure():
     def _render_debian():
         _debian_artifacts(entries)
 
-    metrics = {
-        # Current format vs the legacy YAML load, for comparison.
-        "db.load_jsonl": sample(_load_jsonl, LOAD_INNER),
-        "db.load_yaml_legacy": sample(lambda: yaml.safe_load(yaml_text), LOAD_INNER),
-        "dump.rpmspecfiles": sample(_render_rpm, RENDER_INNER),
-        "dump.debian": sample(_render_debian, RENDER_INNER),
-    }
+    metrics = {}
+
+    # Load time per storage backend, through the real provider load() path.
+    with tempfile.TemporaryDirectory() as td:
+        from buildutils.db import open_db
+
+        for fmt, ext in (("jsonl", "jsonl"), ("yaml", "yaml"), ("sqlite", "db")):
+            provider = open_db(Path(td) / f"bench.{ext}", fmt)
+            provider.init()
+            for path, entry in entries:
+                provider.add(path, entry)
+            reader = open_db(Path(td) / f"bench.{ext}", fmt)
+            metrics[f"db.load_{fmt}"] = sample(reader.load, LOAD_INNER)
+
+    metrics["dump.rpmspecfiles"] = sample(_render_rpm, RENDER_INNER)
+    metrics["dump.debian"] = sample(_render_debian, RENDER_INNER)
 
     # scan walk over a real tmp tree (filesystem-bound; fewer iterations).
     with tempfile.TemporaryDirectory() as td:

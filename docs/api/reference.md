@@ -21,6 +21,14 @@ and dump helpers are importable.
     options:
       show_root_heading: true
 
+## Storage backends
+
+::: buildutils.db.DbProvider
+    options:
+      show_root_heading: true
+
+::: buildutils.db.open_db
+
 ## Commands
 
 ::: buildutils.install.Install
@@ -28,6 +36,10 @@ and dump helpers are importable.
       show_root_heading: true
 
 ::: buildutils.scan.ScanCmd
+    options:
+      show_root_heading: true
+
+::: buildutils.compact.Compact
     options:
       show_root_heading: true
 

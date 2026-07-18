@@ -6,14 +6,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Pluggable file-DB backends** — the DB is now provider-agnostic with three
+  interchangeable implementations behind one interface: `jsonl` (append-only
+  JSON Lines, the default), `yaml` (append-only YAML), and `sqlite` (a real
+  SQLite store, upserted in place). Every command works identically across all
+  three. The backend is inferred from the `--db` file suffix
+  (`.jsonl`/`.ndjson`, `.yaml`/`.yml`, `.db`/`.sqlite`/`.sqlite3`); `--db-format`
+  / `BUILDUTILS_DB_FORMAT` overrides it, and reading auto-detects a file's actual
+  format so a legacy/mislabeled DB still loads.
+- **`compact` subcommand** — collapse an append-log DB (`jsonl`/`yaml`) to one
+  record per live path, dropping superseded records and removal tombstones.
+
 ### Changed
-- **File DB is now append-only JSON Lines** (one JSON object per line) instead of
-  a single YAML document. This is spec-clean (the old format relied on a YAML
-  parser tolerating duplicate mapping keys), parses much faster (JSON, not YAML),
-  and stays greppable. Legacy YAML DBs are still read transparently and upgraded
-  to JSON Lines in place on the next write. Added `BuildUtil.compactdb()` to
-  rewrite the log with one line per live path (dropping superseded/removed
-  records).
+- The file DB moved off the single-document-YAML format (which relied on a YAML
+  parser tolerating duplicate mapping keys) to the JSON Lines default: spec-clean
+  and much faster to parse.
 
 ### Fixed
 - DB path keys are recorded verbatim as logical build paths and no longer

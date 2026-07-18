@@ -6,8 +6,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 Stage files into a *build root* and record their intended install metadata
-(mode, owner, group, type, and free-form key/value `meta`) in an append-only
-JSON Lines *file DB*,
+(mode, owner, group, type, and free-form key/value `meta`) in a *file DB*
+(JSON Lines, YAML, or SQLite),
 then dump that DB into packaging manifests — an RPM `%files` list or Debian
 `install` + `permissions` files.
 
@@ -50,6 +50,7 @@ runnable end-to-end walkthrough.
 | `initdb` | create or reset (truncate) the file DB |
 | `install [opts] SRC… DEST` | stage a source and record its entry |
 | `scan [opts] PATH` | walk a path and record an entry per file (`--missing` fills gaps) |
+| `compact` | collapse an append-log DB to one record per live path |
 | `dbdump -f FORMAT [OUT]` | render the DB into a packaging manifest |
 
 Global options (also read from the environment):
@@ -57,9 +58,24 @@ Global options (also read from the environment):
 | Option | Env | Meaning |
 | --- | --- | --- |
 | `--db PATH` | `BUILDUTILS_DB` | file DB to read/write (`-` for stdout/stdin) |
+| `--db-format FMT` | `BUILDUTILS_DB_FORMAT` | backend: `jsonl` / `yaml` / `sqlite` (else from the `--db` suffix) |
 | `--buildroot DIR` | `BUILDROOT` | staging root that maps to `/` in the DB |
 
 Global flags work before or after the subcommand.
+
+## Storage backends
+
+The file DB has three interchangeable backends — every command behaves the same
+regardless of which is used:
+
+| Format | Extensions | Model |
+| --- | --- | --- |
+| `jsonl` (default) | `.jsonl`, `.ndjson` | append-only JSON Lines |
+| `yaml` | `.yaml`, `.yml` | append-only YAML |
+| `sqlite` | `.db`, `.sqlite`, `.sqlite3` | SQLite store, upserted in place |
+
+The backend is picked from the `--db` extension (override with `--db-format`);
+reading an existing file auto-detects its actual format.
 
 ## Dump formats
 

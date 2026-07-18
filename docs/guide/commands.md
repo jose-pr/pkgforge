@@ -9,6 +9,7 @@ Global options are read from the command line or the environment:
 | Option | Env | Meaning |
 | --- | --- | --- |
 | `--db PATH` | `BUILDUTILS_DB` | file DB to read/write (`-` for stdout/stdin) |
+| `--db-format FMT` | `BUILDUTILS_DB_FORMAT` | backend: `jsonl` / `yaml` / `sqlite` (else inferred from the `--db` suffix) |
 | `--buildroot DIR` | `BUILDROOT` | staging root that maps to `/` in the DB |
 
 Global flags work either before or after the subcommand
@@ -59,6 +60,17 @@ buildutils scan [--missing] [-X PATTERN] PATH
 `--missing` only fills in entries absent from the DB (leaving existing ones
 untouched); `-X/--exclude` skips matching paths. See
 [Exclude grammar](exclude.md).
+
+## `compact`
+
+Collapse an append-log DB (`jsonl`/`yaml`) to one record per live path,
+dropping superseded records and removal tombstones.
+
+```bash
+buildutils --db files.jsonl compact
+```
+
+A no-op for a `sqlite` DB (it upserts in place) or a stdout/unset DB.
 
 ## `dbdump`
 
