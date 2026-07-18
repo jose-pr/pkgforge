@@ -6,80 +6,42 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-07-18
+
+First release. pkgforge stages files into a build root, records their intended
+install metadata in a file DB, and renders that DB into RPM/Debian packaging
+manifests. Built on the [duho](https://pypi.org/project/duho/) declarative CLI
+framework; Python 3.9+, Linux runtime.
+
 ### Added
-- **Pluggable file-DB backends** — the DB is now provider-agnostic with three
-  interchangeable implementations behind one interface: `jsonl` (append-only
-  JSON Lines, the default), `yaml` (append-only YAML), and `sqlite` (a real
-  SQLite store, upserted in place). Every command works identically across all
-  three. The backend is inferred from the `--db` file suffix
+- **Commands**: `install` (stage a source and record its entry — files,
+  directories, symlinks, decompression, hardlinks, `--exclude`, `--chown`,
+  `--remove-source`), `scan` (walk a tree and record entries; `--missing` fills
+  gaps), `dbdump` (render the DB to a packaging manifest), `initdb`, and
+  `compact` (collapse an append-log DB to one record per live path).
+- **Dump formats**: `rpmspecfiles` (RPM `%files` lines with `%attr`/`%dir` and a
+  `meta.rpmprefix`) and `debian` (`install` + `permissions` artifacts). The
+  format registry supports multi-artifact formats.
+- **Pluggable file-DB backends** behind one `DbProvider` interface: `jsonl`
+  (append-only JSON Lines, the default), `yaml` (append-only YAML), and `sqlite`
+  (a real SQLite store, upserted in place). Every command behaves identically
+  across all three. The backend is inferred from the `--db` suffix
   (`.jsonl`/`.ndjson`, `.yaml`/`.yml`, `.db`/`.sqlite`/`.sqlite3`); `--db-format`
   / `PKGFORGE_DB_FORMAT` overrides it, and reading auto-detects a file's actual
-  format so a legacy/mislabeled DB still loads.
-- **`compact` subcommand** — collapse an append-log DB (`jsonl`/`yaml`) to one
-  record per live path, dropping superseded records and removal tombstones.
-- **`register_provider()` extension seam** — third-party packages can register
-  their own DB backend (a `DbProvider` subclass) with optional file suffixes and
-  a content sniffer, selectable via `--db-format`, suffix, or content detection.
-  The three built-in backends register themselves through the same API.
+  format. `register_provider()` lets a third-party package add its own backend;
   `DbProvider`, `open_db`, and `register_provider` are exported from the package.
-
-### Changed
-- The file DB moved off the single-document-YAML format (which relied on a YAML
-  parser tolerating duplicate mapping keys) to the JSON Lines default: spec-clean
-  and much faster to parse.
-
-### Fixed
-- DB path keys are recorded verbatim as logical build paths and no longer
-  round-tripped through `os.fspath`/`Path`, which flipped separators on Windows.
-
-### Added
-- **`debian` dump format** — emits `install` (dh_install-style path list) and
-  `permissions` (dpkg-statoverride-friendly `path mode owner group`) artifacts
-  from the file DB, alongside the existing `rpmspecfiles`.
-- Package now exposes `__version__` (resolved from installed metadata).
+- Environment-driven configuration for unattended builds (`PKGFORGE_ROOT`,
+  `PKGFORGE_DB`, `PKGFORGE_DB_FORMAT`), `--version`, and shell completion.
+- Tar-family archives extract via stdlib `tarfile` (safe `data` filter where
+  supported); `bsdtar` is only a fallback for other formats (e.g. `.iso`).
 - Documentation site (mkdocs-material) with a guide + API reference, a
-  `benchmarks/` runner, `examples/stage_and_package.sh`, and CI workflows
-  (`test.yml` + `release.yml`).
+  `benchmarks/` runner, an end-to-end example, and CI (`test.yml`/`release.yml`).
 
-### Changed
-- Directory/archive extraction now prefers stdlib `tarfile` for the tar family
-  (`.tar`, `.tar.gz`/`.tgz`, `.tar.bz2`, `.tar.xz`), using the safe `data`
-  extraction filter where the interpreter supports it. `bsdtar` remains the
-  fallback for stdin and formats `tarfile` can't open (e.g. `.iso`), so a
-  tar-based build no longer needs an external archiver.
-- The dbdump format registry now supports multi-artifact formats (a format may
-  render several files into an output directory), not just per-entry line dumps.
+### Notes
+- File-DB entries store `mode` as an octal permission string; two sentinels
+  (`-` = OS default, `--` = resolve from disk) defer a field to the staged file.
+- Hardlink install uses `os.link` for portability across Python 3.9–3.13
+  (`Path.link_to` was removed in 3.12; `Path.hardlink_to` only exists from 3.10).
 
-### Added (earlier in this cycle)
-- Packaged `src/` layout with a `pkgforge` console entry point and
-  `python -m pkgforge` support.
-- `--chown` flag on `install` to apply the recorded owner/group (off by
-  default, so unprivileged builds are unaffected).
-- `--version` and shell completion (`--print-completion`) on the root command.
-
-### Changed
-- Mode is stored in the file DB as an octal permission string (e.g. `644`)
-  instead of a raw `st_mode` integer, so the DB round-trips and dumps are
-  correct.
-- The CLI now builds on the `duho` declarative CLI framework.
-
-### Fixed
-- Hard-link install path used `Path.link_to`, removed in Python 3.12 (and
-  `Path.hardlink_to` only exists from 3.10); now uses `os.link`, which works on
-  every supported Python.
-- Inverted exclude tests (`(?!type:...)`) never inverted (a helper dropped its
-  `return`); they now work.
-- `install` forced `DEBUG` logging on every run, overriding `--loglevel`/`-q`.
-- `install`'s relative-destination guard used `Path.absolute()` (always truthy)
-  and never triggered; it now checks `is_absolute()`.
-- `dbdump` no longer closes the shared stdout fd when writing to `-`.
-- `scan` crashed (`TypeError`) when run without `--buildroot`/`PKGFORGE_ROOT`: the
-  buildroot default was the string `"."`, and `str / str` is unsupported. The
-  default is now `Path(".")`.
-- `--remove-source` on a directory source raised `IsADirectoryError`; it now
-  uses `shutil.rmtree` for directories.
-
-### Removed
-- Dead `--expand-file` option (declared but never used).
-
-[Unreleased]: https://github.com/jose-pr/pkgforge/commits/main
+[Unreleased]: https://github.com/jose-pr/pkgforge/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/jose-pr/pkgforge/releases/tag/v0.1.0
