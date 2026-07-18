@@ -76,8 +76,21 @@ def sample(fn, inner, repeat=REPEAT):
 
 def measure():
     db = _make_db(DB_SIZE)
-    db_text = yaml.safe_dump(db)
     entries = _entries_list(db)
+
+    # The two DB encodings, parsed the way loaddb() parses each.
+    jsonl_text = "".join(
+        json.dumps({"path": p, **e}, sort_keys=True) + "\n" for p, e in entries
+    )
+    yaml_text = yaml.safe_dump(db)
+
+    def _load_jsonl():
+        out = {}
+        for line in jsonl_text.splitlines():
+            if line.strip():
+                rec = json.loads(line)
+                out[rec.pop("path")] = rec
+        return out
 
     def _render_rpm():
         for path, entry in entries:
@@ -87,7 +100,9 @@ def measure():
         _debian_artifacts(entries)
 
     metrics = {
-        "db.load_yaml": sample(lambda: yaml.safe_load(db_text), LOAD_INNER),
+        # Current format vs the legacy YAML load, for comparison.
+        "db.load_jsonl": sample(_load_jsonl, LOAD_INNER),
+        "db.load_yaml_legacy": sample(lambda: yaml.safe_load(yaml_text), LOAD_INNER),
         "dump.rpmspecfiles": sample(_render_rpm, RENDER_INNER),
         "dump.debian": sample(_render_debian, RENDER_INNER),
     }

@@ -6,7 +6,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 Stage files into a *build root* and record their intended install metadata
-(mode, owner, group, type, and free-form key/value `meta`) in a YAML *file DB*,
+(mode, owner, group, type, and free-form key/value `meta`) in an append-only
+JSON Lines *file DB*,
 then dump that DB into packaging manifests — an RPM `%files` list or Debian
 `install` + `permissions` files.
 
@@ -29,7 +30,7 @@ external archiver needed; `bsdtar` is only a fallback for other formats (e.g.
 ## Quick start
 
 ```sh
-export BUILDROOT=/tmp/stage BUILDUTILS_DB=/tmp/files.yaml
+export BUILDROOT=/tmp/stage BUILDUTILS_DB=/tmp/files.jsonl
 
 buildutils initdb
 buildutils install -p -m 755 -o root -g root ./build/tool /usr/bin

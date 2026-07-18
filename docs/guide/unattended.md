@@ -6,7 +6,7 @@ and every command picks them up:
 
 ```bash
 export BUILDROOT=/tmp/stage
-export BUILDUTILS_DB="$BUILDROOT.files.yaml"
+export BUILDUTILS_DB="$BUILDROOT.files.jsonl"
 ```
 
 A typical staging sequence in a build script:

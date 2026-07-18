@@ -6,6 +6,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **File DB is now append-only JSON Lines** (one JSON object per line) instead of
+  a single YAML document. This is spec-clean (the old format relied on a YAML
+  parser tolerating duplicate mapping keys), parses much faster (JSON, not YAML),
+  and stays greppable. Legacy YAML DBs are still read transparently and upgraded
+  to JSON Lines in place on the next write. Added `BuildUtil.compactdb()` to
+  rewrite the log with one line per live path (dropping superseded/removed
+  records).
+
+### Fixed
+- DB path keys are recorded verbatim as logical build paths and no longer
+  round-tripped through `os.fspath`/`Path`, which flipped separators on Windows.
+
 ### Added
 - **`debian` dump format** — emits `install` (dh_install-style path list) and
   `permissions` (dpkg-statoverride-friendly `path mode owner group`) artifacts

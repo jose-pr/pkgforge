@@ -1,24 +1,29 @@
 # File DB & entries
 
-The file DB is a YAML mapping of **build-relative path → entry** (or `null` to
-mark a removal). It is append-only: `initdb` truncates it, each `install`/`scan`
-appends, and on load the last write for a path wins.
+The file DB is an append-only **JSON Lines** log: one JSON object per line, each
+carrying a build-relative `path` plus the entry's fields (or
+`{"path": ..., "_removed": true}` to mark a removal). `initdb` truncates it, each
+`install`/`scan` appends a line, and on load the **last record for a path wins**.
 
-```yaml
-/usr/bin/tool:
-  mode: "755"
-  owner: root
-  group: root
-  type: file
-  meta: {}
-/etc/tool/config:
-  mode: "640"
-  owner: root
-  group: adm
-  type: file
-  meta:
-    rpmprefix: "%config(noreplace)"
+```jsonl
+{"group": "root", "meta": {}, "mode": "755", "owner": "root", "path": "/usr/bin/tool", "type": "file"}
+{"group": "adm", "meta": {"rpmprefix": "%config(noreplace)"}, "mode": "640", "owner": "root", "path": "/etc/tool/config", "type": "file"}
 ```
+
+The append-log shape is fast to write and to parse (JSON, not YAML), and stays
+greppable — `grep '"/usr/bin/tool"' files.jsonl` finds every record for a path.
+
+!!! note "Legacy YAML DBs"
+    Databases written in the older single-document YAML format are still read
+    transparently (auto-detected on load) and are upgraded to JSON Lines in
+    place the next time an entry is written.
+
+## Compaction
+
+Because the DB is an append log, a path installed twice leaves two records (the
+later wins) and a removal leaves a tombstone. `BuildUtil.compactdb()` rewrites
+the file with one line per live path, dropping superseded records and removals.
+`initdb` starts a fresh, empty DB.
 
 ## Entry fields
 

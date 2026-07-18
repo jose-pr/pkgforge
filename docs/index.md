@@ -32,7 +32,7 @@ symlinks, and hardlinks); the CLI and `--help` import cleanly on any platform.
 ## At a glance
 
 ```bash
-export BUILDROOT=/tmp/stage BUILDUTILS_DB=/tmp/files.yaml
+export BUILDROOT=/tmp/stage BUILDUTILS_DB=/tmp/files.jsonl
 
 buildutils initdb
 buildutils install -p -m 644 -o root -g root ./app.conf /etc

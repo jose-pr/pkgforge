@@ -19,7 +19,7 @@ Global flags work either before or after the subcommand
 Create or reset (truncate) an empty file DB.
 
 ```bash
-buildutils --db files.yaml initdb
+buildutils --db files.jsonl initdb
 ```
 
 ## `install`
