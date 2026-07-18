@@ -27,6 +27,8 @@ and dump helpers are importable.
     options:
       show_root_heading: true
 
+::: buildutils.db.register_provider
+
 ::: buildutils.db.open_db
 
 ## Commands

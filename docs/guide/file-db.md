@@ -35,6 +35,36 @@ two records (the later wins) and a removal leaves a tombstone. The
 The `sqlite` backend upserts in place, so it never accumulates history (compact
 just reclaims space). `initdb` starts a fresh, empty DB in any backend.
 
+## Adding a backend
+
+Backends are pluggable. A third-party package can register its own by
+subclassing `DbProvider` and calling `register_provider` at import time — core
+buildutils never needs to know about it:
+
+```python
+import buildutils
+
+class TomlDb(buildutils.DbProvider):
+    format = "toml"
+    def load(self): ...
+    def add(self, path, entry): ...
+    def remove(self, path): ...
+    def compact(self): ...
+    def init(self): ...
+
+buildutils.register_provider(
+    "toml",
+    TomlDb,
+    suffixes=(".toml",),                       # infer from a --db suffix
+    sniff=lambda head: head.startswith(b"#toml"),  # or from file content
+)
+```
+
+Once registered, the format is selectable with `--db-format toml`, by a `.toml`
+`--db` suffix, or by content sniffing on read. A `DbProvider` is constructed as
+`provider_cls(path)` and must implement `load`/`add`/`remove`/`compact`/`init`;
+`load()` returns `{path: entry-or-None}` like the built-ins.
+
 ## Entry fields
 
 | Field | Meaning |

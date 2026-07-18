@@ -17,6 +17,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   format so a legacy/mislabeled DB still loads.
 - **`compact` subcommand** — collapse an append-log DB (`jsonl`/`yaml`) to one
   record per live path, dropping superseded records and removal tombstones.
+- **`register_provider()` extension seam** — third-party packages can register
+  their own DB backend (a `DbProvider` subclass) with optional file suffixes and
+  a content sniffer, selectable via `--db-format`, suffix, or content detection.
+  The three built-in backends register themselves through the same API.
+  `DbProvider`, `open_db`, and `register_provider` are exported from the package.
 
 ### Changed
 - The file DB moved off the single-document-YAML format (which relied on a YAML
