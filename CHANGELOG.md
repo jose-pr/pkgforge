@@ -29,5 +29,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `install`'s relative-destination guard used `Path.absolute()` (always truthy)
   and never triggered; it now checks `is_absolute()`.
 - `dbdump` no longer closes the shared stdout fd when writing to `-`.
+- `scan` crashed (`TypeError`) when run without `--buildroot`/`BUILDROOT`: the
+  buildroot default was the string `"."`, and `str / str` is unsupported. The
+  default is now `Path(".")`.
+- `--remove-source` on a directory source raised `IsADirectoryError`; it now
+  uses `shutil.rmtree` for directories.
+
+### Removed
+- Dead `--expand-file` option (declared but never used).
 
 [Unreleased]: https://github.com/jose-pr/buildutils/commits/main
