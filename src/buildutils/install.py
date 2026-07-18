@@ -11,6 +11,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import typing
 from pathlib import Path
 
@@ -28,6 +29,48 @@ from .common import (
 from .exclude import PathMatch, PathMatchStmt
 
 DECOMPRESS_CMDS = {"gz": "gunzip", "xz": "unxz", "bz2": "bunzip2"}
+
+#: Archive suffixes handled by stdlib :mod:`tarfile` (tar family + compression).
+#: Anything else (e.g. ``.iso``) falls back to ``bsdtar``.
+TAR_SUFFIXES = (
+    ".tar",
+    ".tar.gz",
+    ".tgz",
+    ".tar.bz2",
+    ".tbz2",
+    ".tbz",
+    ".tar.xz",
+    ".txz",
+)
+
+#: True when this interpreter's ``tarfile`` supports the ``filter=`` extraction
+#: argument (PEP 706, added in 3.12; backported to 3.9.17+). Passing ``filter=``
+#: on an interpreter without it raises ``TypeError``, so we only opt in when safe.
+_TARFILE_HAS_FILTER = hasattr(tarfile, "data_filter")
+
+
+def _is_tar_source(src: "Path | str") -> bool:
+    """True if ``src`` is a tar-family archive stdlib :mod:`tarfile` can extract."""
+    name = os.fspath(src).lower()
+    return name.endswith(TAR_SUFFIXES)
+
+
+def _extract_tar(fileobj_or_name, dst: Path) -> None:
+    """Extract a tar-family archive into ``dst`` using stdlib :mod:`tarfile`.
+
+    Uses the safe ``data`` extraction filter where the interpreter supports it
+    (guards against absolute paths / traversal / special files); older
+    interpreters without ``filter=`` extract without it.
+    """
+    kwargs = {}
+    if isinstance(fileobj_or_name, (str, os.PathLike)):
+        opener = tarfile.open(name=os.fspath(fileobj_or_name), mode="r:*")
+    else:
+        opener = tarfile.open(fileobj=fileobj_or_name, mode="r|*")
+    with opener as tar:
+        if _TARFILE_HAS_FILTER:
+            kwargs["filter"] = "data"
+        tar.extractall(os.fspath(dst), **kwargs)
 
 
 class Install(FileEntryArgs, BuildUtil):
@@ -143,18 +186,27 @@ class Install(FileEntryArgs, BuildUtil):
             if not src:
                 ...
             elif src == DEFAULT or not src.is_dir():
-                subprocess.run(
-                    [
-                        "bsdtar",
-                        "-x",
-                        "-C",
-                        os.fspath(dst),
-                        "-f",
-                        os.fspath(src) if src != DEFAULT else "-",
-                    ],
-                    stdin=sys.stdin.fileno() if src == DEFAULT else None,
-                    check=True,
-                )
+                # Extract an archive source. Prefer stdlib tarfile for the tar
+                # family (no external binary, cross-platform, safe `data`
+                # filter); fall back to bsdtar for stdin and formats tarfile
+                # can't open (e.g. iso).
+                if src != DEFAULT and _is_tar_source(src):
+                    self._logger_.debug("Extracting %s via tarfile", src)
+                    _extract_tar(src, dst)
+                else:
+                    self._logger_.debug("Extracting %s via bsdtar", src)
+                    subprocess.run(
+                        [
+                            "bsdtar",
+                            "-x",
+                            "-C",
+                            os.fspath(dst),
+                            "-f",
+                            os.fspath(src) if src != DEFAULT else "-",
+                        ],
+                        stdin=sys.stdin.fileno() if src == DEFAULT else None,
+                        check=True,
+                    )
             elif src.is_dir():
                 shutil.copystat(src, dst, follow_symlinks=False)
                 if self.exclude:
