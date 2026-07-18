@@ -8,11 +8,11 @@ from pathlib import Path
 
 import duho
 
-from .common import BuildUtil, FileEntry, FileEntryArgs
+from .common import PkgForgeCmd, FileEntry, FileEntryArgs
 from .exclude import PathMatch, PathMatchStmt
 
 
-class ScanCmd(FileEntryArgs, BuildUtil):
+class ScanCmd(FileEntryArgs, PkgForgeCmd):
     """Scan a path under the build root and record each file's entry in the DB."""
 
     _parsername_ = "scan"

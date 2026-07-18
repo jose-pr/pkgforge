@@ -8,7 +8,7 @@ import tarfile
 import pytest
 import yaml
 
-from buildutils.dbdump import (
+from pkgforge.dbdump import (
     MULTI_ARTIFACT_FORMATS,
     PER_ENTRY_FORMATS,
     DbDump,
@@ -16,7 +16,7 @@ from buildutils.dbdump import (
     dump_formats,
     rpmspecfile,
 )
-from buildutils.install import _extract_tar, _is_tar_source
+from pkgforge.install import _extract_tar, _is_tar_source
 
 POSIX = pytest.mark.skipif(os.name != "posix", reason="requires POSIX facilities")
 

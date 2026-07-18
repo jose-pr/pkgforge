@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from .common import BuildUtil
+from .common import PkgForgeCmd
 
 
-class InitDb(BuildUtil):
+class InitDb(PkgForgeCmd):
     """Create or reset (truncate) the file DB."""
 
     _parsername_ = "initdb"

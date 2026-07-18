@@ -1,16 +1,16 @@
 # Install
 
 ```bash
-pip install buildutils
+pip install pkgforge
 ```
 
-buildutils requires **Python 3.9+**. Its only runtime dependencies are
+pkgforge requires **Python 3.9+**. Its only runtime dependencies are
 [duho](https://pypi.org/project/duho/) (the CLI framework) and
 [PyYAML](https://pypi.org/project/pyyaml/) (the file DB format).
 
 ## Platform support
 
-buildutils is a **Linux** tool: the `install`, `scan`, and metadata-apply paths
+pkgforge is a **Linux** tool: the `install`, `scan`, and metadata-apply paths
 use POSIX facilities — `os.chmod`, `os.chown`, symlinks, and hardlinks with
 `follow_symlinks=False`. The CLI itself (parsing, `--help`, the dump formats)
 imports and runs on any platform, so you can develop and unit-test on Windows or
@@ -24,8 +24,8 @@ tar-based build needs no external archiver installed.
 ## From source
 
 ```bash
-git clone https://github.com/jose-pr/buildutils
-cd buildutils
+git clone https://github.com/jose-pr/pkgforge
+cd pkgforge
 python -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev]"
 pytest -q
@@ -33,10 +33,10 @@ pytest -q
 
 ## Invocation
 
-buildutils installs a `buildutils` console script and is also runnable as a
+pkgforge installs a `pkgforge` console script and is also runnable as a
 module:
 
 ```bash
-buildutils --help
-python -m buildutils --help
+pkgforge --help
+python -m pkgforge --help
 ```

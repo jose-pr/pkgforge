@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Structured benchmark runner for buildutils.
+"""Structured benchmark runner for pkgforge.
 
 Produces a comparable JSON result plus a human summary. Save a run to the
 history with --save; results land in benchmarks/results/<name>.json where
-<name> defaults to buildutils-<version>-py<major><minor>.
+<name> defaults to pkgforge-<version>-py<major><minor>.
 
     python benchmarks/run.py            # print summary only
     python benchmarks/run.py --save     # also write benchmarks/results/<name>.json
@@ -12,7 +12,7 @@ history with --save; results land in benchmarks/results/<name>.json where
 Each metric is sampled `repeat` times (each sample is `inner` iterations) and
 reported as min/median/max ms-per-call, so run-to-run timing noise is visible
 rather than averaged away. Counts are fixed so numbers stay comparable across
-runs and commits. Requires buildutils importable (PYTHONPATH=src, or installed).
+runs and commits. Requires pkgforge importable (PYTHONPATH=src, or installed).
 """
 
 from __future__ import annotations
@@ -27,8 +27,8 @@ import timeit
 from datetime import datetime, timezone
 from pathlib import Path
 
-import buildutils
-from buildutils.dbdump import _debian_artifacts, rpmspecfile
+import pkgforge
+from pkgforge.dbdump import _debian_artifacts, rpmspecfile
 
 # Per-metric inner iteration counts, sized so each metric runs in ~1s regardless
 # of how expensive one call is (YAML load of a 1000-entry DB is ~100x a render).
@@ -87,7 +87,7 @@ def measure():
 
     # Load time per storage backend, through the real provider load() path.
     with tempfile.TemporaryDirectory() as td:
-        from buildutils.db import open_db
+        from pkgforge.db import open_db
 
         for fmt, ext in (("jsonl", "jsonl"), ("yaml", "yaml"), ("sqlite", "db")):
             provider = open_db(Path(td) / f"bench.{ext}", fmt)
@@ -119,18 +119,18 @@ def measure():
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Run buildutils benchmarks")
+    ap = argparse.ArgumentParser(description="Run pkgforge benchmarks")
     ap.add_argument("--save", action="store_true", help="write result to benchmarks/results/")
-    ap.add_argument("--name", default=None, help="result name (default buildutils-<ver>-py<ver>)")
+    ap.add_argument("--name", default=None, help="result name (default pkgforge-<ver>-py<ver>)")
     args = ap.parse_args(argv)
 
-    version = getattr(buildutils, "__version__", "0")
+    version = getattr(pkgforge, "__version__", "0")
     pyver = f"py{sys.version_info.major}{sys.version_info.minor}"
-    name = args.name or f"buildutils-{version}-{pyver}"
+    name = args.name or f"pkgforge-{version}-{pyver}"
     metrics = measure()
     result = {
         "name": name,
-        "buildutils_version": version,
+        "pkgforge_version": version,
         "python": platform.python_version(),
         "platform": platform.platform(),
         "processor": platform.processor() or platform.machine(),
@@ -146,7 +146,7 @@ def main(argv=None):
         "metrics": metrics,
     }
 
-    print("=== buildutils Benchmark ===")
+    print("=== pkgforge Benchmark ===")
     print(f"{name}  ({result['python']} on {result['processor']})")
     print(f"{'metric':20s} {'median':>10s} {'min':>10s} {'max':>10s}   (ms/call)")
     for key, m in metrics.items():

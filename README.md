@@ -1,8 +1,8 @@
-# buildutils
+# pkgforge
 
-[![CI](https://github.com/jose-pr/buildutils/actions/workflows/test.yml/badge.svg)](https://github.com/jose-pr/buildutils/actions/workflows/test.yml)
-[![Docs](https://img.shields.io/badge/docs-mkdocs--material-blue)](https://jose-pr.github.io/buildutils/)
-[![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://pypi.org/project/buildutils/)
+[![CI](https://github.com/jose-pr/pkgforge/actions/workflows/test.yml/badge.svg)](https://github.com/jose-pr/pkgforge/actions/workflows/test.yml)
+[![Docs](https://img.shields.io/badge/docs-mkdocs--material-blue)](https://jose-pr.github.io/pkgforge/)
+[![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://pypi.org/project/pkgforge/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 Stage files into a *build root* and record their intended install metadata
@@ -11,14 +11,14 @@ Stage files into a *build root* and record their intended install metadata
 then dump that DB into packaging manifests — an RPM `%files` list or Debian
 `install` + `permissions` files.
 
-`buildutils` is a small, dependency-light helper for unattended build pipelines
+`pkgforge` is a small, dependency-light helper for unattended build pipelines
 on Linux: install a source into place, remember how it should be owned and
 permissioned, and emit that record for the packager.
 
 ## Install
 
 ```sh
-pip install buildutils
+pip install pkgforge
 ```
 
 Requires Python 3.9+. Runtime operations use POSIX facilities (`chmod`, `chown`,
@@ -30,14 +30,14 @@ external archiver needed; `bsdtar` is only a fallback for other formats (e.g.
 ## Quick start
 
 ```sh
-export BUILDROOT=/tmp/stage BUILDUTILS_DB=/tmp/files.jsonl
+export PKGFORGE_ROOT=/tmp/stage PKGFORGE_DB=/tmp/files.jsonl
 
-buildutils initdb
-buildutils install -p -m 755 -o root -g root ./build/tool /usr/bin
-buildutils install -p -m 640 -o root -g adm  ./tool.conf  /etc
-buildutils scan --missing /usr
-buildutils dbdump -f rpmspecfiles rpm-files.txt
-buildutils dbdump -f debian debian/
+pkgforge initdb
+pkgforge install -p -m 755 -o root -g root ./build/tool /usr/bin
+pkgforge install -p -m 640 -o root -g adm  ./tool.conf  /etc
+pkgforge scan --missing /usr
+pkgforge dbdump -f rpmspecfiles rpm-files.txt
+pkgforge dbdump -f debian debian/
 ```
 
 See [`examples/stage_and_package.sh`](examples/stage_and_package.sh) for a
@@ -57,9 +57,9 @@ Global options (also read from the environment):
 
 | Option | Env | Meaning |
 | --- | --- | --- |
-| `--db PATH` | `BUILDUTILS_DB` | file DB to read/write (`-` for stdout/stdin) |
-| `--db-format FMT` | `BUILDUTILS_DB_FORMAT` | backend: `jsonl` / `yaml` / `sqlite` (else from the `--db` suffix) |
-| `--buildroot DIR` | `BUILDROOT` | staging root that maps to `/` in the DB |
+| `--db PATH` | `PKGFORGE_DB` | file DB to read/write (`-` for stdout/stdin) |
+| `--db-format FMT` | `PKGFORGE_DB_FORMAT` | backend: `jsonl` / `yaml` / `sqlite` (else from the `--db` suffix) |
+| `--buildroot DIR` | `PKGFORGE_ROOT` | staging root that maps to `/` in the DB |
 
 Global flags work before or after the subcommand.
 
@@ -115,13 +115,13 @@ name with `!` (`(?!type:file)`) to invert just that test.
 
 ## Documentation
 
-Full docs at **<https://jose-pr.github.io/buildutils/>** — command reference,
+Full docs at **<https://jose-pr.github.io/pkgforge/>** — command reference,
 file-DB model, exclude grammar, dump formats, and the API reference.
 
 ## Development
 
 ```sh
-git clone https://github.com/jose-pr/buildutils && cd buildutils
+git clone https://github.com/jose-pr/pkgforge && cd pkgforge
 python -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev,docs]"
 

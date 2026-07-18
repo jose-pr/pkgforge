@@ -1,62 +1,62 @@
 # API Reference
 
-Generated from docstrings. buildutils is primarily a CLI, but its core types
+Generated from docstrings. pkgforge is primarily a CLI, but its core types
 and dump helpers are importable.
 
 ## Core types
 
-::: buildutils.common.FileType
+::: pkgforge.common.FileType
     options:
       show_root_heading: true
 
-::: buildutils.common.FileEntry
+::: pkgforge.common.FileEntry
     options:
       show_root_heading: true
 
-::: buildutils.common.FileEntryArgs
+::: pkgforge.common.FileEntryArgs
     options:
       show_root_heading: true
 
-::: buildutils.common.BuildUtil
+::: pkgforge.common.PkgForgeCmd
     options:
       show_root_heading: true
 
 ## Storage backends
 
-::: buildutils.db.DbProvider
+::: pkgforge.db.DbProvider
     options:
       show_root_heading: true
 
-::: buildutils.db.register_provider
+::: pkgforge.db.register_provider
 
-::: buildutils.db.open_db
+::: pkgforge.db.open_db
 
 ## Commands
 
-::: buildutils.install.Install
+::: pkgforge.install.Install
     options:
       show_root_heading: true
 
-::: buildutils.scan.ScanCmd
+::: pkgforge.scan.ScanCmd
     options:
       show_root_heading: true
 
-::: buildutils.compact.Compact
+::: pkgforge.compact.Compact
     options:
       show_root_heading: true
 
-::: buildutils.dbdump.DbDump
+::: pkgforge.dbdump.DbDump
     options:
       show_root_heading: true
 
 ## Dump formats
 
-::: buildutils.dbdump.rpmspecfile
+::: pkgforge.dbdump.rpmspecfile
 
-::: buildutils.dbdump.dump_formats
+::: pkgforge.dbdump.dump_formats
 
 ## Extraction helpers
 
-::: buildutils.install._is_tar_source
+::: pkgforge.install._is_tar_source
 
-::: buildutils.install._extract_tar
+::: pkgforge.install._extract_tar

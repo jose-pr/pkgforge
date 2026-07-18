@@ -1,6 +1,6 @@
 # Dump formats
 
-`buildutils dbdump -f FORMAT [OUTPUT]` renders the file DB into a packaging
+`pkgforge dbdump -f FORMAT [OUTPUT]` renders the file DB into a packaging
 manifest. `null` (removed) entries and `--exclude` matches are skipped.
 
 | Format | Shape | Output |
@@ -22,8 +22,8 @@ Directories get a `%dir` prefix; an entry's `meta.rpmprefix` (e.g.
 `%config(noreplace)`) is prepended.
 
 ```bash
-buildutils dbdump -f rpmspecfiles files.txt
-buildutils dbdump -f rpmspecfiles -          # to stdout
+pkgforge dbdump -f rpmspecfiles files.txt
+pkgforge dbdump -f rpmspecfiles -          # to stdout
 ```
 
 ## `debian`
@@ -49,8 +49,8 @@ Writes two artifacts into an output directory (created if needed):
     ```
 
 ```bash
-buildutils dbdump -f debian debian/          # writes debian/install + debian/permissions
-buildutils dbdump -f debian -                # both to stdout under "# === <name> ===" headers
+pkgforge dbdump -f debian debian/          # writes debian/install + debian/permissions
+pkgforge dbdump -f debian -                # both to stdout under "# === <name> ===" headers
 ```
 
 !!! note

@@ -13,7 +13,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   SQLite store, upserted in place). Every command works identically across all
   three. The backend is inferred from the `--db` file suffix
   (`.jsonl`/`.ndjson`, `.yaml`/`.yml`, `.db`/`.sqlite`/`.sqlite3`); `--db-format`
-  / `BUILDUTILS_DB_FORMAT` overrides it, and reading auto-detects a file's actual
+  / `PKGFORGE_DB_FORMAT` overrides it, and reading auto-detects a file's actual
   format so a legacy/mislabeled DB still loads.
 - **`compact` subcommand** — collapse an append-log DB (`jsonl`/`yaml`) to one
   record per live path, dropping superseded records and removal tombstones.
@@ -51,8 +51,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   render several files into an output directory), not just per-entry line dumps.
 
 ### Added (earlier in this cycle)
-- Packaged `src/` layout with a `buildutils` console entry point and
-  `python -m buildutils` support.
+- Packaged `src/` layout with a `pkgforge` console entry point and
+  `python -m pkgforge` support.
 - `--chown` flag on `install` to apply the recorded owner/group (off by
   default, so unprivileged builds are unaffected).
 - `--version` and shell completion (`--print-completion`) on the root command.
@@ -73,7 +73,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `install`'s relative-destination guard used `Path.absolute()` (always truthy)
   and never triggered; it now checks `is_absolute()`.
 - `dbdump` no longer closes the shared stdout fd when writing to `-`.
-- `scan` crashed (`TypeError`) when run without `--buildroot`/`BUILDROOT`: the
+- `scan` crashed (`TypeError`) when run without `--buildroot`/`PKGFORGE_ROOT`: the
   buildroot default was the string `"."`, and `str / str` is unsupported. The
   default is now `Path(".")`.
 - `--remove-source` on a directory source raised `IsADirectoryError`; it now
@@ -82,4 +82,4 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Removed
 - Dead `--expand-file` option (declared but never used).
 
-[Unreleased]: https://github.com/jose-pr/buildutils/commits/main
+[Unreleased]: https://github.com/jose-pr/pkgforge/commits/main

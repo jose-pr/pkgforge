@@ -20,7 +20,7 @@ from pathlib import Path
 
 import duho
 
-from .common import BuildUtil, FileEntry
+from .common import PkgForgeCmd, FileEntry
 from .exclude import PathMatch, PathMatchStmt
 
 #: An entry that survived filtering: (db-path, FileEntry).
@@ -103,7 +103,7 @@ def dump_formats() -> "typing.List[str]":
     return sorted([*PER_ENTRY_FORMATS, *MULTI_ARTIFACT_FORMATS])
 
 
-class DbDump(BuildUtil):
+class DbDump(PkgForgeCmd):
     """Dump the file DB into a packaging manifest (rpm or debian)."""
 
     _parsername_ = "dbdump"

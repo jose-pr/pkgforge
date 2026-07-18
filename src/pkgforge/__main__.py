@@ -1,4 +1,4 @@
-"""``python -m buildutils`` entry point."""
+"""``python -m pkgforge`` entry point."""
 
 import sys
 

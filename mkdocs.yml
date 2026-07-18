@@ -1,8 +1,8 @@
-site_name: buildutils
+site_name: pkgforge
 site_description: Stage files into a build root and record their install metadata for packaging.
-site_url: https://jose-pr.github.io/buildutils/
-repo_url: https://github.com/jose-pr/buildutils
-repo_name: jose-pr/buildutils
+site_url: https://jose-pr.github.io/pkgforge/
+repo_url: https://github.com/jose-pr/pkgforge
+repo_name: jose-pr/pkgforge
 edit_uri: edit/main/docs/
 
 # Constrain the scan to docs/ so strict nav doesn't trip on repo-level markdown.

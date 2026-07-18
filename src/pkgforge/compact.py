@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from .common import BuildUtil
+from .common import PkgForgeCmd
 
 
-class Compact(BuildUtil):
+class Compact(PkgForgeCmd):
     """Collapse the DB to one record per live path (drop superseded/removed)."""
 
     _parsername_ = "compact"

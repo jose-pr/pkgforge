@@ -13,7 +13,7 @@ of which is used, because they all load to the same shape.
 | `sqlite` | `.db`, `.sqlite`, `.sqlite3` | a real SQLite store, upserted in place |
 
 The backend is chosen from the `--db` file's **extension**; `--db-format`
-(or `BUILDUTILS_DB_FORMAT`) overrides it. When *reading* an existing file, its
+(or `PKGFORGE_DB_FORMAT`) overrides it. When *reading* an existing file, its
 actual content is sniffed, so a legacy or mislabeled file still loads.
 
 ```jsonl
@@ -39,12 +39,12 @@ just reclaims space). `initdb` starts a fresh, empty DB in any backend.
 
 Backends are pluggable. A third-party package can register its own by
 subclassing `DbProvider` and calling `register_provider` at import time — core
-buildutils never needs to know about it:
+pkgforge never needs to know about it:
 
 ```python
-import buildutils
+import pkgforge
 
-class TomlDb(buildutils.DbProvider):
+class TomlDb(pkgforge.DbProvider):
     format = "toml"
     def load(self): ...
     def add(self, path, entry): ...
@@ -52,7 +52,7 @@ class TomlDb(buildutils.DbProvider):
     def compact(self): ...
     def init(self): ...
 
-buildutils.register_provider(
+pkgforge.register_provider(
     "toml",
     TomlDb,
     suffixes=(".toml",),                       # infer from a --db suffix

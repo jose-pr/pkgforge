@@ -1,26 +1,26 @@
 # Commands
 
 ```
-buildutils [--db DB] [--buildroot DIR] <command> ...
+pkgforge [--db DB] [--buildroot DIR] <command> ...
 ```
 
 Global options are read from the command line or the environment:
 
 | Option | Env | Meaning |
 | --- | --- | --- |
-| `--db PATH` | `BUILDUTILS_DB` | file DB to read/write (`-` for stdout/stdin) |
-| `--db-format FMT` | `BUILDUTILS_DB_FORMAT` | backend: `jsonl` / `yaml` / `sqlite` (else inferred from the `--db` suffix) |
-| `--buildroot DIR` | `BUILDROOT` | staging root that maps to `/` in the DB |
+| `--db PATH` | `PKGFORGE_DB` | file DB to read/write (`-` for stdout/stdin) |
+| `--db-format FMT` | `PKGFORGE_DB_FORMAT` | backend: `jsonl` / `yaml` / `sqlite` (else inferred from the `--db` suffix) |
+| `--buildroot DIR` | `PKGFORGE_ROOT` | staging root that maps to `/` in the DB |
 
 Global flags work either before or after the subcommand
-(`buildutils --db X install …` or `buildutils install --db X …`).
+(`pkgforge --db X install …` or `pkgforge install --db X …`).
 
 ## `initdb`
 
 Create or reset (truncate) an empty file DB.
 
 ```bash
-buildutils --db files.jsonl initdb
+pkgforge --db files.jsonl initdb
 ```
 
 ## `install`
@@ -28,7 +28,7 @@ buildutils --db files.jsonl initdb
 Stage a source into the build root and record its entry.
 
 ```bash
-buildutils install [options] SOURCE... DESTINATION
+pkgforge install [options] SOURCE... DESTINATION
 ```
 
 | Option | Meaning |
@@ -54,7 +54,7 @@ stdlib `tarfile`; other archive types fall back to `bsdtar`.
 Walk a path under the build root and record a `FileEntry` for each file.
 
 ```bash
-buildutils scan [--missing] [-X PATTERN] PATH
+pkgforge scan [--missing] [-X PATTERN] PATH
 ```
 
 `--missing` only fills in entries absent from the DB (leaving existing ones
@@ -67,7 +67,7 @@ Collapse an append-log DB (`jsonl`/`yaml`) to one record per live path,
 dropping superseded records and removal tombstones.
 
 ```bash
-buildutils --db files.jsonl compact
+pkgforge --db files.jsonl compact
 ```
 
 A no-op for a `sqlite` DB (it upserts in place) or a stdout/unset DB.
@@ -77,5 +77,5 @@ A no-op for a `sqlite` DB (it upserts in place) or a stdout/unset DB.
 Render the file DB into a packaging manifest. See [Dump formats](formats.md).
 
 ```bash
-buildutils dbdump -f FORMAT [-X PATTERN] [OUTPUT]
+pkgforge dbdump -f FORMAT [-X PATTERN] [OUTPUT]
 ```

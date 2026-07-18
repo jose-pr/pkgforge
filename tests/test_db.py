@@ -7,9 +7,9 @@ import json
 import pytest
 import yaml
 
-import buildutils.db as dbmod
-from buildutils.common import BuildUtils, FileType
-from buildutils.db import (
+import pkgforge.db as dbmod
+from pkgforge.common import PkgForge, FileType
+from pkgforge.db import (
     DbProvider,
     JsonlDb,
     SqliteDb,
@@ -182,12 +182,12 @@ def test_yaml_reads_legacy_written_db(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# BuildUtil delegation
+# PkgForgeCmd delegation
 # --------------------------------------------------------------------------
 
 
 def _cmd(tmp_path, name):
-    inst = BuildUtils.__new__(BuildUtils)
+    inst = PkgForge.__new__(PkgForge)
     inst.db = tmp_path / name
     inst.db_format = None
     inst.buildroot = tmp_path
@@ -240,7 +240,7 @@ class _TsvDb(DbProvider):
     """A toy tab-separated backend for the registration test."""
 
     format = "tsv"
-    _MARK = "#buildutils-tsv\n"
+    _MARK = "#pkgforge-tsv\n"
 
     def load(self):
         if not self.path.exists():
@@ -294,7 +294,7 @@ def test_register_provider_sniffer_wins(restore_registries, tmp_path):
         "tsv",
         _TsvDb,
         suffixes=(".tsv",),
-        sniff=lambda head: head.startswith(b"#buildutils-tsv"),
+        sniff=lambda head: head.startswith(b"#pkgforge-tsv"),
     )
     path = tmp_path / "noext"
     open_db(path, "tsv").init()

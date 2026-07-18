@@ -1,9 +1,9 @@
-"""Core types shared across buildutils commands.
+"""Core types shared across pkgforge commands.
 
 Defines the on-disk *file DB* record (:class:`FileEntry`) and its metadata
 (mode / owner / group / type / free-form ``meta``), the CLI argument mixin that
 supplies those fields (:class:`FileEntryArgs`), and the common command base
-(:class:`BuildUtil`) that every subcommand extends.
+(:class:`PkgForgeCmd`) that every subcommand extends.
 
 The file DB is an append-only **JSON Lines** log: one JSON object per line,
 each carrying a build-relative ``path`` plus the entry's fields (or
@@ -26,7 +26,7 @@ import os
 import typing
 from pathlib import Path
 
-try:  # Unix-only; buildutils targets Linux, but keep parsing/--help importable elsewhere.
+try:  # Unix-only; pkgforge targets Linux, but keep parsing/--help importable elsewhere.
     import grp
     import pwd
 except ImportError:  # pragma: no cover - non-Unix
@@ -35,8 +35,8 @@ except ImportError:  # pragma: no cover - non-Unix
 import duho
 from duho import Cli, Cmd, LoggingArgs
 
-buildroot = os.environ.get("BUILDROOT")
-filedb = os.environ.get("BUILDUTILS_DB")
+buildroot = os.environ.get("PKGFORGE_ROOT")
+filedb = os.environ.get("PKGFORGE_DB")
 
 #: Sentinel meaning "resolve this field from the file on disk".
 AUTO = "--"
@@ -184,18 +184,18 @@ class FileEntry(typing.TypedDict):
             os.chown(path, owner, group, follow_symlinks=False)
 
 
-class BuildUtil(LoggingArgs, Cmd):
-    """Common base for every buildutils subcommand.
+class PkgForgeCmd(LoggingArgs, Cmd):
+    """Common base for every pkgforge subcommand.
 
     Carries the two app-wide options (``--db`` and ``--buildroot``), the file-DB
     read/write helpers, and the build-root <-> local-path translation. Each leaf
     command subclasses this and implements ``__call__``; a leaf attaches itself
-    to the :class:`BuildUtils` root's subcommand tree via :meth:`_register`.
+    to the :class:`PkgForge` root's subcommand tree via :meth:`_register`.
     """
 
     db: "typing.Optional[Path]" = Path(filedb) if filedb else None
     ("--db",)
-    db_format: "typing.Optional[str]" = os.environ.get("BUILDUTILS_DB_FORMAT")
+    db_format: "typing.Optional[str]" = os.environ.get("PKGFORGE_DB_FORMAT")
     ("--db-format",)
     buildroot: "typing.Union[Path, str]" = Path(buildroot) if buildroot else Path(".")
     ("--buildroot", "-r")
@@ -258,23 +258,23 @@ class BuildUtil(LoggingArgs, Cmd):
 
     @classmethod
     def _register(cls):
-        BuildUtils._register_subcmd_(cls)
+        PkgForge._register_subcmd_(cls)
 
 
-class BuildUtils(BuildUtil, Cli):
-    """The buildutils application root (the ``buildutils`` command).
+class PkgForge(PkgForgeCmd, Cli):
+    """The pkgforge application root (the ``pkgforge`` command).
 
     Stages files into a build root and records their intended install
     metadata (mode / owner / group / type) in a YAML file DB, which can then
     be dumped into packaging manifests (e.g. an RPM file list).
 
-    Extends :class:`BuildUtil` (for the shared ``--db``/``--buildroot`` options
+    Extends :class:`PkgForgeCmd` (for the shared ``--db``/``--buildroot`` options
     and the DB helpers) and :class:`~duho.Cli` (for the app-root layer:
     ``--version``, completion, and the subcommand tree).
     """
 
     _version_ = duho.AUTO
-    _distribution_ = "buildutils"
+    _distribution_ = "pkgforge"
     _completion_ = True
 
     def __call__(self):

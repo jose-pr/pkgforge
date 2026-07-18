@@ -1,4 +1,4 @@
-"""Tests for buildutils.
+"""Tests for pkgforge.
 
 Cross-platform tests cover the DB record format, the exclude/match grammar, DB
 read/write, and dbdump rendering. Tests that need POSIX facilities (chmod via
@@ -12,9 +12,9 @@ import os
 import pytest
 import yaml
 
-import buildutils
-from buildutils.common import AUTO, DEFAULT, BuildUtils, FileEntry, FileType, mode_to_octal
-from buildutils.exclude import PathMatch, PathMatchStmt
+import pkgforge
+from pkgforge.common import AUTO, DEFAULT, PkgForge, FileEntry, FileType, mode_to_octal
+from pkgforge.exclude import PathMatch, PathMatchStmt
 
 POSIX = pytest.mark.skipif(os.name != "posix", reason="requires POSIX facilities")
 
@@ -25,12 +25,12 @@ POSIX = pytest.mark.skipif(os.name != "posix", reason="requires POSIX facilities
 
 
 def test_all_commands_registered():
-    names = {c._parsername_ for c in BuildUtils._subcommands_}
+    names = {c._parsername_ for c in PkgForge._subcommands_}
     assert names == {"install", "scan", "dbdump", "initdb", "compact"}
 
 
 def test_root_parser_builds_and_help_renders():
-    parser = BuildUtils._parser_()
+    parser = PkgForge._parser_()
     text = parser.format_help()
     for name in ("install", "scan", "dbdump", "initdb"):
         assert name in text
@@ -40,7 +40,7 @@ def test_root_parser_builds_and_help_renders():
 def test_subcommand_parser_builds(name):
     # Building the whole tree exercises each subcommand's _parser_ (incl.
     # install's -D/-d override).
-    parser = BuildUtils._parser_()
+    parser = PkgForge._parser_()
     assert parser is not None
 
 
@@ -120,7 +120,7 @@ def test_apply_sets_mode(tmp_path):
 def test_scan_default_buildroot_does_not_crash(tmp_path, monkeypatch):
     # Regression: buildroot default must be Path("."), not the str ".", or
     # scan.py's `self.buildroot / path` is str/str -> TypeError.
-    from buildutils.scan import ScanCmd
+    from pkgforge.scan import ScanCmd
 
     monkeypatch.chdir(tmp_path)
     (tmp_path / "sub").mkdir()
@@ -140,7 +140,7 @@ def test_scan_default_buildroot_does_not_crash(tmp_path, monkeypatch):
 @POSIX
 def test_install_remove_source_directory(tmp_path):
     # Regression: --remove-source on a directory must rmtree, not unlink.
-    from buildutils.install import Install
+    from pkgforge.install import Install
 
     root = tmp_path / "root"
     root.mkdir()
@@ -170,7 +170,7 @@ def test_install_remove_source_directory(tmp_path):
 
 @POSIX
 def test_install_file_hardlinks_and_records(tmp_path):
-    from buildutils.install import Install
+    from pkgforge.install import Install
 
     root = tmp_path / "root"
     root.mkdir()
@@ -211,7 +211,7 @@ def test_install_file_hardlinks_and_records(tmp_path):
 
 
 def _cmd(tmp_path, **over):
-    inst = BuildUtils.__new__(BuildUtils)
+    inst = PkgForge.__new__(PkgForge)
     inst.db = tmp_path / "files.yaml"
     inst.buildroot = tmp_path
     for k, v in over.items():
@@ -252,12 +252,12 @@ def test_loaddb_missing_returns_empty(tmp_path):
 
 
 def test_compact_command(tmp_path):
-    from buildutils.compact import Compact
+    from pkgforge.compact import Compact
 
     db = tmp_path / "files.jsonl"
     parser = Compact._parser_()
     # Populate an append log with a superseded entry and a removal.
-    seed = BuildUtils.__new__(BuildUtils)
+    seed = PkgForge.__new__(PkgForge)
     seed.db = db
     seed.db_format = None
     seed.buildroot = tmp_path
@@ -343,7 +343,7 @@ def test_empty_matcher_matches_all():
 
 
 def test_rpmspecfile_render():
-    from buildutils.dbdump import rpmspecfile
+    from pkgforge.dbdump import rpmspecfile
 
     line = rpmspecfile(
         "/usr/bin/x",
@@ -353,7 +353,7 @@ def test_rpmspecfile_render():
 
 
 def test_rpmspecfile_dir_prefix():
-    from buildutils.dbdump import rpmspecfile
+    from pkgforge.dbdump import rpmspecfile
 
     line = rpmspecfile(
         "/etc/app",
@@ -363,7 +363,7 @@ def test_rpmspecfile_dir_prefix():
 
 
 def test_rpmspecfile_rpmprefix_meta():
-    from buildutils.dbdump import rpmspecfile
+    from pkgforge.dbdump import rpmspecfile
 
     line = rpmspecfile(
         "/etc/app.conf",
@@ -379,7 +379,7 @@ def test_rpmspecfile_rpmprefix_meta():
 
 
 def test_dbdump_writes_manifest(tmp_path, capsysbinary):
-    from buildutils.dbdump import DbDump
+    from pkgforge.dbdump import DbDump
 
     db = tmp_path / "files.yaml"
     db.write_text(

@@ -1,14 +1,14 @@
 """Provider-agnostic file DB backends.
 
-A file DB maps a build-relative *path* to a :class:`~buildutils.common.FileEntry`
-(or ``None`` for a removed path). buildutils supports three interchangeable
+A file DB maps a build-relative *path* to a :class:`~pkgforge.common.FileEntry`
+(or ``None`` for a removed path). pkgforge supports three interchangeable
 storage backends behind one :class:`DbProvider` interface:
 
 * :class:`JsonlDb` -- append-only JSON Lines (one JSON object per line);
 * :class:`YamlDb`  -- append-only YAML (concatenated single-key documents);
 * :class:`SqliteDb` -- a real SQLite store (upsert in place, no log to compact).
 
-All three return the **same** ``load()`` shape, so the rest of buildutils is
+All three return the **same** ``load()`` shape, so the rest of pkgforge is
 backend-agnostic. Pick a backend with :func:`open_db`: by the ``--db`` file
 suffix, an explicit ``--db-format``, or -- when reading an existing file --
 by sniffing its actual content (so a legacy/mislabeled file still loads).
@@ -62,7 +62,7 @@ def register_provider(
     """Register a file-DB backend so :func:`open_db` can select it.
 
     This is the extension seam that keeps third-party backends OUT of core
-    buildutils: an external package calls ``register_provider`` at import time
+    pkgforge: an external package calls ``register_provider`` at import time
     and its format becomes usable via ``--db-format <name>``, a matching file
     suffix, or content sniffing.
 

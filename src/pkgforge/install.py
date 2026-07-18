@@ -20,7 +20,7 @@ import duho
 from .common import (
     AUTO,
     DEFAULT,
-    BuildUtil,
+    PkgForgeCmd,
     FileEntry,
     FileEntryArgs,
     FileType,
@@ -73,7 +73,7 @@ def _extract_tar(fileobj_or_name, dst: Path) -> None:
         tar.extractall(os.fspath(dst), **kwargs)
 
 
-class Install(FileEntryArgs, BuildUtil):
+class Install(FileEntryArgs, PkgForgeCmd):
     """Install a source into the build root and record its file entry."""
 
     _parsername_ = "install"

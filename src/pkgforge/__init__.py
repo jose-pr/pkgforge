@@ -1,13 +1,13 @@
-"""buildutils: stage files into a build root and record their install metadata.
+"""pkgforge: stage files into a build root and record their install metadata.
 
 Import order matters: importing the leaf command modules runs their
-``_register()`` calls, which attach each command to the :class:`BuildUtils`
+``_register()`` calls, which attach each command to the :class:`PkgForge`
 root's subcommand tree.
 """
 
 from __future__ import annotations
 
-from .common import BuildUtil, BuildUtils, FileEntry, FileEntryArgs, FileType
+from .common import PkgForgeCmd, PkgForge, FileEntry, FileEntryArgs, FileType
 from .db import DbProvider, open_db, register_provider
 from . import compact, dbdump, initdb, install, scan
 
@@ -15,15 +15,15 @@ try:  # resolve the installed distribution version, if any
     from importlib.metadata import PackageNotFoundError, version as _version
 
     try:
-        __version__ = _version("buildutils")
+        __version__ = _version("pkgforge")
     except PackageNotFoundError:  # not installed (running from a source checkout)
         __version__ = "0.0.0"
 except ImportError:  # pragma: no cover - importlib.metadata always present on 3.9+
     __version__ = "0.0.0"
 
 __all__ = [
-    "BuildUtil",
-    "BuildUtils",
+    "PkgForgeCmd",
+    "PkgForge",
     "DbProvider",
     "FileEntry",
     "FileEntryArgs",
@@ -44,4 +44,4 @@ def main(argv=None) -> int:
     """Console entry point: build the parser, dispatch the selected command."""
     import duho
 
-    return duho.main(BuildUtils, argv)
+    return duho.main(PkgForge, argv)

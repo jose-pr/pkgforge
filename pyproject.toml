@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "buildutils"
+name = "pkgforge"
 version = "0.1.0"
 authors = [{ name = "jose-pr" }]
 description = "Stage files into a build root and record their install metadata for packaging"
@@ -30,12 +30,12 @@ dev = ["build", "twine", "hatchling", "pytest"]
 docs = ["mkdocs", "mkdocs-material", "mkdocstrings[python]"]
 
 [project.scripts]
-buildutils = "buildutils:main"
+pkgforge = "pkgforge:main"
 
 [project.urls]
-Homepage = "https://github.com/jose-pr/buildutils/"
-Documentation = "https://jose-pr.github.io/buildutils/"
-Issues = "https://github.com/jose-pr/buildutils/issues"
+Homepage = "https://github.com/jose-pr/pkgforge/"
+Documentation = "https://jose-pr.github.io/pkgforge/"
+Issues = "https://github.com/jose-pr/pkgforge/issues"
 
 [tool.hatch.build.targets.sdist]
 exclude = ["/.*"]
