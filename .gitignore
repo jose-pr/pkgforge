@@ -2,6 +2,9 @@
 dist/
 build/
 
+# Docs site build output
+site/
+
 # Agent/harness tooling
 AGENTS.md
 .agents/
