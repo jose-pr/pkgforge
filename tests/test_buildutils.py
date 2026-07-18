@@ -117,6 +117,56 @@ def test_apply_sets_mode(tmp_path):
 # --------------------------------------------------------------------------
 
 
+def test_scan_default_buildroot_does_not_crash(tmp_path, monkeypatch):
+    # Regression: buildroot default must be Path("."), not the str ".", or
+    # scan.py's `self.buildroot / path` is str/str -> TypeError.
+    from buildutils.scan import ScanCmd
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "f").write_text("x")
+    db = tmp_path / "files.yaml"
+
+    # Drive through the parser with NO --buildroot (default applies).
+    parser = ScanCmd._parser_()
+    inst = parser.parse_args(["--db", str(db), "sub"])
+    inst()  # must not raise (the regression: str "." / str -> TypeError)
+    recorded = yaml.safe_load(db.read_text()) or {}
+    # Key form uses os separators; assert the file was recorded by basename.
+    assert any(os.path.basename(k.replace("\\", "/")) == "f" for k in recorded)
+
+
+@POSIX
+def test_install_remove_source_directory(tmp_path):
+    # Regression: --remove-source on a directory must rmtree, not unlink.
+    from buildutils.install import Install
+
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.yaml"
+    srcdir = tmp_path / "tree"
+    (srcdir / "sub").mkdir(parents=True)
+    (srcdir / "sub" / "a").write_text("x")
+
+    parser = Install._parser_()
+    inst = parser.parse_args(
+        [
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-d",
+            "--remove-source",
+            str(srcdir),
+            "/opt/tree",
+        ]
+    )
+    inst()
+    assert not srcdir.exists()  # directory source removed
+    assert (root / "opt" / "tree" / "tree" / "sub" / "a").exists()
+
+
 @POSIX
 def test_install_file_hardlinks_and_records(tmp_path):
     from buildutils.install import Install

@@ -192,7 +192,7 @@ class BuildUtil(LoggingArgs, Cmd):
 
     db: "typing.Optional[Path]" = Path(filedb) if filedb else None
     ("--db",)
-    buildroot: "typing.Union[Path, str]" = Path(buildroot) if buildroot else "."
+    buildroot: "typing.Union[Path, str]" = Path(buildroot) if buildroot else Path(".")
     ("--buildroot", "-r")
 
     def localpath(self, buildpath: Path) -> Path:

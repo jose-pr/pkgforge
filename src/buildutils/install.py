@@ -46,11 +46,6 @@ class Install(FileEntryArgs, BuildUtil):
         duho.NS(type=PathMatchStmt.parse, action="append"),
     ] = []
     ("--exclude", "-X")
-    expand_files: duho.Arg[
-        typing.List[PathMatchStmt],
-        duho.NS(type=PathMatchStmt.parse, action="append"),
-    ] = []
-    ("--expand-file",)
     parents: bool
     ("--parents", "-p")
     no_target_directory: bool
@@ -241,7 +236,11 @@ class Install(FileEntryArgs, BuildUtil):
         self.install(self.source, dest)
 
         if self.remove_source and self.source not in [DEFAULT, None]:
-            self.source.unlink()
+            # A directory source needs rmtree; unlink only removes files/symlinks.
+            if self.source.is_dir() and not self.source.is_symlink():
+                shutil.rmtree(self.source)
+            else:
+                self.source.unlink()
 
         fileentry = FileEntry.from_args(self)
         fileentry = FileEntry.resolve_for(fileentry, dest)
