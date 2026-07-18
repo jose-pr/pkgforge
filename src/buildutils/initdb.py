@@ -14,8 +14,7 @@ class InitDb(BuildUtil):
         if self.db is None or str(self.db) == "-":
             return
         self.db.parent.mkdir(parents=True, exist_ok=True)
-        # Truncate to an empty DB.
-        self.db.write_text("")
+        self.initdb()  # provider-specific empty DB (truncate file / reset table)
         self._logger_.info("Initialized empty DB at %s", self.db)
 
 

@@ -1,19 +1,23 @@
-"""Tests for the JSON Lines file DB format (and legacy-YAML read fallback)."""
+"""Tests for the provider-agnostic file DB (jsonl / yaml / sqlite)."""
 
 from __future__ import annotations
 
 import json
 
+import pytest
 import yaml
 
 from buildutils.common import BuildUtils, FileType
+from buildutils.db import (
+    JsonlDb,
+    SqliteDb,
+    YamlDb,
+    format_for_suffix,
+    open_db,
+    sniff_format,
+)
 
-
-def _cmd(tmp_path, name="files.jsonl"):
-    inst = BuildUtils.__new__(BuildUtils)
-    inst.db = tmp_path / name
-    inst.buildroot = tmp_path
-    return inst
+ALL_FORMATS = ["jsonl", "yaml", "sqlite"]
 
 
 def _entry(mode="644", type="file", **over):
@@ -23,105 +27,186 @@ def _entry(mode="644", type="file", **over):
 
 
 # --------------------------------------------------------------------------
-# write shape
+# provider parity: every backend behaves identically through load()
 # --------------------------------------------------------------------------
 
 
-def test_write_is_one_json_line_per_entry(tmp_path):
-    cmd = _cmd(tmp_path)
-    cmd.add_entry("/usr/bin/a", _entry())
-    cmd.add_entry("/usr/bin/b", _entry(mode="755"))
-    lines = cmd.db.read_text().splitlines()
-    assert len(lines) == 2
-    rec = json.loads(lines[0])
-    assert rec["path"] == "/usr/bin/a"
-    assert rec["mode"] == "644"
+@pytest.fixture(params=ALL_FORMATS)
+def provider(request, tmp_path):
+    path = tmp_path / f"files.{request.param}"
+    p = open_db(path, request.param)
+    p.init()
+    return p
 
 
-def test_filetype_enum_coerced_to_str_on_write(tmp_path):
-    cmd = _cmd(tmp_path)
-    # A fresh entry may carry the FileType enum (not yet round-tripped).
-    cmd.add_entry("/d", _entry(type=FileType.Directory))
-    rec = json.loads(cmd.db.read_text().splitlines()[0])
-    assert rec["type"] == "directory"
+def _reload(provider):
+    # A fresh provider instance, as a separate CLI invocation would use.
+    return open_db(provider.path, provider.format, for_read=True).load()
 
 
-# --------------------------------------------------------------------------
-# read: last-wins + removal
-# --------------------------------------------------------------------------
+def test_roundtrip(provider):
+    provider.add("/usr/bin/x", _entry(mode="755"))
+    assert _reload(provider)["/usr/bin/x"]["mode"] == "755"
 
 
-def test_last_write_wins(tmp_path):
-    cmd = _cmd(tmp_path)
-    cmd.add_entry("/x", _entry(mode="644"))
-    cmd.add_entry("/x", _entry(mode="600"))
-    db = cmd.loaddb()
-    assert db["/x"]["mode"] == "600"
+def test_last_write_wins(provider):
+    provider.add("/x", _entry(mode="644"))
+    provider.add("/x", _entry(mode="600"))
+    assert _reload(provider)["/x"]["mode"] == "600"
 
 
-def test_removal_marks_none(tmp_path):
-    cmd = _cmd(tmp_path)
-    cmd.add_entry("/x", _entry())
-    cmd.remove_entry("/x")
-    assert cmd.loaddb()["/x"] is None
+def test_removal_marks_none(provider):
+    provider.add("/x", _entry())
+    provider.remove("/x")
+    assert _reload(provider)["/x"] is None
+
+
+def test_meta_preserved(provider):
+    provider.add("/x", _entry(meta={"rpmprefix": "%config"}))
+    assert _reload(provider)["/x"]["meta"] == {"rpmprefix": "%config"}
+
+
+def test_filetype_enum_stored_as_str(provider):
+    provider.add("/d", _entry(type=FileType.Directory))
+    assert _reload(provider)["/d"]["type"] == "directory"
+
+
+def test_compact_drops_removed(provider):
+    provider.add("/keep", _entry())
+    provider.add("/gone", _entry())
+    provider.remove("/gone")
+    provider.compact()
+    db = _reload(provider)
+    assert "/keep" in db
+    assert "/gone" not in db
 
 
 def test_load_missing_is_empty(tmp_path):
-    assert _cmd(tmp_path).loaddb() == {}
+    for fmt in ALL_FORMATS:
+        assert open_db(tmp_path / f"nope.{fmt}", fmt).load() == {}
 
 
 # --------------------------------------------------------------------------
-# legacy YAML read fallback
+# selection: suffix, override, content sniff
 # --------------------------------------------------------------------------
 
 
-def test_reads_legacy_yaml_db(tmp_path):
-    # A DB written in the old single-document YAML format still loads.
-    cmd = _cmd(tmp_path, name="legacy.yaml")
-    cmd.db.write_text(
-        yaml.safe_dump(
-            {
-                "/usr/bin/x": _entry(mode="755"),
-                "/gone": None,
-            }
-        )
-    )
-    db = cmd.loaddb()
+def test_format_for_suffix():
+    from pathlib import Path
+
+    assert format_for_suffix(Path("f.jsonl")) == "jsonl"
+    assert format_for_suffix(Path("f.ndjson")) == "jsonl"
+    assert format_for_suffix(Path("f.yaml")) == "yaml"
+    assert format_for_suffix(Path("f.yml")) == "yaml"
+    assert format_for_suffix(Path("f.db")) == "sqlite"
+    assert format_for_suffix(Path("f.sqlite3")) == "sqlite"
+    assert format_for_suffix(Path("f.unknown")) == "jsonl"  # default
+
+
+def test_open_db_by_suffix(tmp_path):
+    assert isinstance(open_db(tmp_path / "a.jsonl"), JsonlDb)
+    assert isinstance(open_db(tmp_path / "a.yaml"), YamlDb)
+    assert isinstance(open_db(tmp_path / "a.db"), SqliteDb)
+
+
+def test_explicit_format_overrides_suffix(tmp_path):
+    # A .yaml suffix but forced sqlite.
+    assert isinstance(open_db(tmp_path / "a.yaml", "sqlite"), SqliteDb)
+
+
+def test_sniff_detects_content_over_suffix(tmp_path):
+    # Write YAML content into a suffix-less file; a read auto-detects it as yaml.
+    path = tmp_path / "noext"
+    open_db(path, "yaml").add("/a", _entry())
+    assert sniff_format(path) == "yaml"
+    assert open_db(path, for_read=True).format == "yaml"
+
+
+def test_sniff_detects_sqlite(tmp_path):
+    path = tmp_path / "store"  # no .db suffix
+    open_db(path, "sqlite").init()
+    assert sniff_format(path) == "sqlite"
+    assert open_db(path, for_read=True).format == "sqlite"
+
+
+def test_sniff_detects_jsonl(tmp_path):
+    path = tmp_path / "log"
+    open_db(path, "jsonl").add("/a", _entry())
+    assert sniff_format(path) == "jsonl"
+
+
+def test_unknown_format_raises(tmp_path):
+    with pytest.raises(ValueError):
+        open_db(tmp_path / "x", "toml")
+
+
+# --------------------------------------------------------------------------
+# backend specifics
+# --------------------------------------------------------------------------
+
+
+def test_jsonl_is_one_line_per_record(tmp_path):
+    p = open_db(tmp_path / "f.jsonl")
+    p.add("/a", _entry())
+    p.add("/b", _entry(mode="755"))
+    lines = [l for l in p.path.read_text().splitlines() if l.strip()]
+    assert len(lines) == 2
+    assert json.loads(lines[0])["path"] == "/a"
+
+
+def test_sqlite_upserts_in_place_no_duplicate_rows(tmp_path):
+    import sqlite3
+
+    p = open_db(tmp_path / "f.db")
+    p.init()
+    p.add("/x", _entry(mode="644"))
+    p.add("/x", _entry(mode="600"))
+    conn = sqlite3.connect(str(p.path))
+    try:
+        (count,) = conn.execute("SELECT COUNT(*) FROM entries").fetchone()
+    finally:
+        conn.close()
+    assert count == 1  # upserted, not appended
+
+
+def test_yaml_reads_legacy_written_db(tmp_path):
+    # A hand-written legacy YAML mapping still loads via the yaml provider.
+    path = tmp_path / "legacy.yaml"
+    path.write_text(yaml.safe_dump({"/usr/bin/x": _entry(mode="755"), "/gone": None}))
+    db = open_db(path, for_read=True).load()
     assert db["/usr/bin/x"]["mode"] == "755"
     assert db["/gone"] is None
 
 
-def test_append_upgrades_legacy_yaml_to_jsonl(tmp_path):
-    cmd = _cmd(tmp_path, name="legacy.yaml")
-    cmd.db.write_text(yaml.safe_dump({"/old": _entry(mode="600")}))
-    # Appending must rewrite the file as JSON Lines, preserving the old entry.
-    cmd.add_entry("/new", _entry(mode="644"))
-    text = cmd.db.read_text()
-    # Now valid JSON Lines: every non-blank line parses as a JSON object.
-    for line in text.splitlines():
-        if line.strip():
-            json.loads(line)
-    db = cmd.loaddb()
-    assert db["/old"]["mode"] == "600"
-    assert db["/new"]["mode"] == "644"
-
-
 # --------------------------------------------------------------------------
-# compaction
+# BuildUtil delegation
 # --------------------------------------------------------------------------
 
 
-def test_compact_drops_superseded_and_removed(tmp_path):
-    cmd = _cmd(tmp_path)
-    cmd.add_entry("/x", _entry(mode="644"))
-    cmd.add_entry("/x", _entry(mode="600"))  # supersedes
-    cmd.add_entry("/y", _entry())
-    cmd.remove_entry("/y")  # removed
-    assert len(cmd.db.read_text().splitlines()) == 4  # log has all 4 records
+def _cmd(tmp_path, name):
+    inst = BuildUtils.__new__(BuildUtils)
+    inst.db = tmp_path / name
+    inst.db_format = None
+    inst.buildroot = tmp_path
+    return inst
 
-    cmd.compactdb()
-    lines = [l for l in cmd.db.read_text().splitlines() if l.strip()]
-    assert len(lines) == 1  # only live /x remains
+
+@pytest.mark.parametrize("ext", ["jsonl", "yaml", "db"])
+def test_buildutil_delegates_to_provider(tmp_path, ext):
+    cmd = _cmd(tmp_path, f"files.{ext}")
+    cmd.initdb()
+    cmd.add_entry("/usr/bin/x", _entry(mode="755"))
+    cmd.add_entry("/usr/bin/x", _entry(mode="700"))
+    cmd.remove_entry("/tmp/y")
     db = cmd.loaddb()
-    assert db["/x"]["mode"] == "600"
-    assert "/y" not in db
+    assert db["/usr/bin/x"]["mode"] == "700"
+    assert db["/tmp/y"] is None
+
+
+def test_buildutil_db_format_override(tmp_path):
+    # Suffix says yaml, --db-format forces sqlite.
+    cmd = _cmd(tmp_path, "files.yaml")
+    cmd.db_format = "sqlite"
+    cmd.initdb()
+    cmd.add_entry("/a", _entry())
+    assert sniff_format(cmd.db) == "sqlite"

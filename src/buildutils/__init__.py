@@ -8,7 +8,7 @@ root's subcommand tree.
 from __future__ import annotations
 
 from .common import BuildUtil, BuildUtils, FileEntry, FileEntryArgs, FileType
-from . import dbdump, initdb, install, scan
+from . import compact, dbdump, initdb, install, scan
 
 try:  # resolve the installed distribution version, if any
     from importlib.metadata import PackageNotFoundError, version as _version
@@ -28,6 +28,7 @@ __all__ = [
     "FileType",
     "__version__",
     "main",
+    "compact",
     "dbdump",
     "initdb",
     "install",

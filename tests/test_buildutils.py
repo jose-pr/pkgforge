@@ -26,7 +26,7 @@ POSIX = pytest.mark.skipif(os.name != "posix", reason="requires POSIX facilities
 
 def test_all_commands_registered():
     names = {c._parsername_ for c in BuildUtils._subcommands_}
-    assert names == {"install", "scan", "dbdump", "initdb"}
+    assert names == {"install", "scan", "dbdump", "initdb", "compact"}
 
 
 def test_root_parser_builds_and_help_renders():
@@ -249,6 +249,29 @@ def test_remove_entry_marks_none(tmp_path):
 def test_loaddb_missing_returns_empty(tmp_path):
     cmd = _cmd(tmp_path)
     assert cmd.loaddb() == {}
+
+
+def test_compact_command(tmp_path):
+    from buildutils.compact import Compact
+
+    db = tmp_path / "files.jsonl"
+    parser = Compact._parser_()
+    # Populate an append log with a superseded entry and a removal.
+    seed = BuildUtils.__new__(BuildUtils)
+    seed.db = db
+    seed.db_format = None
+    seed.buildroot = tmp_path
+    seed.add_entry("/x", {"mode": "644", "owner": "-", "group": "-", "type": "file", "meta": {}})
+    seed.add_entry("/x", {"mode": "600", "owner": "-", "group": "-", "type": "file", "meta": {}})
+    seed.add_entry("/y", {"mode": "644", "owner": "-", "group": "-", "type": "file", "meta": {}})
+    seed.remove_entry("/y")
+    assert len([l for l in db.read_text().splitlines() if l.strip()]) == 4
+
+    inst = parser.parse_args(["--db", str(db), "--buildroot", str(tmp_path)])
+    inst()
+    lines = [l for l in db.read_text().splitlines() if l.strip()]
+    assert len(lines) == 1  # only live /x remains
+    assert inst.loaddb()["/x"]["mode"] == "600"
 
 
 # --------------------------------------------------------------------------
