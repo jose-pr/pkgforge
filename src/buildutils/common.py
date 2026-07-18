@@ -5,15 +5,22 @@ Defines the on-disk *file DB* record (:class:`FileEntry`) and its metadata
 supplies those fields (:class:`FileEntryArgs`), and the common command base
 (:class:`BuildUtil`) that every subcommand extends.
 
-The file DB is a YAML mapping of build-relative path -> :class:`FileEntry`
-(or ``None`` to mark a removal). ``mode`` is always stored as an **octal
-permission string** (e.g. ``"644"``) so the DB round-trips cleanly and dumps
-(e.g. ``%attr(644,...)`` in an RPM spec) are correct.
+The file DB is an append-only **JSON Lines** log: one JSON object per line,
+each carrying a build-relative ``path`` plus the entry's fields (or
+``{"path": ..., "_removed": true}`` to mark a removal). On load the last record
+for a path wins. ``mode`` is always stored as an **octal permission string**
+(e.g. ``"644"``) so the DB round-trips cleanly and dumps (e.g. ``%attr(644,...)``
+in an RPM spec) are correct.
+
+Legacy DBs written in the older single-document YAML format are still read
+transparently (auto-detected), and are upgraded to JSON Lines in place on the
+next write.
 """
 
 from __future__ import annotations
 
 import enum
+import json
 import logging
 import os
 import typing
@@ -201,18 +208,86 @@ class BuildUtil(LoggingArgs, Cmd):
     def buildpath(self, localpath: Path) -> Path:
         return Path("/", localpath.relative_to(self.buildroot))
 
+    @staticmethod
+    def _looks_like_yaml(text: str) -> bool:
+        """True if ``text`` is a legacy single-document YAML DB (not JSON Lines).
+
+        A JSON Lines DB's first non-blank character is ``{``; a legacy YAML DB's
+        is the start of a mapping key (a path, ``/...``). Empty text is neither.
+        """
+        stripped = text.lstrip()
+        return bool(stripped) and stripped[0] != "{"
+
+    @classmethod
+    def _parse_db(cls, text: str) -> "typing.Dict[str, typing.Optional[FileEntry]]":
+        """Parse DB text (JSON Lines or legacy YAML) into path -> entry|None."""
+        if not text.strip():
+            return {}
+        if cls._looks_like_yaml(text):
+            return yaml.safe_load(text) or {}
+        db: "typing.Dict[str, typing.Optional[FileEntry]]" = {}
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            record = json.loads(line)
+            path = record.pop("path")
+            if record.pop("_removed", False):
+                db[path] = None
+            else:
+                db[path] = record  # type: ignore[assignment]
+        return db
+
     def loaddb(self) -> "typing.Dict[str, typing.Optional[FileEntry]]":
         if self.db is None or str(self.db) == "-" or not self.db.exists():
             return {}
-        return yaml.safe_load(self.db.read_text()) or {}
+        return self._parse_db(self.db.read_text())
+
+    @staticmethod
+    def _record_line(buildpath: "typing.Union[str, Path]", entry: "typing.Optional[FileEntry]") -> str:
+        """Serialize one DB record as a JSON Lines line (newline included).
+
+        The DB key is a *logical* build path (always recorded exactly as given);
+        a str is stored verbatim, so a key read back from the DB is never
+        re-normalized through ``os.fspath`` (which would flip separators on
+        Windows).
+        """
+        path = buildpath if isinstance(buildpath, str) else os.fspath(buildpath)
+        if entry is None:
+            record: dict = {"path": path, "_removed": True}
+        else:
+            record = {"path": path, **entry}
+        # default=str coerces the FileType str-enum (fresh entries carry the enum)
+        # to its value; sort_keys keeps lines stable/greppable.
+        return json.dumps(record, default=str, sort_keys=True) + "\n"
+
+    def compactdb(self) -> None:
+        """Rewrite the DB as JSON Lines, one line per live path (drops removals).
+
+        Also the in-place upgrade path for a legacy YAML DB. No-op for a stdout /
+        unset / missing DB.
+        """
+        if self.db is None or str(self.db) == "-" or not self.db.exists():
+            return
+        db = self.loaddb()
+        lines = [
+            self._record_line(path, entry)
+            for path, entry in db.items()
+            if entry is not None
+        ]
+        self.db.write_text("".join(lines))
 
     def _write_entry(self, buildpath: Path, entry: "typing.Optional[FileEntry]"):
-        record = yaml.safe_dump({os.fspath(buildpath): entry})
+        line = self._record_line(buildpath, entry)
         if self.db is None or str(self.db) == "-":
-            print(record, end="")
-        else:
-            with self.db.open("a") as file:
-                file.write(record)
+            print(line, end="")
+            return
+        # Upgrade a legacy YAML DB to JSON Lines before appending, so the file is
+        # never left as a mix of YAML and JSON Lines.
+        if self.db.exists() and self._looks_like_yaml(self.db.read_text()):
+            self.compactdb()
+        with self.db.open("a") as file:
+            file.write(line)
 
     def add_entry(self, buildpath: Path, entry: "FileEntry"):
         self._write_entry(buildpath, entry)

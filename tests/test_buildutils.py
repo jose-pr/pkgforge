@@ -125,13 +125,14 @@ def test_scan_default_buildroot_does_not_crash(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "sub").mkdir()
     (tmp_path / "sub" / "f").write_text("x")
-    db = tmp_path / "files.yaml"
+    db = tmp_path / "files.jsonl"
 
     # Drive through the parser with NO --buildroot (default applies).
     parser = ScanCmd._parser_()
     inst = parser.parse_args(["--db", str(db), "sub"])
     inst()  # must not raise (the regression: str "." / str -> TypeError)
-    recorded = yaml.safe_load(db.read_text()) or {}
+    # Read back via loaddb (format-agnostic) rather than assuming a raw format.
+    recorded = inst.loaddb()
     # Key form uses os separators; assert the file was recorded by basename.
     assert any(os.path.basename(k.replace("\\", "/")) == "f" for k in recorded)
 
@@ -173,7 +174,7 @@ def test_install_file_hardlinks_and_records(tmp_path):
 
     root = tmp_path / "root"
     root.mkdir()
-    db = tmp_path / "files.yaml"
+    db = tmp_path / "files.jsonl"
     src = tmp_path / "app.conf"
     src.write_text("hello")
 
@@ -199,7 +200,7 @@ def test_install_file_hardlinks_and_records(tmp_path):
     # Hardlink: same inode as the source (the regression guard for os.link).
     assert staged.stat().st_ino == src.stat().st_ino
     assert (staged.stat().st_mode & 0o777) == 0o640
-    recorded = yaml.safe_load(db.read_text())
+    recorded = inst.loaddb()  # format-agnostic read
     assert "/etc/app.conf" in recorded
     assert recorded["/etc/app.conf"]["mode"] == "640"
 
