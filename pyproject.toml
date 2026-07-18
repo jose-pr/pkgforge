@@ -27,12 +27,14 @@ dependencies = ["duho>=0.3.2", "pyyaml"]
 
 [project.optional-dependencies]
 dev = ["build", "twine", "hatchling", "pytest"]
+docs = ["mkdocs", "mkdocs-material", "mkdocstrings[python]"]
 
 [project.scripts]
 buildutils = "buildutils:main"
 
 [project.urls]
 Homepage = "https://github.com/jose-pr/buildutils/"
+Documentation = "https://jose-pr.github.io/buildutils/"
 Issues = "https://github.com/jose-pr/buildutils/issues"
 
 [tool.hatch.build.targets.sdist]
