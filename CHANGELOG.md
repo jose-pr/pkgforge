@@ -7,6 +7,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **`debian` dump format** — emits `install` (dh_install-style path list) and
+  `permissions` (dpkg-statoverride-friendly `path mode owner group`) artifacts
+  from the file DB, alongside the existing `rpmspecfiles`.
+- Package now exposes `__version__` (resolved from installed metadata).
+- Documentation site (mkdocs-material) with a guide + API reference, a
+  `benchmarks/` runner, `examples/stage_and_package.sh`, and CI workflows
+  (`test.yml` + `release.yml`).
+
+### Changed
+- Directory/archive extraction now prefers stdlib `tarfile` for the tar family
+  (`.tar`, `.tar.gz`/`.tgz`, `.tar.bz2`, `.tar.xz`), using the safe `data`
+  extraction filter where the interpreter supports it. `bsdtar` remains the
+  fallback for stdin and formats `tarfile` can't open (e.g. `.iso`), so a
+  tar-based build no longer needs an external archiver.
+- The dbdump format registry now supports multi-artifact formats (a format may
+  render several files into an output directory), not just per-entry line dumps.
+
+### Added (earlier in this cycle)
 - Packaged `src/` layout with a `buildutils` console entry point and
   `python -m buildutils` support.
 - `--chown` flag on `install` to apply the recorded owner/group (off by
