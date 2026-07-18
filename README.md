@@ -32,9 +32,9 @@ Global options (also read from the environment):
 | `--buildroot DIR` | `BUILDROOT` | staging root that maps to `/` in the DB |
 
 For unattended builds the environment variables are the primary mechanism —
-set `BUILDROOT` and `BUILDUTILS_DB` once and every command picks them up. When
-passing `--db`/`--buildroot` on the command line, place them **after** the
-subcommand (`buildutils install --db X ... SRC DEST`).
+set `BUILDROOT` and `BUILDUTILS_DB` once and every command picks them up. On the
+command line the flags work both before and after the subcommand
+(`buildutils --db X install …` or `buildutils install --db X …`).
 
 ### Commands
 
