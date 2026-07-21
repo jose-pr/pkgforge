@@ -6,6 +6,8 @@ build/
 site/
 
 # Agent/harness tooling
+# .agents has no trailing slash on purpose: `dotagents link` makes it a symlink,
+# which git treats as a file, so a directory-only `.agents/` would not ignore it.
 .agents
 CLAUDE.md
 CLAUDE.local.md
