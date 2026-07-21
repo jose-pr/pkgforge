@@ -6,7 +6,6 @@ build/
 site/
 
 # Agent/harness tooling
-AGENTS.md
 .agents/
 CLAUDE.md
 CLAUDE.local.md
