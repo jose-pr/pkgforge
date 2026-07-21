@@ -9,6 +9,7 @@ site/
 # .agents has no trailing slash on purpose: `dotagents link` makes it a symlink,
 # which git treats as a file, so a directory-only `.agents/` would not ignore it.
 .agents
+*.local.md
 CLAUDE.md
 CLAUDE.local.md
 .claude/
