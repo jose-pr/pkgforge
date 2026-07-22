@@ -3,7 +3,7 @@
 Header-file-style reference for the `pkgforge` package: every `__all__`
 export with its signature, arguments, contract, and gotchas, so this module
 can be consumed without reading its source. Kept current with the public
-API. For the CLI overview and code layout, see the repo-root overview doc.
+API. For the CLI overview and code layout, see the shipped `README.md`, or <https://github.com/jose-pr/pkgforge>.
 
 `pkgforge.__all__`: `PkgForgeCmd`, `PkgForge`, `DbProvider`, `FileEntry`,
 `FileEntryArgs`, `FileType`, `__version__`, `main`, `open_db`,
