@@ -249,6 +249,10 @@ class Install(FileEntryArgs, PkgForgeCmd):
             self.type = FileType(self.type)
 
         if self.decompress is True:
+            # Bare -x means "infer the compression from the source suffix",
+            # which stdin does not have (parsepath keeps "-" as a plain str).
+            if not self.source or str(self.source) == DEFAULT:
+                raise ValueError("cannot infer compression from stdin; pass -x TYPE")
             self.decompress = self.source.suffix[1:]
 
         if not self.no_target_directory:
