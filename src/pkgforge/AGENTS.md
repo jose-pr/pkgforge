@@ -109,15 +109,20 @@ module's `_register()` call, attaching it to the `PkgForge` subcommand tree).
   whole statement; each `(?name:arg)` or `(?!name:arg)` is an inline test,
   `!` inverts just that test). Registered test names: `type` (`(?type:file|
   directory|symlink)`) and `meta` (`(?meta:key=value)`). `.match(path,
-  fileentry) -> bool | None` — `None` means "statement doesn't apply, keep
-  evaluating"; a directory that fails a recursive (`**`) pattern short-circuits
-  to `False` rather than falling through.
+  fileentry) -> bool | None` — a statement that applies returns `True`
+  (exclude) or, when negated, `False` (keep); one that does not apply always
+  returns `None`, "keep evaluating", so a statement never vetoes the ones
+  after it and evaluation is order-independent for non-overlapping
+  statements. `.rebased(root) -> PathMatchStmt` returns a copy with an
+  absolute pattern re-rooted under `root` (itself if the pattern is
+  relative); it never mutates, since parsed statements are shared.
 - **`PathMatch(list[PathMatchStmt])`** — an ordered set of statements bound
-  to an optional `root` (rewrites each statement's absolute pattern relative
-  to `root`). `.match(path, entry=None, _default=None, **overrides) -> bool
-  | None` — evaluates statements in order, first non-`None` result wins;
-  `entry=None` derives one via `FileEntry.from_path`; an empty `PathMatch`
-  always matches (`True`).
+  to an optional `root` (stores `stmt.rebased(root)` copies, leaving the
+  caller's statements untouched — a multi-source `install` constructs one
+  `PathMatch` per source from the same parsed list). `.match(path,
+  entry=None, _default=None, **overrides) -> bool | None` — evaluates
+  statements in order, first non-`None` result wins; `entry=None` derives one
+  via `FileEntry.from_path`; an empty `PathMatch` always matches (`True`).
 
 ## `dbdump` format registry (`dbdump.py`)
 

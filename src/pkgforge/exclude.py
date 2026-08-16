@@ -56,6 +56,11 @@ class PathMatchStmt(NS):
     pattern: str
 
     def match(self, path: Path, fileentry: FileEntry):
+        """Evaluate this statement: ``True``/``False`` decide, ``None`` defers.
+
+        A statement that does not apply returns ``None`` so the caller keeps
+        evaluating later statements — never ``False``, which would veto them.
+        """
         matched = path.match(self.pattern) if self.pattern else True
         for test in self.tests:
             if not matched:
@@ -65,12 +70,27 @@ class PathMatchStmt(NS):
         if matched:
             return not self.negate
 
-        recursive = "**" in self.pattern
-
-        if fileentry["type"] == FileType.Directory and recursive:
-            return False
-
         return None
+
+    def rebased(self, root: Path) -> "PathMatchStmt":
+        """Copy of this statement with an absolute pattern re-rooted at ``root``.
+
+        Returns ``self`` when the pattern is relative (nothing to rewrite).
+        Never mutates: parsed statements are shared across `PathMatch`
+        constructions (a multi-source ``install`` reuses them per source), so
+        rewriting in place would re-prefix the pattern once per construction.
+        """
+        pattern = Path(self.pattern)
+        if not pattern.is_absolute():
+            return self
+        rebased = PathMatchStmt()
+        rebased.negate = self.negate
+        rebased.tests = self.tests
+        # relative_to(anchor) rather than "/" so a drive-anchored pattern is
+        # handled too (the runtime is POSIX, but the grammar is unit-tested
+        # everywhere and on Windows "/" is not a path's anchor).
+        rebased.pattern = os.fspath(Path(root, pattern.relative_to(pattern.anchor)))
+        return rebased
 
     @classmethod
     def parse(cls, pattern: str) -> "PathMatchStmt":
@@ -104,12 +124,13 @@ class PathMatchStmt(NS):
 
 class PathMatch(typing.List[PathMatchStmt]):
     def __init__(self, stmts: "typing.Iterable[PathMatchStmt]", root: Path = None):
-        super().__init__(stmts)
+        # Rebase absolute patterns onto `root` as COPIES: the incoming
+        # statements come from parsed argv and are shared between
+        # constructions (multi-source install builds one PathMatch per
+        # source), so an in-place rewrite would prefix them once per source.
         if root:
-            for stmt in self:
-                pattern = Path(stmt.pattern)
-                if pattern.is_absolute():
-                    stmt.pattern = os.fspath(Path(root, pattern.relative_to("/")))
+            stmts = [stmt.rebased(root) for stmt in stmts]
+        super().__init__(stmts)
 
     def match(
         self,
