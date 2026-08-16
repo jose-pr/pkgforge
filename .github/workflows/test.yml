@@ -52,6 +52,12 @@ jobs:
             python-version: "3.9"
           - os: macos-latest
             python-version: "3.13"
+          # The DECLARED duho floor, exercised rather than assumed. Every other
+          # job resolves the newest duho in range, so without this entry a
+          # floor that no longer works would go unnoticed until a user hit it.
+          - os: ubuntu-latest
+            python-version: "3.9"
+            duho: "0.5.0"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -66,6 +72,11 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libarchive-tools
       - name: Install package with dev extras
         run: python -m pip install -e ".[dev]"
+      - name: Pin duho to the declared floor
+        # After the normal install, so the package's own range is resolved
+        # first and this only steps the version back within it.
+        if: matrix.duho != ''
+        run: python -m pip install "duho==${{ matrix.duho }}"
       - name: Run tests
         run: python -m pytest -q
 
