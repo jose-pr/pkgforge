@@ -6,6 +6,38 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-08-16
+
+### Changed
+- The `duho` dependency is now `>=0.5.0,<0.6`. 0.1.1 capped it at `<0.4` to
+  stay installable; the commands are now declared against duho's current
+  argument model instead, so the cap is gone and pkgforge tracks the
+  supported duho line again.
+- `install`'s `source` is declared as a `list[Path]` rather than a
+  `Union[list[Path], Path]`. duho resolves a union by composing its members'
+  scalar converters, so a collection member has no way to keep its own
+  argparse action and the parser refused to build. The command still accepts
+  a bare `Path` from the Python API; only the annotation narrowed.
+- `--exclude` on `install`, `scan` and `dbdump` is declared with
+  `duho.Append`, making it a repeatable single-value option.
+
+### Fixed
+- `--exclude` works through the command line again. It previously combined a
+  greedy `nargs` with an append action, so `install --exclude=P` produced a
+  list of lists (`AttributeError: 'list' object has no attribute 'pattern'`)
+  and the bare `-X P SRC DST` form swallowed the positionals. Both forms now
+  parse to a flat statement list; the multi-source regression test drives the
+  option through argv rather than assigning it directly.
+
+### Notes
+- `-x/--decompress` still takes an optional argument and therefore still
+  consumes the following token, so `install -x SRC DST` reads `SRC` as the
+  compression kind. That is argparse's own behavior for this shape and the
+  0.1.1 guard rejecting a path-shaped kind remains in place and necessary.
+- The suite also passes against duho 0.4.x, but 0.5 is the series exercised
+  and therefore the one declared. CI now runs one job pinned to the declared
+  floor so it is verified rather than assumed.
+
 ## [0.1.1] - 2026-08-16
 
 ### Added
@@ -83,6 +115,7 @@ framework; Python 3.9+, Linux runtime.
 - Hardlink install uses `os.link` for portability across Python 3.9–3.13
   (`Path.link_to` was removed in 3.12; `Path.hardlink_to` only exists from 3.10).
 
-[Unreleased]: https://github.com/jose-pr/pkgforge/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/jose-pr/pkgforge/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/jose-pr/pkgforge/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/jose-pr/pkgforge/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/jose-pr/pkgforge/releases/tag/v0.1.0

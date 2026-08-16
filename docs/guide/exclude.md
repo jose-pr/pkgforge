@@ -31,3 +31,13 @@ glob pattern.
 Multiple statements are evaluated in order; the first that yields a definite
 match/skip decides. A statement with no definite result falls through to the
 next, and an empty exclude set matches everything (nothing is excluded).
+
+**Repeat the flag for each statement** — `-X` takes exactly one per
+occurrence, so they never run together with the paths that follow:
+
+```bash
+pkgforge install -d -X '**/*.pyc' -X '(?type:directory)**/tmp' build /opt/app
+```
+
+Space-separating them after one flag (`-X '**/*.pyc' '**/tmp'`) does not add a
+second statement: the extra word is read as a positional argument.
