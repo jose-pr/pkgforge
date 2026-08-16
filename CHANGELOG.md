@@ -6,6 +6,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-16
+
+### Added
+- `py.typed` marker, so the `Typing :: Typed` classifier is honored by type
+  checkers (PEP 561).
+
+### Changed
+- The `duho` dependency is now `>=0.3.2,<0.4`. It was unbounded, so a fresh
+  install of 0.1.0 resolved a duho the parser cannot build against and every
+  `pkgforge` invocation failed.
+- `sniff_format()` reads only the 16 bytes it inspects instead of the whole
+  file.
+
 ### Fixed
 - `--exclude` with an absolute pattern now works for every source of a
   multi-source `install`. The parsed statements were rewritten in place when
@@ -20,13 +33,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `cannot infer compression from stdin; pass -x TYPE` instead of an
   `AttributeError`.
 
-### Added
-- `py.typed` marker, so the `Typing :: Typed` classifier is honored by type
-  checkers (PEP 561).
-
-### Changed
-- `sniff_format()` reads only the 16 bytes it inspects instead of the whole
-  file.
+### Notes
+- duho 0.4 and newer are not supported. From 0.4.0 the argument model rejects
+  `Install.source`'s `Union[List[Path], Path]` and the parser fails to build,
+  so the cap above is what makes this release installable; supporting 0.4+
+  requires re-declaring `source` and `exclude` against that model.
+- On the supported duho range, `--exclude` passed through the command line
+  parses to a nested list and `install` then fails; the exclude fixes above
+  are reachable through the Python API.
 
 ## [0.1.0] - 2026-07-18
 
@@ -65,5 +79,6 @@ framework; Python 3.9+, Linux runtime.
 - Hardlink install uses `os.link` for portability across Python 3.9–3.13
   (`Path.link_to` was removed in 3.12; `Path.hardlink_to` only exists from 3.10).
 
-[Unreleased]: https://github.com/jose-pr/pkgforge/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/jose-pr/pkgforge/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/jose-pr/pkgforge/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/jose-pr/pkgforge/releases/tag/v0.1.0

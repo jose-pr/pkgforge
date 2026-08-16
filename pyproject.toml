@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pkgforge"
-version = "0.1.0"
+version = "0.1.1"
 authors = [{ name = "jose-pr" }]
 description = "Stage files into a build root and record their install metadata for packaging"
 readme = "README.md"
@@ -23,7 +23,10 @@ classifiers = [
     "Topic :: System :: Software Distribution",
     "Typing :: Typed",
 ]
-dependencies = ["duho>=0.3.2", "pyyaml"]
+# duho is capped below 0.4: the parser does not build against 0.4+, whose
+# argument model rejects `Install.source`'s Union[List[Path], Path]. Lifting
+# the cap requires re-declaring source/exclude for that model.
+dependencies = ["duho>=0.3.2,<0.4", "pyyaml"]
 
 [project.optional-dependencies]
 dev = ["build", "twine", "hatchling", "pytest"]
