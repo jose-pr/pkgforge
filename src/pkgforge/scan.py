@@ -19,7 +19,7 @@ class ScanCmd(FileEntryArgs, PkgForgeCmd):
 
     exclude: duho.Arg[
         typing.List[PathMatchStmt],
-        duho.NS(type=PathMatchStmt.parse, action="append"),
+        duho.Append(PathMatchStmt.parse),
     ] = []
     ("--exclude", "-X")
     missing: bool = False

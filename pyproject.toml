@@ -23,10 +23,12 @@ classifiers = [
     "Topic :: System :: Software Distribution",
     "Typing :: Typed",
 ]
-# duho is capped below 0.4: the parser does not build against 0.4+, whose
-# argument model rejects `Install.source`'s Union[List[Path], Path]. Lifting
-# the cap requires re-declaring source/exclude for that model.
-dependencies = ["duho>=0.3.2,<0.4", "pyyaml"]
+# duho is pinned to the 0.5 series. 0.4 introduced the argument model
+# `Install.source` is now declared against (a collection may not be a union
+# member) and the repeatable-option shape that makes `--exclude` work through
+# argv, so 0.3.x cannot run this code at all. The suite also passes on 0.4.x,
+# but 0.5 is the series actually exercised, so that is what is declared.
+dependencies = ["duho>=0.5.0,<0.6", "pyyaml"]
 
 [project.optional-dependencies]
 dev = ["build", "twine", "hatchling", "pytest"]

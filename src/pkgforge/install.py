@@ -98,7 +98,7 @@ class Install(FileEntryArgs, PkgForgeCmd):
     ("--type", "-t")
     exclude: duho.Arg[
         typing.List[PathMatchStmt],
-        duho.NS(type=PathMatchStmt.parse, action="append"),
+        duho.Append(PathMatchStmt.parse),
     ] = []
     ("--exclude", "-X")
     parents: bool
@@ -109,8 +109,14 @@ class Install(FileEntryArgs, PkgForgeCmd):
     ("-x", "--decompress")
     remove_source: bool = False
     ("--remove-source",)
+    #: One or more sources. Declared as a plain ``List[Path]``, not a
+    #: ``Union[List[Path], Path]``: duho resolves a union by composing its
+    #: members' scalar factories, so a collection member (which needs its own
+    #: argparse action) is rejected at parser-build time. ``__call__`` still
+    #: accepts a bare ``Path`` from the Python API — it fans a list out into
+    #: one clone per source and each clone carries a scalar.
     source: duho.Arg[
-        typing.Union[typing.List[Path], Path],
+        typing.List[Path],
         duho.NS(type=parsepath, nargs="+"),
     ] = []
     ("source",)

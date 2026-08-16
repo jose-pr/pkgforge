@@ -110,7 +110,7 @@ class DbDump(PkgForgeCmd):
 
     exclude: duho.Arg[
         typing.List[PathMatchStmt],
-        duho.NS(type=PathMatchStmt.parse, action="append"),
+        duho.Append(PathMatchStmt.parse),
     ] = []
     ("--exclude", "-X")
     format: str

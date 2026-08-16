@@ -231,6 +231,11 @@ def test_install_multi_source_absolute_exclude(tmp_path):
             str(root),
             "-p",
             "-d",
+            # Absolute pattern through argv. `--exclude` is a repeatable
+            # single-value option, so it parses to a FLAT list of statements
+            # and does not swallow the positional run behind it.
+            "-X",
+            pattern,
             str(tmp_path / "src1"),
             str(tmp_path / "src2"),
             # Relative destination keeps this test cross-platform: a
@@ -238,11 +243,7 @@ def test_install_multi_source_absolute_exclude(tmp_path):
             "opt/out",
         ]
     )
-    # Set the parsed statements directly rather than via argv: the exact
-    # shape --exclude produces has varied across duho releases, and what
-    # this guards is the reuse of ONE statement list across the per-source
-    # clones, which is what `install` does either way.
-    inst.exclude = [PathMatchStmt.parse(pattern)]
+    assert [s.pattern for s in inst.exclude] == [pattern]
     inst()
 
     for name in ("src1", "src2"):
