@@ -265,7 +265,8 @@ class PkgForge(PkgForgeCmd, Cli):
     """The pkgforge application root (the ``pkgforge`` command).
 
     Stages files into a build root and records their intended install
-    metadata (mode / owner / group / type) in a YAML file DB, which can then
+    metadata (mode / owner / group / type) in a file DB (JSON Lines by
+    default; YAML/SQLite backends), which can then
     be dumped into packaging manifests (e.g. an RPM file list).
 
     Extends :class:`PkgForgeCmd` (for the shared ``--db``/``--buildroot`` options

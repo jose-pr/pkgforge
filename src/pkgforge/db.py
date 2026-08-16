@@ -350,7 +350,10 @@ def sniff_format(path: Path) -> "typing.Optional[str]":
     non-empty content as YAML.
     """
     try:
-        head = path.read_bytes()[:16]
+        # Read only the 16 bytes the sniffers look at — an append-log DB can
+        # be arbitrarily large, and read_bytes() would pull all of it in.
+        with path.open("rb") as fh:
+            head = fh.read(16)
     except OSError:
         return None
     for name, sniffer in _SNIFFERS:

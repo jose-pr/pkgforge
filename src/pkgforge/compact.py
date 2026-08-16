@@ -11,7 +11,7 @@ class Compact(PkgForgeCmd):
     _parsername_ = "compact"
 
     def __call__(self):
-        if self.db is None or str(self.db) == "-":
+        if self._no_file_db():
             self._logger_.info("No file DB to compact")
             return
         before = self.loaddb()

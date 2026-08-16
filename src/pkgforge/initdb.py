@@ -11,7 +11,7 @@ class InitDb(PkgForgeCmd):
     _parsername_ = "initdb"
 
     def __call__(self):
-        if self.db is None or str(self.db) == "-":
+        if self._no_file_db():
             return
         self.db.parent.mkdir(parents=True, exist_ok=True)
         self.initdb()  # provider-specific empty DB (truncate file / reset table)
