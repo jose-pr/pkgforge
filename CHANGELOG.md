@@ -6,6 +6,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- `--exclude` with an absolute pattern now works for every source of a
+  multi-source `install`. The parsed statements were rewritten in place when
+  bound to a source root, so the second source re-prefixed an already-rebased
+  pattern (`/a/**` -> `/src2/src1/a/**`) and silently excluded nothing.
+- An exclude statement that does not apply no longer vetoes the statements
+  after it. A directory that failed a recursive (`**`) pattern returned a
+  definite "keep" instead of falling through, making the outcome depend on
+  statement order (`-X '**/*.pyc' -X '(?type:directory)**/tmp'` never reached
+  the second statement).
+- `install -x` with a stdin source (`-`) raises a clear
+  `cannot infer compression from stdin; pass -x TYPE` instead of an
+  `AttributeError`.
+
+### Added
+- `py.typed` marker, so the `Typing :: Typed` classifier is honored by type
+  checkers (PEP 561).
+
+### Changed
+- `sniff_format()` reads only the 16 bytes it inspects instead of the whole
+  file.
+
 ## [0.1.0] - 2026-07-18
 
 First release. pkgforge stages files into a build root, records their intended
