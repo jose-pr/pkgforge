@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pkgforge"
-version = "0.1.1"
+version = "0.1.2"
 authors = [{ name = "jose-pr" }]
 description = "Stage files into a build root and record their install metadata for packaging"
 readme = "README.md"
