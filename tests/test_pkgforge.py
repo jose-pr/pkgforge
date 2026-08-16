@@ -322,8 +322,11 @@ def test_install_symlink_type_with_meta_target(tmp_path):
 
 
 @POSIX
-def test_install_decompress_gz(tmp_path):
-    # Bare -x infers "gz" from the suffix and runs the real gunzip.
+@pytest.mark.parametrize("form", ["explicit", "inferred"])
+def test_install_decompress_gz(tmp_path, form):
+    # -x runs the real gunzip, both with an explicit kind and inferring it.
+    # -x takes an OPTIONAL argument, so it swallows the next token: the kind
+    # goes right after it, and a bare -x has to trail the positionals.
     import gzip
     import shutil as _shutil
 
@@ -339,15 +342,31 @@ def test_install_decompress_gz(tmp_path):
     with gzip.open(src, "wb") as fh:
         fh.write(b"hello gz\n")
 
+    common = ["--db", str(db), "--buildroot", str(root), "-p"]
+    if form == "explicit":
+        argv = common + ["-x", "gz", str(src), "/etc"]
+    else:
+        argv = common + [str(src), "/etc", "-x"]
+
     parser = Install._parser_()
-    inst = parser.parse_args(
-        ["--db", str(db), "--buildroot", str(root), "-p", "-x", str(src), "/etc"]
-    )
+    inst = parser.parse_args(argv)
     inst()
 
     staged = root / "etc" / "app.conf"  # .gz stripped from the destination
     assert staged.read_bytes() == b"hello gz\n"
     assert "/etc/app.conf" in inst.loaddb()
+
+
+def test_install_decompress_kind_that_is_a_path_raises_clear_error():
+    # Regression: `install -x SRC DST EXTRA` makes SRC the *kind* (argparse
+    # gives -x the next token). It used to be run as a decompressor command.
+    from pkgforge.install import Install
+
+    parser = Install._parser_()
+    inst = parser.parse_args(["-x", "app.conf.gz", "src", "/etc", "/dest/f"])
+    assert inst.decompress == "app.conf.gz"
+    with pytest.raises(ValueError, match="looks like a path"):
+        inst()
 
 
 # --------------------------------------------------------------------------

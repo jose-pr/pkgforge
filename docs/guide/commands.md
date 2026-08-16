@@ -40,11 +40,16 @@ pkgforge install [options] SOURCE... DESTINATION
 | `-p, --parents` | create missing parent directories of the destination |
 | `-T, --no-target-directory` | treat DESTINATION as the final path, not a directory |
 | `-D` | shortcut for `-Tp` |
-| `-x, --decompress [KIND]` | decompress the source (`gz`/`xz`/`bz2`; inferred if omitted) |
+| `-x, --decompress [KIND]` | decompress the source (`gz`/`xz`/`bz2`; inferred from the suffix if KIND is omitted) |
 | `-X, --exclude PATTERN` | exclude matches when copying a directory source |
 | `--chown` | apply the recorded owner/group (off by default) |
 | `--remove-source` | delete the source after staging (files or directories) |
 | `--noentry` | stage but do not record a DB entry |
+
+`-x`'s KIND is optional, so the option takes the next word on the command line
+whether or not you meant it to: write `-x gz SRC DST` to name the kind, and put
+a bare `-x` *after* the positionals (`SRC DST -x`) to infer it from the suffix.
+`-x SRC DST` makes `SRC` the kind and is rejected.
 
 A tar-family archive given as a `directory`-typed source is extracted with
 stdlib `tarfile`; other archive types fall back to `bsdtar`.

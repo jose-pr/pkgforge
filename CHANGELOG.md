@@ -32,6 +32,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `install -x` with a stdin source (`-`) raises a clear
   `cannot infer compression from stdin; pass -x TYPE` instead of an
   `AttributeError`.
+- `install -x` given a path as its kind is rejected with an explanation.
+  `-x` takes an optional argument, so `install -x SRC DST` parses `SRC` as the
+  compression kind; with further sources the positionals silently shifted along
+  by one and the source path was then run as a decompressor command.
 
 ### Notes
 - duho 0.4 and newer are not supported. From 0.4.0 the argument model rejects

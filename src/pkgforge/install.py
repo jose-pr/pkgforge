@@ -49,6 +49,18 @@ TAR_SUFFIXES = (
 _TARFILE_HAS_FILTER = hasattr(tarfile, "data_filter")
 
 
+def _looks_like_path(kind: str) -> bool:
+    """True if a ``--decompress`` value looks like a path instead of a kind.
+
+    ``-x`` takes an *optional* argument, so argparse hands it the next token:
+    ``install -x SRC DST`` parses ``SRC`` as the compression kind (and then
+    errors out about a missing destination, or, with more sources, silently
+    shifts every positional along by one). A kind is a bare word — ``gz`` or a
+    decompressor command name — so a separator or a suffix means the misparse.
+    """
+    return bool(kind) and any(sep in kind for sep in (".", "/", os.sep))
+
+
 def _is_tar_source(src: "Path | str") -> bool:
     """True if ``src`` is a tar-family archive stdlib :mod:`tarfile` can extract."""
     name = os.fspath(src).lower()
@@ -153,7 +165,12 @@ class Install(FileEntryArgs, PkgForgeCmd):
                             "-kc",
                             os.fspath(src),
                         ],
-                        stdin=sys.stdin.fileno(),
+                        # Only a "-" source reads stdin; for a real file the
+                        # child inherits ours. Taking .fileno() unconditionally
+                        # crashes wherever stdin is not a real fd (a captured
+                        # or redirected pseudofile), as the bsdtar branch below
+                        # already accounts for.
+                        stdin=sys.stdin.fileno() if str(src) == DEFAULT else None,
                         stdout=f,
                         check=True,
                     )
@@ -254,6 +271,14 @@ class Install(FileEntryArgs, PkgForgeCmd):
             if not self.source or str(self.source) == DEFAULT:
                 raise ValueError("cannot infer compression from stdin; pass -x TYPE")
             self.decompress = self.source.suffix[1:]
+        elif isinstance(self.decompress, str) and _looks_like_path(self.decompress):
+            # argparse gave -x the next positional (see _looks_like_path); say
+            # so instead of trying to run that path as a decompressor.
+            raise ValueError(
+                f"--decompress got {self.decompress!r}, which looks like a path, "
+                "not a compression kind; write the kind (-x gz), or put a bare "
+                "-x after the source and destination to infer it"
+            )
 
         if not self.no_target_directory:
             if str(self.source) == DEFAULT:
