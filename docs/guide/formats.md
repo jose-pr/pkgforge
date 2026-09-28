@@ -62,14 +62,27 @@ Writes two artifacts into an output directory (created if needed):
     etc/tool/config etc/tool
     ```
 
-- **`permissions`** — `<path> <mode> <owner> <group>` lines
-  (`dpkg-statoverride`-friendly) for every entry that pins a non-default mode,
-  owner, or group:
+- **`permissions`** — a pkgforge-specific `<path> <mode> <owner> <group>`
+  manifest for every entry that pins a non-default mode, owner, or group:
 
     ```
     /usr/bin/tool 755 root root
     /etc/tool/config 640 root adm
     ```
+
+    The path is unescaped and may itself contain spaces, so parse a line
+    right-to-left (everything before the last three fields is the path),
+    not with a naive `read path mode owner group`.
+
+`install` sources are escaped for `dh_install`/`dh_installdirs` (needs
+debhelper compat 13): a backslash before each glob character (`\ * ? [ ] { }`)
+so the name matches only itself, a leading `#` backslash-escaped (`dh_install`
+treats a line starting with `#` as a comment), and a space written as
+`${Space}`. Destinations are only ever `${Dollar}{`/`${Space}`-escaped, never
+glob-escaped (`dh_install` takes the destination literally). A path
+containing a control character, or a mode/owner/group containing whitespace,
+stops `dbdump` with an error naming the problem; a non-UTF-8 name is written
+as its original bytes.
 
 ```bash
 pkgforge dbdump -f debian debian/          # writes debian/install + debian/permissions

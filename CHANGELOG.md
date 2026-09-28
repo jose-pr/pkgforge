@@ -18,6 +18,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `rpmspecfiles` escapes `\` and `"` for rpm 4.19+ and writes non-ASCII names
   as UTF-8 (was `\uXXXX`, which rpmbuild could not find). A control
   character in a path stops `dbdump` with an error naming the problem.
+- `debian` `install` lines are escaped for `dh_install` (`\ * ? [ ] { }` and a
+  leading `#` get a backslash; space becomes `${Space}` and a literal `${`
+  in a destination directory becomes `${Dollar}{`; both need debhelper
+  compat 13): before this, a space aborted `dh_install`, a literal `${`
+  aborted it too, and glob characters shipped the wrong files. A control
+  character in a path, or whitespace in a mode/owner/group, now stops
+  `dbdump` with an error. Non-UTF-8 names are written as their original
+  bytes (was `UnicodeEncodeError`).
 
 ### Added
 - `pkgforge.dbdump.DumpError`, raised for a DB entry a dump format's own

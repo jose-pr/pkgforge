@@ -361,8 +361,19 @@ tree).
   bytes]]]`** — formats that render several named artifacts, each
   `render(entries) -> {filename: bytes}`. Built in: `"debian"` — `install`
   (`dh_install`-style `<src> <dest-dir>` lines, non-directory entries only)
-  + `permissions` (`<path> <mode> <owner> <group>` lines, only entries that
-  pin a non-default mode/owner/group).
+  + `permissions` (a pkgforge-specific `<path> <mode> <owner> <group>`
+  manifest, unescaped -- parse right-to-left, since the path may itself
+  contain spaces -- for only the entries that pin a non-default
+  mode/owner/group). `install`'s source is debhelper-escaped (needs compat
+  13): a backslash before each glob character (`\ * ? [ ] { }`, which also
+  makes a literal `${` read as literal since `{`/`}` get escaped), a space as
+  `${Space}`, and a leading `#` backslash-escaped (a line starting with `#`
+  is a `dh_install` comment). The destination is only ever
+  `${Dollar}{`/`${Space}`-escaped, never glob-escaped -- `dh_install` takes it
+  literally. Every entry is validated first (a control character in the
+  path, or whitespace in mode/owner/group, raises `DumpError` before either
+  artifact is built), and both artifacts are written as UTF-8 with
+  `surrogateescape` (a non-UTF-8 name round-trips its original bytes).
 - **`Entries`** — type alias `list[tuple[str, FileEntry]]` (surviving DB
   entries after `--exclude` filtering), the shared input shape for both
   registries above.

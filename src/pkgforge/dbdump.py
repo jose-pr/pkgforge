@@ -114,34 +114,91 @@ def rpmspecfile(path: str, entry: FileEntry) -> bytes:
 # debian (multi-artifact: install list + permissions manifest)
 # --------------------------------------------------------------------------
 
+#: Characters dh_install/dh_installdirs read as shell-glob syntax in a
+#: SOURCE line, plus the backslash that escapes them; ``{``/``}`` are
+#: included, so escaping them also makes a literal ``${`` read as literal
+#: (``$\{``), with no separate ``$`` handling needed on the source side.
+_DH_GLOB_CHARS = "\\*?[]{}"
+
+
+def _dh_src(rel: str) -> str:
+    """Escape a debian ``install``/``dirs`` SOURCE (debhelper compat 13+).
+
+    Backslash-escapes every glob character so the name matches only
+    itself, and ``${Space}``-escapes a literal space; a leading ``#`` (the
+    line's own first character) is backslash-escaped too, since dh_install
+    treats a line starting with ``#`` as a comment. A bare ``$`` is left
+    alone -- see :func:`_dh_dest`.
+    """
+    out = []
+    for c in rel:
+        if c in _DH_GLOB_CHARS:
+            out.append("\\" + c)
+        elif c == " ":
+            out.append("${Space}")
+        else:
+            out.append(c)
+    text = "".join(out)
+    if text.startswith("#"):
+        text = "\\" + text
+    return text
+
+
+def _dh_dest(rel: str) -> str:
+    """Escape a debian ``install``/``dirs`` DESTINATION.
+
+    dh_install never globs the destination (a backslash there is kept
+    literally), so only a literal ``${`` (an unresolved compat-13 variable)
+    and a space need handling; a bare ``$`` not followed by ``{`` stays
+    literal, which also works on compat 12.
+    """
+    return rel.replace("${", "${Dollar}{").replace(" ", "${Space}")
+
 
 def _debian_artifacts(entries: Entries) -> typing.Dict[str, bytes]:
     """Build Debian packaging artifacts from surviving DB entries.
 
     Returns a mapping of artifact filename -> bytes:
 
-    * ``install`` -- ``dh_install``-style lines ``<src>  <dest-dir>`` (the source
-      is the build-root-relative path, the destination is the entry's parent
-      directory), one per non-directory entry;
-    * ``permissions`` -- ``<path> <mode> <owner> <group>`` lines
-      (``dpkg-statoverride``-friendly) for every entry that pins a non-default
+    * ``install`` -- ``dh_install``-style lines ``<src> <dest-dir>`` (the
+      source is the build-root-relative path, debhelper-escaped; the
+      destination is the entry's parent directory, escaped for ``$``/space
+      only), one per non-directory entry;
+    * ``permissions`` -- a pkgforge-specific ``<path> <mode> <owner>
+      <group>`` manifest (unescaped: parse it right-to-left, since the path
+      itself may contain spaces) for every entry that pins a non-default
       mode/owner/group.
+
+    Every entry is validated (path free of control characters; mode/owner/
+    group free of whitespace) before either artifact is built, so a
+    :class:`DumpError` leaves no partial output.
     """
+    for path, entry in entries:
+        _reject_control(path, "debian")
+        for field in ("mode", "owner", "group"):
+            value = _or_default(entry[field])
+            if any(c.isspace() for c in value):
+                raise DumpError(
+                    f"debian: a DB entry's {field} contains whitespace, "
+                    "which the permissions format cannot represent"
+                )
+
     install_lines: typing.List[str] = []
     perm_lines: typing.List[str] = []
     for path, entry in entries:
         rel = path.lstrip("/")
-        if entry["type"] != FileType.Directory:
-            dest_dir = os.path.dirname(rel)
-            install_lines.append(f"{rel} {dest_dir}".rstrip())
         mode = _or_default(entry["mode"])
         owner = _or_default(entry["owner"])
         group = _or_default(entry["group"])
+        if entry["type"] != FileType.Directory:
+            dest_dir = _dh_dest(os.path.dirname(rel))
+            install_lines.append(f"{_dh_src(rel)} {dest_dir}".rstrip())
         if mode != DEFAULT or owner != DEFAULT or group != DEFAULT:
             perm_lines.append(f"{path} {mode} {owner} {group}")
 
     def _join(lines: typing.List[str]) -> bytes:
-        return ("\n".join(lines) + "\n" if lines else "").encode()
+        text = "\n".join(lines) + "\n" if lines else ""
+        return text.encode("utf-8", "surrogateescape")
 
     return {"install": _join(install_lines), "permissions": _join(perm_lines)}
 

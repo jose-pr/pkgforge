@@ -121,6 +121,125 @@ def test_debian_install_artifact():
     assert "etc/tool " not in install.replace("etc/tool/conf", "")
 
 
+def _one_entry(path, mode="644", owner="root", group="root"):
+    return [
+        (
+            path,
+            {"mode": mode, "owner": owner, "group": group, "type": "file", "meta": {}},
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "path,expected",
+    [
+        (
+            "/usr/share/t/with space",
+            "usr/share/t/with${Space}space usr/share/t",
+        ),
+        ("/usr/share/t/star*", "usr/share/t/star\\* usr/share/t"),
+        ("/usr/share/t/q?", "usr/share/t/q\\? usr/share/t"),
+        ("/usr/share/t/br[x]", "usr/share/t/br\\[x\\] usr/share/t"),
+        (
+            "/usr/share/t/brace{a,b}",
+            "usr/share/t/brace\\{a,b\\} usr/share/t",
+        ),
+        (
+            "/usr/share/t/back\\slash",
+            "usr/share/t/back\\\\slash usr/share/t",
+        ),
+        (
+            "/usr/share/t/dollar${x}",
+            "usr/share/t/dollar$\\{x\\} usr/share/t",
+        ),
+        ("/#top/f", "\\#top/f #top"),
+        (
+            "/usr/share/sp dir/f",
+            "usr/share/sp${Space}dir/f usr/share/sp${Space}dir",
+        ),
+        (
+            "/usr/share/e[1]/f",
+            "usr/share/e\\[1\\]/f usr/share/e[1]",
+        ),
+        (
+            "/usr/share/dol${y}dir/f",
+            "usr/share/dol$\\{y\\}dir/f usr/share/dol${Dollar}{y}dir",
+        ),
+        ("/d$x", "d$x"),  # guard: a bare $ is left alone
+        ("/usr/bin/tool", "usr/bin/tool usr/bin"),  # guard: plain path unchanged
+    ],
+    ids=[
+        "space",
+        "star",
+        "question",
+        "bracket",
+        "brace",
+        "backslash",
+        "dollar_brace",
+        "leading_hash",
+        "space_parent",
+        "bracket_parent_unescaped",
+        "dollar_dest",
+        "bare_dollar_guard",
+        "plain_guard",
+    ],
+)
+def test_debian_install_escapes(path, expected):
+    arts = MULTI_ARTIFACT_FORMATS["debian"](_one_entry(path))
+    install = arts["install"].decode().strip()
+    assert install == expected
+
+
+def test_debian_rejects_control_char():
+    from pkgforge.dbdump import DumpError
+
+    with pytest.raises(DumpError):
+        MULTI_ARTIFACT_FORMATS["debian"](_one_entry("/usr/share/x\ny"))
+
+
+def test_debian_rejects_space_in_owner():
+    from pkgforge.dbdump import DumpError
+
+    entries = [
+        (
+            "/a",
+            {
+                "mode": "644",
+                "owner": "ro ot",
+                "group": "root",
+                "type": "file",
+                "meta": {},
+            },
+        )
+    ]
+    with pytest.raises(DumpError):
+        MULTI_ARTIFACT_FORMATS["debian"](entries)
+
+
+def test_debian_permissions_rsplit_keeps_path():
+    # Guard: the permissions format is unescaped, so a path containing
+    # spaces must still be parseable right-to-left.
+    entries = _one_entry(
+        "/usr/share/t/with space", mode="640", owner="root", group="adm"
+    )
+    arts = MULTI_ARTIFACT_FORMATS["debian"](entries)
+    line = arts["permissions"].decode().strip()
+    path, mode, owner, group = line.rsplit(" ", 3)
+    assert path == "/usr/share/t/with space"
+    assert (mode, owner, group) == ("640", "root", "adm")
+
+
+def test_debian_non_utf8_keeps_bytes():
+    entries = [
+        (
+            "/opt/app/caf\udce9",
+            {"mode": "644", "owner": "-", "group": "-", "type": "file", "meta": {}},
+        )
+    ]
+    arts = MULTI_ARTIFACT_FORMATS["debian"](entries)
+    assert b"opt/app/caf\xe9 opt/app\n" in arts["install"]
+
+
 @pytest.mark.parametrize(
     "path,expected",
     [
