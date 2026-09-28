@@ -2,10 +2,19 @@
 
 A match statement is written as an optional leading ``!`` (negate), zero or
 more inline tests ``(?name:arg)`` (or ``(?!name:arg)`` to invert a single
-test), and a trailing glob pattern, e.g.::
+test, whose ``arg`` cannot contain ``(``/``)``), and a trailing glob
+pattern, e.g.::
 
-    (?type:file)**/*.pyc        # every .pyc file
-    !(?meta:keep=1)**/tmp/**    # keep entries tagged keep=1 under tmp/
+    (?type:file)**/*.pyc            # every .pyc file, at any depth
+    !(?meta:keep=1)**/tmp/**        # keep entries tagged keep=1 under tmp/ ...
+    **/tmp/**                       # ... paired with a broader exclude
+
+``**`` as a whole segment matches zero or more path segments; a *trailing*
+``**`` (or a bare ``**``) matches one or more -- a directory's contents,
+never the directory itself. A relative glob matches at any depth; an
+absolute one is anchored at a root that differs per command (``install``:
+the source directory; ``scan``: ``<buildroot>/PATH``; ``dbdump``: ``/``, the
+DB key) -- see the exclude-pattern guide for the full per-command table.
 """
 
 from __future__ import annotations

@@ -89,10 +89,11 @@ pkgforge scan [--missing] [-X PATTERN] PATH
 ```
 
 `--missing` only fills in entries absent from the DB (leaving existing ones
-untouched); `-X/--exclude` skips matching paths. See
-[Exclude grammar](exclude.md). `scan` always records each entry's type from
-the file on disk; it has no `--type` option of its own. PATH must resolve
-inside `--buildroot`, the same as `install`'s DESTINATION.
+untouched); `-X/--exclude` skips matching paths and prunes an excluded
+directory's subtree (nothing below it is walked or recorded), the same as
+`install`. See [Exclude grammar](exclude.md). `scan` always records each
+entry's type from the file on disk; it has no `--type` option of its own.
+PATH must resolve inside `--buildroot`, the same as `install`'s DESTINATION.
 
 ## `compact`
 

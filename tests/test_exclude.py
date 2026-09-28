@@ -708,3 +708,60 @@ def test_exclude_help_shows_grammar(command):
     classes = {"install": Install, "scan": ScanCmd, "dbdump": DbDump}
     text = classes[command]._parser_().format_help()
     assert "[!][(?[!]test:arg)...]GLOB" in text
+
+
+# --------------------------------------------------------------------------
+# documented examples: the guide's own recipes actually work
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.posix
+def test_documented_install_example(tmp_path, cli):
+    build = tmp_path / "build"
+    (build / "keep").mkdir(parents=True)
+    (build / "keep" / "x.pyc").write_text("x")
+    (build / "sub").mkdir()
+    (build / "sub" / "y.pyc").write_text("x")
+    (build / "tmp").mkdir()
+    (build / "tmp" / "z").write_text("x")
+
+    root = tmp_path / "root"
+    db = tmp_path / "files.jsonl"
+
+    result = cli(
+        "--db",
+        str(db),
+        "--buildroot",
+        str(root),
+        "install",
+        "-p",
+        "-d",
+        "-X",
+        "**/*.pyc",
+        "-X",
+        "(?type:directory)**/tmp",
+        str(build),
+        "/opt/app",
+    )
+    assert result.rc == 0
+
+    staged = root / "opt" / "app" / "build"
+    assert not any(staged.rglob("*.pyc"))
+    assert not (staged / "tmp").exists()
+    assert (staged / "keep").exists()
+
+
+def test_keep_rule_needs_pair(make_entry):
+    # A "!" statement only ever keeps; alone it excludes nothing. Paired
+    # ahead of a broader exclude, it carves out entries tagged keep=1.
+    lone = PathMatch([PathMatchStmt.parse("!(?meta:keep=1)**/tmp/**")])
+    assert lone.match(Path("/opt/tmp/a"), make_entry(meta={})) is None
+
+    paired = PathMatch(
+        [
+            PathMatchStmt.parse("!(?meta:keep=1)**/tmp/**"),
+            PathMatchStmt.parse("**/tmp/**"),
+        ]
+    )
+    assert paired.match(Path("/opt/tmp/a"), make_entry(meta={"keep": "1"})) is False
+    assert paired.match(Path("/opt/tmp/a"), make_entry(meta={})) is True
