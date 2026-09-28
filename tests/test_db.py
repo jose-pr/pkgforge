@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -805,3 +807,131 @@ def test_compact_rewrites_flow_yaml_to_block(tmp_path, make_entry):
     db = open_db(path, "yaml", for_read=True).load()
     assert db["/usr/bin/x"]["mode"] == "0755"
     assert db["/new"] is not None
+
+
+# --------------------------------------------------------------------------
+# locked, atomic compaction of the append-log DBs
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("fmt", ["jsonl", "yaml"])
+def test_compact_failure_leaves_db_intact(tmp_path, monkeypatch, make_entry, fmt):
+    import pkgforge.db as dbmod
+
+    p = open_db(tmp_path / f"f.{fmt}", fmt)
+    p.init()
+    p.add("/keep", make_entry())
+    p.add("/gone", make_entry())
+    p.remove("/gone")
+    before = p.path.read_bytes()
+
+    def _raise(*a, **k):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(dbmod.os, "replace", _raise)
+
+    with pytest.raises(OSError):
+        p.compact()
+
+    assert p.path.read_bytes() == before
+    assert not any(name.endswith(".tmp") for name in os.listdir(tmp_path))
+    db = open_db(p.path, fmt, for_read=True).load()
+    assert db["/keep"] is not None
+    assert db["/gone"] is None
+
+
+@pytest.mark.posix
+@pytest.mark.parametrize("fmt", ["jsonl", "yaml"])
+def test_compact_keeps_mode_and_symlink(tmp_path, make_entry, fmt):
+    # Pin: this already held before the atomic-write fix (write_text follows
+    # a symlink too), and must keep holding after it.
+    real = tmp_path / f"real.{fmt}"
+    link = tmp_path / f"link.{fmt}"
+    p = open_db(real, fmt)
+    p.init()
+    p.add("/keep", make_entry())
+    p.add("/gone", make_entry())
+    p.remove("/gone")
+    os.chmod(real, 0o640)
+    link.symlink_to(real)
+
+    open_db(link, fmt).compact()
+
+    assert link.is_symlink()
+    assert stat.S_IMODE(real.stat().st_mode) == 0o640
+    db = open_db(link, fmt, for_read=True).load()
+    assert "/keep" in db
+    assert "/gone" not in db
+
+
+@pytest.mark.posix
+@pytest.mark.parametrize("fmt", ["jsonl", "yaml"])
+def test_compact_keeps_concurrent_append(tmp_path, monkeypatch, make_entry, fmt):
+    import pkgforge.db as dbmod
+
+    db_path = tmp_path / f"f.{fmt}"
+    p = open_db(db_path, fmt)
+    p.init()
+    p.add("/usr/a", make_entry())
+
+    ready = tmp_path / "ready"
+    script = (
+        "import pathlib\n"
+        "from pkgforge.db import open_db\n"
+        f"p = open_db(pathlib.Path({str(db_path)!r}), {fmt!r})\n"
+        f"pathlib.Path({str(ready)!r}).write_text('1')\n"
+        "p.add('/usr/b', {'mode': '644', 'owner': '-', 'group': '-', "
+        "'type': 'file', 'meta': {}})\n"
+    )
+    proc = subprocess.Popen(
+        [sys.executable, "-c", script],
+        env={**os.environ, "PYTHONPATH": str(SRC_DIR)},
+    )
+    provider_cls = dbmod.JsonlDb if fmt == "jsonl" else dbmod.YamlDb
+    real_load = provider_cls.load
+
+    def _waiting_load(self):
+        deadline = time.monotonic() + 10
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        time.sleep(0.5)
+        assert proc.poll() is None, "child appended before compact held the lock"
+        return real_load(self)
+
+    try:
+        monkeypatch.setattr(provider_cls, "load", _waiting_load)
+        open_db(db_path, fmt).compact()
+    finally:
+        monkeypatch.undo()  # this test's own final load() below must not re-trigger it
+        proc.wait(timeout=10)
+
+    db = open_db(db_path, fmt, for_read=True).load()
+    assert "/usr/a" in db
+    assert "/usr/b" in db
+
+
+def test_db_imports_without_fcntl(tmp_path):
+    # Pin: pkgforge.db must still import (and its locking helpers still
+    # work, unlocked) on an interpreter without fcntl (e.g. Windows).
+    db_path = tmp_path / "f.jsonl"
+    script = (
+        "import sys\n"
+        "sys.modules['fcntl'] = None\n"
+        "import pathlib\n"
+        "import pkgforge\n"
+        "from pkgforge.db import JsonlDb\n"
+        f"p = JsonlDb(pathlib.Path({str(db_path)!r}))\n"
+        "p.init()\n"
+        "p.add('/a', {'mode': '644', 'owner': '-', 'group': '-', 'type': 'file', 'meta': {}})\n"
+        "p.compact()\n"
+        "assert JsonlDb(p.path).load()['/a']['mode'] == '644'\n"
+        "print('OK')\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        env={**os.environ, "PYTHONPATH": str(SRC_DIR)},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "OK" in result.stdout.splitlines()

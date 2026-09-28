@@ -299,6 +299,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Appending to one now raises `DbError` instead of silently corrupting it;
   `pkgforge --db FILE compact` rewrites it in block style first.
 
+### Changed
+- `compact` (`jsonl`/`yaml`) now replaces the DB with a new inode (a temp
+  file renamed into place) instead of rewriting it in place. A `--db`
+  hardlinked elsewhere is detached from that hardlink by the next compact;
+  a symlinked `--db` keeps its link (the link's target is what gets
+  replaced), and the file's mode (and owner/group, best-effort) are carried
+  over unchanged.
+
+### Fixed
+- `compact` (`jsonl`/`yaml`) no longer truncates the DB before writing the
+  compacted result: a failure partway through (a full disk, a kill) now
+  leaves the original file completely unchanged instead of a torn or
+  emptied one.
+- `jsonl`/`yaml` writers (`install`, `scan`, `compact` itself) now serialize
+  through an advisory lock on the DB file, so running `compact` while
+  another pkgforge process is appending to the same DB no longer silently
+  drops the concurrent append.
+
 ## [0.1.2] - 2026-08-16
 
 ### Changed

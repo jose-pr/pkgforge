@@ -224,6 +224,13 @@ tree).
   (`format="sqlite"`, suffixes `.db`/`.sqlite`/`.sqlite3`, sniffed by the
   SQLite file magic) — a real upserted-in-place table, no append log
   (`compact()` drops removed rows + `VACUUM`s).
+  `JsonlDb`/`YamlDb` writes (`add`/`remove`/`init`) and `compact` serialize
+  on an advisory `flock` of the DB file (a no-op off POSIX), so running
+  `compact` alongside another pkgforge process appending to the same DB no
+  longer drops that append. `compact` replaces the file with a new inode (a
+  temp file written, fsynced and renamed into place) instead of truncating
+  it in place, so a failed write (`ENOSPC`, a kill) leaves the original file
+  untouched; a symlinked `--db` keeps its link, a hardlinked one is detached.
   `sqlite3` and PyYAML are both imported lazily (inside `SqliteDb._connect`
   and a private `_yaml_io()` respectively), not at module top: `import
   pkgforge`, `--help` and the `jsonl` backend all work on an interpreter

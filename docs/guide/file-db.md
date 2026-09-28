@@ -39,6 +39,14 @@ two records (the later wins) and a removal leaves a tombstone. The
 The `sqlite` backend upserts in place, so it never accumulates history (compact
 just reclaims space). `initdb` starts a fresh, empty DB in any backend.
 
+`compact` writes a temp file beside the DB and renames it into place, so the
+directory must be writable; a failure (a full disk, a kill) leaves the
+original DB unchanged instead of truncated or torn. On POSIX, writers
+(`install`, `scan`) and `compact` `flock` the DB file, so `compact` can run
+safely alongside another process appending to the same DB. A symlinked
+`--db` keeps its link (its target is what gets replaced); a hardlinked one
+is detached from the hardlink by the next compact.
+
 ## Adding a backend
 
 Backends are pluggable. A third-party package can register its own by
