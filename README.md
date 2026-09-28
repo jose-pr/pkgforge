@@ -127,7 +127,7 @@ pip install -e ".[dev,docs]"
 
 black src tests benchmarks      # format (Python 3.10+)
 pytest -q                       # tests
-python benchmarks/run.py        # benchmarks (add --save to record)
+python benchmarks/run.py        # benchmarks (add --save to record; see `benchmarks/README.md`)
 mkdocs serve                    # docs preview at http://127.0.0.1:8000
 ```
 

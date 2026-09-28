@@ -19,6 +19,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Building from source requires `hatchling` 1.27 or later.
 - The `docs` extra is bounded to mkdocs 1.x, mkdocs-material 9.x and mkdocstrings below 2.
 - `twine` and `hatchling` are no longer in the `dev` extra; install them directly if you used them from it.
+- `benchmarks/run.py` times the `scan` command end to end per DB backend
+  (`scan.cmd_jsonl`, `scan.cmd_yaml`, `scan.cmd_sqlite`, `scan.cmd_auto_owner`).
+  `scan.walk`, which timed only `os.walk`, is renamed `fs.walk_baseline`. The
+  result schema is documented in `benchmarks/README.md`.
 
 ### Added
 - Python 3.14 classifier.
