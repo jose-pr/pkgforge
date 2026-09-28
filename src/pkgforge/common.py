@@ -24,6 +24,7 @@ import enum
 import json
 import logging
 import os
+import stat
 import typing
 from pathlib import Path
 
@@ -201,16 +202,21 @@ def apply_entry(
     logger: typing.Optional[logging.Logger] = None,
     usedefault: str = DEFAULT,
 ) -> None:
-    """Apply ``entry``'s mode (and, if ``chown``, owner/group) to ``path``."""
+    """Apply ``entry``'s owner/group (if ``chown``) and then mode to ``path``.
+
+    Order matters: on Linux, ``chown()`` of a regular file clears any
+    setuid/setgid bit even when the owner doesn't change and even as root, so
+    chown runs first and mode is applied last (or, when the entry leaves mode
+    at ``usedefault``, the pre-chown special bits are restored). A symlink's
+    mode is never set on disk -- Linux ignores it -- but it is still recorded
+    in ``entry``.
+    """
     mode = entry["mode"]
     owner = entry["owner"]
     group = entry["group"]
 
-    if mode and mode != usedefault:
-        mode = int(mode, 8) if isinstance(mode, str) else mode
-        if logger:
-            logger.debug("Setting mode for %s to %o", path, mode)
-        os.chmod(path, mode, follow_symlinks=False)
+    is_symlink = stat.S_ISLNK(os.lstat(path).st_mode)
+    restore_mode = None
 
     if chown and (owner != usedefault or group != usedefault):
         if pwd is None or grp is None:
@@ -223,9 +229,38 @@ def apply_entry(
             gid = -1 if group == usedefault else grp.getgrnam(group).gr_gid
         except KeyError:
             raise UsageError(f"unknown group {group!r}") from None
+        if not is_symlink and (not mode or mode == usedefault):
+            # The entry isn't setting an explicit mode, so chown() below
+            # would otherwise silently drop any setuid/setgid/sticky bit
+            # already on disk; capture it here to restore below.
+            current = stat.S_IMODE(os.lstat(path).st_mode)
+            if current & (stat.S_ISUID | stat.S_ISGID | stat.S_ISVTX):
+                restore_mode = current
         if logger:
             logger.debug("Setting owner/group for %s to %s:%s", path, uid, gid)
         os.chown(path, uid, gid, follow_symlinks=False)
+
+    if mode and mode != usedefault:
+        if is_symlink:
+            if logger:
+                logger.debug("Not setting mode on symlink %s (Linux ignores it)", path)
+        else:
+            mode = int(mode, 8) if isinstance(mode, str) else mode
+            if logger:
+                logger.debug("Setting mode for %s to %o", path, mode)
+            if os.chmod in os.supports_follow_symlinks:
+                os.chmod(path, mode, follow_symlinks=False)
+            else:
+                # Plain chmod(2): every glibc supports this. Passing
+                # follow_symlinks=False here is unsupported on Linux for ANY
+                # path (not just symlinks) below glibc 2.32, and CPython
+                # refuses it outright (NotImplementedError) regardless of
+                # glibc version, since it never advertises the capability.
+                os.chmod(path, mode)
+    elif restore_mode is not None:
+        if logger:
+            logger.debug("Restoring mode %o for %s after chown", restore_mode, path)
+        os.chmod(path, restore_mode)
 
 
 # Runtime back-compat aliases: FileEntry values are plain dicts (it is a

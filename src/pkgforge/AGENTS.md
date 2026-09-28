@@ -67,9 +67,15 @@ tree).
     `path`.
   - **`apply_entry(entry: FileEntry, path: Path, chown: bool = False, *,
     logger: Optional[logging.Logger] = None, usedefault: str = "-") -> None`**
-    — `chmod` (unless `mode` is falsy or equals `usedefault`) and, if
-    `chown=True`, `chown` (raises `RuntimeError` if `pwd`/`grp` are
-    unavailable; raises `UsageError` for an unknown owner/group).
+    — if `chown=True`, `chown` first (raises `RuntimeError` if `pwd`/`grp` are
+    unavailable; raises `UsageError` for an unknown owner/group), then
+    `chmod` unless `mode` is falsy or equals `usedefault`. Chown runs before
+    chmod because Linux clears a regular file's setuid/setgid bit on any
+    `chown()`, even to the same owner; if `chown=True` and the entry leaves
+    `mode` at `usedefault`, any setuid/setgid/sticky bit already on disk is
+    restored after the chown. A symlink's mode is never set on disk (skipped
+    via `lstat`; Linux ignores it) — only its owner/group, and only its
+    recorded `entry["mode"]`, are unaffected by this.
 - **`FileEntryArgs(duho.Cmd)`** — CLI mixin supplying `--mode/-m`,
   `--group/-g`, `--owner/-o` (each default `"-"`), `--type/-t`
   (`Optional[FileType]`, default `None`), `-O/--meta KEY=VALUE` (repeatable,

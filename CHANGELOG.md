@@ -39,6 +39,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 - The wheel and sdist never include files named `*.local.*` or `CLAUDE*`, even when built from a tree without `.gitignore`.
 - `examples/stage_and_package.sh` is executable, so `./examples/stage_and_package.sh` runs in a fresh checkout.
+- `install -m` on a symlink, and any `install -m` on glibc older than 2.32
+  (e.g. RHEL/Rocky 8), no longer fails with `NotImplementedError`. A
+  symlink's mode is recorded but never applied on disk (Linux ignores it).
+- `--chown` no longer strips an existing setuid/setgid bit from the staged
+  file: owner/group are now applied before mode, and a setuid/setgid/sticky
+  bit already on disk is restored if the entry leaves mode at its default.
 
 ## [0.1.2] - 2026-08-16
 
