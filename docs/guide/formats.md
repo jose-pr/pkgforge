@@ -104,6 +104,34 @@ pkgforge dbdump -f debian -                # all three to stdout under "# === <n
     `install` in as a `debian/<pkg>.install` file and `dirs` in as a
     `debian/<pkg>.dirs` file (dumping straight into `debian/` writes plain
     `debian/install`/`debian/dirs`, which debhelper also reads for the
-    first binary package), and feed `permissions` to
-    `dpkg-statoverride` (or a `debian/rules` override) to pin ownership/modes
-    that `dh_fixperms` would otherwise normalize.
+    first binary package).
+
+    `install`'s sources are relative to the build root, and `dh_install`
+    looks for them only in the package directory and `debian/tmp`. Either
+    stage with `PKGFORGE_ROOT=debian/tmp`, or add an
+    `override_dh_install: dh_install --sourcedir=$(PKGFORGE_ROOT)` target to
+    `debian/rules`.
+
+    `permissions` is **not** `dpkg-statoverride` input -- that tool takes
+    `user group mode path` (a different field order) and rejects `-`, while
+    `permissions` writes `path mode owner group` and uses `-` for an
+    unpinned field (e.g. `/usr/share/tool/share 755 - -` for a directory
+    that pins only its mode). Packages also aren't supposed to
+    `dpkg-statoverride` files they ship themselves -- that tool is for the
+    local admin. Apply `permissions` instead from an `override_dh_fixperms`
+    target in `debian/rules`, parsing each line right-to-left (the path is
+    everything before the last three fields, so it may itself contain
+    spaces) and skipping a `-` field:
+
+    ```make
+    override_dh_fixperms:
+    	dh_fixperms
+    	while read -r line; do \
+    		mode=$${line##* }; rest=$${line% *}; \
+    		group=$${rest##* }; rest=$${rest% *}; \
+    		owner=$${rest##* }; path=$${rest% *}; \
+    		[ "$$mode" = - ] || chmod "$$mode" "debian/tool$$path"; \
+    		[ "$$owner" = - ] || chown "$$owner" "debian/tool$$path"; \
+    		[ "$$group" = - ] || chgrp "$$group" "debian/tool$$path"; \
+    	done < debian/permissions
+    ```

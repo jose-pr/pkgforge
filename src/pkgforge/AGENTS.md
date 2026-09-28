@@ -362,9 +362,12 @@ tree).
   `render(entries) -> {filename: bytes}`. Built in: `"debian"` — `install`
   (`dh_install`-style `<src> <dest-dir>` lines, non-directory entries only)
   + `permissions` (a pkgforge-specific `<path> <mode> <owner> <group>`
-  manifest, unescaped -- parse right-to-left, since the path may itself
-  contain spaces -- for only the entries that pin a non-default
-  mode/owner/group) + `dirs` (`dh_installdirs`-style dest-escaped lines, one
+  manifest -- **not** `dpkg-statoverride` input, which takes `user group
+  mode path` and rejects `-`; apply it instead from an
+  `override_dh_fixperms` target -- unescaped, `-` meaning "unpinned"; parse
+  right-to-left, since the path may itself contain spaces -- for only the
+  entries that pin a non-default mode/owner/group) + `dirs`
+  (`dh_installdirs`-style dest-escaped lines, one
   per directory entry, always written even when empty -- routed there and
   never through `install`, which would re-copy any children `--exclude`
   dropped -- so a directory recorded with no files under it, e.g. `install

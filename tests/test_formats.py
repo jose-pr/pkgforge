@@ -303,6 +303,15 @@ def test_debian_permissions_artifact():
     assert "/etc/tool -" not in perms
 
 
+def test_debian_permissions_partial_pin_placeholder():
+    # Guard: '-' means "unpinned", not a dpkg-statoverride value (that tool
+    # rejects '-' outright); a real consumer parses this right-to-left, via
+    # override_dh_fixperms, and must skip a '-' field.
+    entries = [_dir_entry("/usr/share/tool/share", mode="755")]
+    arts = MULTI_ARTIFACT_FORMATS["debian"](entries)
+    assert arts["permissions"].decode().strip() == "/usr/share/tool/share 755 - -"
+
+
 def _dir_entry(path, mode="-", owner="-", group="-"):
     return (
         path,

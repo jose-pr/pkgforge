@@ -31,6 +31,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   package (previously only `rpmspecfiles`' `%dir` covered it). `dbdump -f
   debian DIR` now also writes (and replaces) `DIR/dirs`, and `-` gains a
   `# === dirs ===` section.
+- The docs no longer call `debian`'s `permissions` `dpkg-statoverride`
+  input (that tool takes `user group mode path` and rejects `-`); they now
+  say how to apply it from an `override_dh_fixperms` target, and that
+  `dh_install`'s sources need `PKGFORGE_ROOT=debian/tmp` or
+  `--sourcedir=$(PKGFORGE_ROOT)`.
 
 ### Added
 - `pkgforge.dbdump.DumpError`, raised for a DB entry a dump format's own
