@@ -17,10 +17,13 @@ pkgforge initdb
 # stage binaries, config, and a whole tree
 pkgforge install -p -m 755 -o root -g root ./build/tool /usr/bin
 pkgforge install -p -m 640 -o root -g adm  ./config     /etc/tool
-pkgforge install -p -d -m 755 ./share /usr/share/tool
+pkgforge install -D -d -m 755 -o root -g root ./share /usr/share/tool
 
-# fill in any files that landed without an explicit entry
-pkgforge scan --missing /usr
+# fill in the tree's own contents -- never scan a directory the distro
+# owns (e.g. /usr or /etc): every directory scan records becomes an RPM
+# %dir claim, and a shared directory's mode/owner/group would conflict
+# with the one the distro's own package ships
+pkgforge scan --missing --mode=-- -o root -g root /usr/share/tool
 
 # emit packaging manifests
 pkgforge dbdump -f rpmspecfiles rpm-files.txt

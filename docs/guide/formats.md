@@ -21,6 +21,15 @@ Emits one RPM `%files` line per entry:
 Directories get a `%dir` prefix; an entry's `meta.rpmprefix` (e.g.
 `%config(noreplace)`) is prepended.
 
+!!! warning
+    Every directory entry becomes a `%dir` **ownership** claim -- the built
+    RPM installs that directory with the recorded mode/owner/group (or the
+    build root's own, if unset). Never `scan` a directory the distro itself
+    ships (`/usr`, `/usr/bin`, `/usr/share`, `/etc`, ...): if its mode/owner
+    differs from the distro package that already owns it (e.g. Fedora's
+    `filesystem` ships `/usr/bin` as `0555`), `rpm -U` refuses to install.
+    Scan only a directory your package owns.
+
 ```bash
 pkgforge dbdump -f rpmspecfiles files.txt
 pkgforge dbdump -f rpmspecfiles -          # to stdout

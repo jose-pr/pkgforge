@@ -122,17 +122,31 @@ for a regular-file source, being written through to wherever it points.
 
 ## `scan`
 
-Walk a path under the build root and record a `FileEntry` for each file.
+Walk a path under the build root and record a `FileEntry` for every
+directory and file **below** PATH -- never PATH itself.
 
 ```bash
-pkgforge scan [--missing] [-X PATTERN] PATH
+pkgforge scan [-m MODE] [-o OWNER] [-g GROUP] [--missing] [-X PATTERN] PATH
 ```
 
-`--missing` only fills in entries absent from the DB (leaving existing ones
-untouched); `-X/--exclude` skips matching paths and prunes an excluded
-directory's subtree (nothing below it is walked or recorded), the same as
-`install`. See [Exclude grammar](exclude.md). `scan` always records each
-entry's type from the file on disk; it has no `--type` option of its own.
+| Option | Meaning |
+| --- | --- |
+| `-m, --mode` | recorded on every entry as given; `-` (default) leaves it unset, `--`/`auto` (write it as `--mode=--` or `-m--` -- a detached `-m --` is read as end of options and exits 2) reads the on-disk mode |
+| `-o, --owner` / `-g, --group` | recorded on every entry as given; `-` (default) leaves it unset, `--` reads the on-disk owner/group name |
+| `--missing` | only fill in entries absent from the DB, leaving existing ones (e.g. ones `install` already recorded) untouched -- without it, scan replaces them |
+| `-X, --exclude PATTERN` | skip matching paths and prune an excluded directory's subtree (nothing below it is walked or recorded), the same as `install`; see [Exclude grammar](exclude.md) |
+
+`scan` always records each entry's type from the file on disk; it has no
+`--type` option of its own. `-m`/`-o`/`-g` default to `-` (unset), not the
+on-disk value -- pass `--mode=--`/`--owner=--`/`--group=--` to read them
+from disk instead. **Never scan a directory the distro itself owns** (e.g.
+`/usr`, `/usr/bin`, `/usr/share`, `/etc`): every directory scan walks
+becomes an RPM `%dir` claim in `rpmspecfiles`, and a shared directory's
+mode/owner/group there can conflict with the one the distro's own package
+ships (see [Dump formats](formats.md)). Narrow PATH to a directory your
+package alone owns, e.g. `scan --missing --mode=-- /usr/share/mypkg`, or
+stage that directory explicitly first (`install -D -d ...`).
+
 PATH must resolve inside `--buildroot`, the same as `install`'s DESTINATION.
 
 ## `compact`

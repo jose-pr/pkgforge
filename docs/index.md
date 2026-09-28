@@ -36,7 +36,8 @@ export PKGFORGE_ROOT=/tmp/stage PKGFORGE_DB=/tmp/files.jsonl
 
 pkgforge initdb
 pkgforge install -p -m 644 -o root -g root ./app.conf /etc
-pkgforge scan --missing /etc
+pkgforge install -D -d -m 755 -o root -g root ./share /usr/share/app
+pkgforge scan --missing --mode=-- -o root -g root /usr/share/app
 pkgforge dbdump -f rpmspecfiles -          # RPM %files to stdout
 pkgforge dbdump -f debian ./debian         # debian/install + permissions
 ```

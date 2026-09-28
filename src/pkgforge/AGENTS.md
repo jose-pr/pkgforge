@@ -374,18 +374,26 @@ above).
   source: with an archive source it raises `UsageError` (exit 2) instead
   of extracting every member unfiltered; with only file or symlink
   sources it logs a warning, since there is nothing to filter.
-- **`scan.ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd)`** (`pkgforge scan`) — walk a
-  path under the build root, recording an entry per file; `--missing` only
-  fills gaps not already in the DB. `--type/-t` is hidden from `--help` and
-  never applied (scan always records each path's own on-disk type); an
-  explicit value logs a warning instead of doing nothing silently. `-X`'s
+- **`scan.ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd)`** (`pkgforge scan`) — walk
+  PATH, recording an entry for every directory and file **below** it (never
+  PATH itself); `--missing` only fills gaps not already in the DB, else scan
+  replaces an existing entry (e.g. one `install` already recorded).
+  `-m`/`-o`/`-g` are recorded on every entry exactly as given: `-` (default)
+  leaves the field unset, `--`/`auto` (mode) or `--` (owner/group) reads the
+  on-disk value instead. `--type/-t` is hidden from `--help` and never
+  applied (scan always records each path's own on-disk type); an explicit
+  value logs a warning instead of doing nothing silently. `-X`'s
   `(?meta:k=v)` inline test sees this run's `-O` values, same as `install`;
   a FIFO or socket `scan` cannot record raises `PkgForgeError` naming the
   path and the `-X` remedy, unless a glob-only `-X` already excluded it
   first. `-X` prunes an excluded directory's subtree, like `install`
   (`os.walk`'s `dirs` is filtered in place); it does not descend into it,
   so nothing below it is recorded either. `--missing`'s "already in the
-  DB" skip still descends into a directory already recorded.
+  DB" skip still descends into a directory already recorded. Every
+  directory entry scan records becomes an RPM `%dir` ownership claim in
+  `rpmspecfiles` -- never scan a directory a distro package already owns
+  (`/usr`, `/usr/bin`, `/usr/share`, `/etc`); narrow PATH to a directory
+  your own package owns instead.
 - **`dbdump.DbDump(ExcludeArgs, PkgForgeCmd)`** (`pkgforge dbdump -f FORMAT [output]`) —
   render surviving (post-`--exclude`) DB entries via the format registry
   above.

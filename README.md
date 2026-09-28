@@ -37,7 +37,8 @@ export PKGFORGE_ROOT=/tmp/stage PKGFORGE_DB=/tmp/files.jsonl
 pkgforge initdb
 pkgforge install -p -m 755 -o root -g root ./build/tool /usr/bin
 pkgforge install -p -m 640 -o root -g adm  ./tool.conf  /etc
-pkgforge scan --missing /usr
+pkgforge install -D -d -m 755 -o root -g root ./share /usr/share/tool
+pkgforge scan --missing --mode=-- -o root -g root /usr/share/tool
 pkgforge dbdump -f rpmspecfiles rpm-files.txt
 pkgforge dbdump -f debian debian/
 ```
@@ -51,7 +52,7 @@ runnable end-to-end walkthrough.
 | --- | --- |
 | `initdb` | create or reset (truncate) the file DB |
 | `install [opts] SRC… DEST` | stage a source and record its entry |
-| `scan [opts] PATH` | walk a path and record an entry per file (`--missing` fills gaps) |
+| `scan [opts] PATH` | walk PATH, recording every file and directory below it (never PATH itself); fields default to `-` unless `--mode=--`/`--owner=--`/`--group=--` reads them from disk; replaces existing entries unless `--missing` |
 | `compact` | collapse an append-log DB to one record per live path |
 | `dbdump -f FORMAT [OUT]` | render the DB into a packaging manifest |
 

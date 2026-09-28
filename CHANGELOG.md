@@ -33,6 +33,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   with one message, not a traceback.
 
 ### Fixed
+- The README quick start, the docs landing page and the unattended guide no
+  longer run `scan --missing` over `/usr` or `/etc`: every directory a scan
+  walks becomes an RPM `%dir` ownership claim, and Fedora/RHEL's
+  `filesystem` package ships `/usr/bin` as `0555`, so the built RPM
+  conflicted with it and `rpm -U` refused to install. Pass `scan` only a
+  directory your own package owns.
 - `examples/stage_and_package.sh` stages its tree at `/usr/share/tool` and
   records its files.
 - A directory install whose source contains the build root, destination or
