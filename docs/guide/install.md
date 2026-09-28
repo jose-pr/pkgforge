@@ -11,8 +11,8 @@ pkgforge requires **Python 3.9+**. Its only runtime dependencies are
 ## Platform support
 
 pkgforge is a **Linux** tool: the `install`, `scan`, and metadata-apply paths
-use POSIX facilities — `os.chmod`, `os.chown`, symlinks, and hardlinks with
-`follow_symlinks=False`. The CLI itself (parsing, `--help`, the dump formats)
+use POSIX facilities — `os.chmod`, `os.chown` (with `follow_symlinks=False`),
+and symlinks. The CLI itself (parsing, `--help`, the dump formats)
 imports and runs on any platform, so you can develop and unit-test on Windows or
 macOS; the file-staging operations expect a POSIX filesystem.
 

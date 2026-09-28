@@ -56,8 +56,8 @@ Every command logs under its own logger, `pkgforge.<command>` (`pkgforge.install
   `--db` to `PKGFORGE_DB`; a missing DB reads as empty rather than erroring.
 - **Ownership is opt-in.** `install` records owner/group but only *applies* them
   with `--chown`, so an unprivileged build doesn't fail trying to `chown`.
-- **Version-agnostic hardlinks.** The file-install fast path uses `os.link`,
-  which works across every supported Python (unlike `Path.link_to` /
-  `Path.hardlink_to`, which changed across 3.10–3.12).
+- **Sources are never modified.** File sources are copied (`shutil.copy2`), so
+  `-m`/`--chown` never touch the source, and the build root may sit on any
+  filesystem (including a tmpfs `/tmp`).
 - **No external archiver required** for tar-family sources — stdlib `tarfile`
   handles them; `bsdtar` is only needed for other formats (e.g. `.iso`).

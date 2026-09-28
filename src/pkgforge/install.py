@@ -1,7 +1,7 @@
 """``install`` subcommand: stage a source into the build root + record its entry.
 
-This is the workhorse of an unattended build: it copies/links/extracts a
-source into place under the build root, applies the requested mode (and,
+This is the workhorse of an unattended build: it copies/extracts a source
+into place under the build root, applies the requested mode (and,
 optionally, ownership), and records the resulting :class:`FileEntry` in the DB.
 """
 
@@ -207,11 +207,10 @@ class Install(FileEntryArgs, PkgForgeCmd):
                         check=True,
                     )
             elif str(src) != DEFAULT:
-                # Hardlink src -> dst. os.link works on every supported Python
-                # (Path.link_to was removed in 3.12; Path.hardlink_to only
-                # exists from 3.10), so use the stdlib os call directly.
-                os.link(os.fspath(src), os.fspath(dst))
-                shutil.copystat(src, dst, follow_symlinks=False)
+                # Copy src -> dst. The staged file is independent of the
+                # source: -m/--chown apply to the copy only, and the source
+                # keeps its own content, mode and ownership.
+                shutil.copy2(os.fspath(src), os.fspath(dst))
             else:
                 self._logger_.info("Obtaining data from stdin")
                 with dst.open("wb") as output:

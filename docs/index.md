@@ -26,8 +26,8 @@ and emit that record for the packager.
 pip install pkgforge
 ```
 
-Requires Python 3.9+. Runtime targets Linux (it uses POSIX `chmod`/`chown`,
-symlinks, and hardlinks); the CLI and `--help` import cleanly on any platform.
+Requires Python 3.9+. Runtime targets Linux (it uses POSIX `chmod`/`chown` and
+symlinks); the CLI and `--help` import cleanly on any platform.
 
 ## At a glance
 

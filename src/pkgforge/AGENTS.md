@@ -277,9 +277,9 @@ value as of import. An empty value counts as unset for all three.
   keeps only the last record per path. Call `compact()` (or `pkgforge
   compact`) to reclaim space / drop history. `sqlite` has no log to compact
   beyond dropping removed rows.
-- Hardlink install uses `os.link` rather than `Path.link_to`/`hardlink_to`
-  for full Python 3.9–3.13 coverage (`link_to` was removed in 3.12,
-  `hardlink_to` only exists from 3.10).
+- File sources are copied (`shutil.copy2`), never linked: `-m`/`--chown`
+  apply to the staged copy only, and the source keeps its original content,
+  mode and ownership.
 - `chown` (owner/group) requires the Unix `pwd`/`grp` stdlib modules; both
   import guarded to `None` off POSIX, so `.apply(chown=True, ...)` raises
   `RuntimeError` there. Parser/`--help` construction still works everywhere.

@@ -7,6 +7,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- `install` copies file sources instead of hardlinking them: `-m`/`--chown`
+  no longer change the source, and a build root on another filesystem (e.g.
+  a tmpfs `/tmp`) or a source the caller doesn't own no longer fails.
+  `-o --`/`-g --` (AUTO) now record the staged copy's owner, not the
+  source's.
 - `--help` describes every option, names the `PKGFORGE_*` variables and the
   DB and dump formats, and no longer shows developer notes.
 - An unknown `--db-format` or `PKGFORGE_DB_FORMAT` exits 2 with one line

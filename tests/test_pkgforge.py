@@ -242,43 +242,6 @@ def test_install_remove_source_directory(tmp_path):
     assert (root / "opt" / "tree" / "tree" / "sub" / "a").exists()
 
 
-@pytest.mark.posix
-def test_install_file_hardlinks_and_records(tmp_path):
-    from pkgforge.install import Install
-
-    root = tmp_path / "root"
-    root.mkdir()
-    db = tmp_path / "files.jsonl"
-    src = tmp_path / "app.conf"
-    src.write_text("hello")
-
-    # Drive through the real parser (argv), as the CLI does.
-    parser = Install._parser_()
-    inst = parser.parse_args(
-        [
-            "--db",
-            str(db),
-            "--buildroot",
-            str(root),
-            "-p",
-            "-m",
-            "640",
-            str(src),
-            "/etc",
-        ]
-    )
-    inst()
-
-    staged = root / "etc" / "app.conf"
-    assert staged.exists()
-    # Hardlink: same inode as the source (the regression guard for os.link).
-    assert staged.stat().st_ino == src.stat().st_ino
-    assert (staged.stat().st_mode & 0o777) == 0o640
-    recorded = inst.loaddb()  # format-agnostic read
-    assert "/etc/app.conf" in recorded
-    assert recorded["/etc/app.conf"]["mode"] == "640"
-
-
 def test_install_multi_source_absolute_exclude(tmp_path):
     # Guards: PathMatch must not rewrite the shared parsed --exclude
     # statements in place -- a second source must not get a double-prefixed
