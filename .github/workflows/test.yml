@@ -13,6 +13,11 @@ on:
         description: "Git ref to test (branch, tag, or SHA)"
         required: false
         default: ""
+      benchmark:
+        description: "Also run the benchmark suite"
+        type: boolean
+        required: false
+        default: false
   push:
     tags:
       - "ci-*"
@@ -161,13 +166,16 @@ jobs:
 
   benchmark:
     # Perf numbers for release notes come from here, not from a developer laptop.
-    # Single fixed runner + interpreter so results stay comparable across runs.
+    # Single fixed runner; floor + newest interpreter, so results stay comparable
+    # across runs. Only on request: a manual dispatch with benchmark=true, never
+    # on a plain dispatch or a ci-* verification tag.
     name: Benchmark (py${{ matrix.python-version }}, ubuntu)
     runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.benchmark
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.13"]
+        python-version: ["3.9", "3.14"]
     steps:
       - uses: actions/checkout@v4
         with:
