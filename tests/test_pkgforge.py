@@ -537,13 +537,15 @@ def test_glob_match(make_entry):
 def test_type_test(make_entry):
     m = PathMatch([PathMatchStmt.parse("(?type:directory)**")])
     assert m.match(Path("/a"), make_entry(type=FileType.Directory)) is True
-    assert m.match(Path("/a"), make_entry(type=FileType.File)) in (None, False)
+    # A statement whose inline test fails does not apply: None, never False --
+    # False would veto every later statement.
+    assert m.match(Path("/a"), make_entry(type=FileType.File)) is None
 
 
 def test_meta_test(make_entry):
     m = PathMatch([PathMatchStmt.parse("(?meta:keep=1)**")])
     assert m.match(Path("/a"), make_entry(meta={"keep": "1"})) is True
-    assert m.match(Path("/a"), make_entry(meta={"keep": "0"})) in (None, False)
+    assert m.match(Path("/a"), make_entry(meta={"keep": "0"})) is None
 
 
 def test_inverted_type_test(make_entry):
@@ -552,8 +554,8 @@ def test_inverted_type_test(make_entry):
     m = PathMatch([PathMatchStmt.parse("(?!type:file)**")])
     # A directory is NOT a file -> inverted test passes -> match True.
     assert m.match(Path("/a"), make_entry(type=FileType.Directory)) is True
-    # A file IS a file -> inverted test fails.
-    assert m.match(Path("/a"), make_entry(type=FileType.File)) in (None, False)
+    # A file IS a file -> inverted test fails: None, never False.
+    assert m.match(Path("/a"), make_entry(type=FileType.File)) is None
 
 
 def test_negated_statement(make_entry):
