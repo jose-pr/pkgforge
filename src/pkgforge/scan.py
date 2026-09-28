@@ -54,11 +54,21 @@ class ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
         "'--', else '-'. -m/--mode never applies to a directory or a symlink"
     )
     ("--dir-mode",)
+    drop_stale: bool = False
+    (
+        "after scanning, remove (tombstone) each DB entry below PATH whose "
+        "file is gone from the build root; an entry matching -X is kept "
+        "(protects a deliberately-absent entry, e.g. an RPM %ghost). "
+        "Needs a --db file"
+    )
+    ("--drop-stale",)
     path: str
     "path under the build root to scan"
     ("path",)
 
     def __call__(self):
+        if self.drop_stale and self._no_file_db():
+            raise UsageError("--drop-stale needs a --db file (not unset or '-')")
         if self.type not in (None, AUTO):
             self._logger_.warning(
                 "scan records each path's on-disk type; --type is ignored"
@@ -192,6 +202,33 @@ class ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
                     _scanfile(Path(top, file))
 
         self._logger_.info("Scanned %s: %d path(s) recorded", scanpath, recorded)
+
+        if self.drop_stale:
+            # Reload from disk regardless of --missing (the walk's own `db`
+            # is {} without it): drop-stale reasons about the DB's current
+            # state, not what the walk happened to see in memory.
+            dropdb = self.loaddb()
+            scan_buildpath = os.fspath(self.buildpath(scanpath))
+            prefix = scan_buildpath if scan_buildpath == "/" else scan_buildpath + "/"
+            dropped = 0
+            for key, entry in dropdb.items():
+                if entry is None or key == scan_buildpath or not key.startswith(prefix):
+                    continue
+                real_path = self.localpath(key)
+                if self.exclude and filter.match(real_path, entry=entry):
+                    self._logger_.debug("Keeping excluded stale entry: %s", key)
+                    continue
+                if os.path.lexists(real_path):
+                    continue
+                self._logger_.debug("Dropping stale entry for: %s", key)
+                self.remove_entry(key)
+                dropped += 1
+            self._logger_.info(
+                "Dropped %d stale entr%s below %s",
+                dropped,
+                "y" if dropped == 1 else "ies",
+                scanpath,
+            )
 
 
 ScanCmd._register()

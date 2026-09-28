@@ -414,7 +414,13 @@ above).
   sidecars) if found inside the scanned tree -- it logs one WARNING (DEBUG
   for any further match in the same run) and moves on; it cannot recognize
   a `dbdump` OUTPUT file written there earlier, so keep both outside
-  `--buildroot`.
+  `--buildroot`. `--drop-stale` reloads the DB after the walk (independent
+  of `--missing`) and removes (tombstones) every non-removed key strictly
+  below PATH whose `localpath` no longer exists on disk, skipping a key
+  that matches `-X` (so a deliberately-absent entry, e.g. an RPM `%ghost`,
+  can be protected) -- never touches disk itself, and raises `UsageError`
+  when `--db` is unset or `-`. `--missing` is unaffected: a tombstoned path
+  still counts as absent and is re-added if its file exists.
 - **`dbdump.DbDump(ExcludeArgs, PkgForgeCmd)`** (`pkgforge dbdump -f FORMAT [output]`) —
   render surviving (post-`--exclude`) DB entries via the format registry
   above.

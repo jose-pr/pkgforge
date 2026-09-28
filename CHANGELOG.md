@@ -38,6 +38,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   exist there; escaping members or links, and device nodes or FIFOs, exit 1
   with one message, not a traceback.
 
+### Added
+- `scan --drop-stale` records a removal for each DB entry below PATH whose
+  file is gone from the build root, so `dbdump` stops listing deleted
+  files. Entries matching `-X` are kept. Needs a `--db` file.
+
 ### Fixed
 - `scan` no longer records the file DB (or a SQLite DB's
   `-journal`/`-wal`/`-shm` sidecars) found inside the scanned tree, and

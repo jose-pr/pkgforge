@@ -635,3 +635,169 @@ def test_scan_dir_mode_auto_sentinel(tmp_path, cli):
     )
     recorded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
     assert recorded["/usr/share/app/sub"]["mode"] == "750"
+
+
+# --------------------------------------------------------------------------
+# scan --drop-stale tombstones a DB entry whose file is gone from the build
+# root, bounded to PATH and honoring -X.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.posix
+@pytest.mark.parametrize(
+    "fmt,ext", [("jsonl", "jsonl"), ("yaml", "yaml"), ("sqlite", "db")]
+)
+def test_scan_drop_stale_tombstones_deleted(tmp_path, cli, fmt, ext):
+    root = tmp_path / "root"
+    (root / "usr" / "share" / "app").mkdir(parents=True)
+    (root / "usr" / "share" / "app" / "a").write_text("x")
+    (root / "usr" / "share" / "app" / "b").write_text("y")
+    db = tmp_path / f"files.{ext}"
+
+    assert (
+        cli(
+            "--db",
+            str(db),
+            "--db-format",
+            fmt,
+            "--buildroot",
+            str(root),
+            "scan",
+            "/usr/share/app",
+        ).rc
+        == 0
+    )
+    (root / "usr" / "share" / "app" / "b").unlink()
+
+    assert (
+        cli(
+            "--db",
+            str(db),
+            "--db-format",
+            fmt,
+            "--buildroot",
+            str(root),
+            "scan",
+            "--drop-stale",
+            "/usr/share/app",
+        ).rc
+        == 0
+    )
+
+    a_key, b_key = "/usr/share/app/a", "/usr/share/app/b"
+    loaded = PkgForgeCmd(db=db, db_format=fmt, buildroot=root).loaddb()
+    assert loaded[b_key] is None
+    assert loaded[a_key] is not None
+
+    lines = {
+        path: rpmspecfile(path, entry).decode()
+        for path, entry in loaded.items()
+        if entry is not None
+    }
+    assert b_key not in lines
+    assert a_key in lines
+
+
+@pytest.mark.posix
+def test_scan_drop_stale_bounded_to_path(tmp_path, cli):
+    root = tmp_path / "root"
+    (root / "usr" / "share" / "app").mkdir(parents=True)
+    (root / "usr" / "share" / "app" / "a").write_text("x")
+    (root / "usr" / "bin").mkdir(parents=True)
+    (root / "usr" / "bin" / "tool").write_text("y")
+    db = tmp_path / "files.jsonl"
+
+    assert cli("--db", str(db), "--buildroot", str(root), "scan", "/usr").rc == 0
+    (root / "usr" / "bin" / "tool").unlink()
+
+    assert (
+        cli(
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "scan",
+            "--drop-stale",
+            "/usr/share/app",
+        ).rc
+        == 0
+    )
+
+    loaded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    # /usr/bin/tool's file is gone too, but it's outside the drop-stale
+    # PATH, so its entry is left alone.
+    assert loaded["/usr/bin/tool"] is not None
+    assert loaded["/usr/share/app/a"] is not None
+
+
+@pytest.mark.posix
+def test_scan_drop_stale_keeps_excluded(tmp_path, cli):
+    root = tmp_path / "root"
+    (root / "usr" / "share" / "app").mkdir(parents=True)
+    (root / "usr" / "share" / "app" / "a").write_text("x")
+    (root / "usr" / "share" / "app" / "ghost").write_text("y")
+    db = tmp_path / "files.jsonl"
+
+    assert (
+        cli("--db", str(db), "--buildroot", str(root), "scan", "/usr/share/app").rc == 0
+    )
+    (root / "usr" / "share" / "app" / "ghost").unlink()
+
+    assert (
+        cli(
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "scan",
+            "--drop-stale",
+            "-X",
+            "*ghost",
+            "/usr/share/app",
+        ).rc
+        == 0
+    )
+
+    loaded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    assert loaded["/usr/share/app/ghost"] is not None
+    assert loaded["/usr/share/app/a"] is not None
+
+
+def test_scan_drop_stale_needs_file_db(tmp_path, cli):
+    root = tmp_path / "root"
+    root.mkdir()
+
+    result = cli("--buildroot", str(root), "scan", "--drop-stale", "/")
+    assert result.rc == 2
+
+
+@pytest.mark.posix
+def test_scan_missing_readds_removed_file(tmp_path, cli):
+    # Regression guard: --missing's own "not yet recorded" rule is
+    # unaffected by --drop-stale -- a tombstoned path is still re-added.
+    root = tmp_path / "root"
+    (root / "usr" / "share" / "app").mkdir(parents=True)
+    (root / "usr" / "share" / "app" / "a").write_text("x")
+    db = tmp_path / "files.jsonl"
+
+    assert (
+        cli("--db", str(db), "--buildroot", str(root), "scan", "/usr/share/app").rc == 0
+    )
+    PkgForgeCmd(db=db, db_format=None, buildroot=root).remove_entry("/usr/share/app/a")
+    loaded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    assert loaded["/usr/share/app/a"] is None
+
+    assert (
+        cli(
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "scan",
+            "--missing",
+            "/usr/share/app",
+        ).rc
+        == 0
+    )
+    loaded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    assert loaded["/usr/share/app/a"] is not None

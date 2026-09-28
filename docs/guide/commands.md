@@ -131,7 +131,7 @@ Walk a path under the build root and record a `FileEntry` for every
 directory and file **below** PATH -- never PATH itself.
 
 ```bash
-pkgforge scan [-m MODE] [--dir-mode MODE] [-o OWNER] [-g GROUP] [--missing] [-X PATTERN] PATH
+pkgforge scan [-m MODE] [--dir-mode MODE] [-o OWNER] [-g GROUP] [--missing] [--drop-stale] [-X PATTERN] PATH
 ```
 
 | Option | Meaning |
@@ -139,8 +139,9 @@ pkgforge scan [-m MODE] [--dir-mode MODE] [-o OWNER] [-g GROUP] [--missing] [-X 
 | `-m, --mode` | recorded on every **file** entry as given; `-` (default) leaves it unset, `--`/`auto` (write it as `--mode=--` or `-m--` -- a detached `-m --` is read as end of options and exits 2) reads the on-disk mode. Never applies to a directory or a symlink |
 | `--dir-mode` | recorded on every **directory** entry instead of `-m`; same 1-4-octal-digit/`-`/`--`/`auto` grammar. Default: `--` (from disk) when `-m`/`--mode` is itself `--`, else `-` -- an explicit `-m` value is never inherited by directories |
 | `-o, --owner` / `-g, --group` | recorded on every entry (file, directory or symlink) as given; `-` (default) leaves it unset, `--` reads the on-disk owner/group name |
-| `--missing` | only fill in entries absent from the DB, leaving existing ones (e.g. ones `install` already recorded) untouched -- without it, scan replaces them |
-| `-X, --exclude PATTERN` | skip matching paths and prune an excluded directory's subtree (nothing below it is walked or recorded), the same as `install`; see [Exclude grammar](exclude.md) |
+| `--missing` | only fill in entries absent from the DB, leaving existing ones (e.g. ones `install` already recorded) untouched -- without it, scan replaces them. A path whose entry was previously removed (e.g. by `--drop-stale`) is treated as absent and re-added if the file is still (or again) on disk; use `-X` to keep such a path out for good |
+| `--drop-stale` | after scanning, remove (tombstone) each DB entry below PATH whose file is no longer on disk, so `dbdump` stops listing it. An entry matching `-X` is kept even if its file is gone (protects a deliberately-absent entry, e.g. an RPM `%ghost`). Needs a real `--db` file (exits 2 for an unset or `-` DB); never touches disk, only the DB |
+| `-X, --exclude PATTERN` | skip matching paths and prune an excluded directory's subtree (nothing below it is walked or recorded), the same as `install`; also protects a matching entry from `--drop-stale` |
 
 `scan` always records each entry's type from the file on disk; it has no
 `--type` option of its own. A symlink's mode is always recorded as `-`,
