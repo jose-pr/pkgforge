@@ -19,6 +19,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 - The wheel and sdist never include files named `*.local.*` or `CLAUDE*`, even when built from a tree without `.gitignore`.
+- `examples/stage_and_package.sh` is executable, so `./examples/stage_and_package.sh` runs in a fresh checkout.
 
 ## [0.1.2] - 2026-08-16
 
