@@ -120,8 +120,12 @@ def measure():
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Run pkgforge benchmarks")
-    ap.add_argument("--save", action="store_true", help="write result to benchmarks/results/")
-    ap.add_argument("--name", default=None, help="result name (default pkgforge-<ver>-py<ver>)")
+    ap.add_argument(
+        "--save", action="store_true", help="write result to benchmarks/results/"
+    )
+    ap.add_argument(
+        "--name", default=None, help="result name (default pkgforge-<ver>-py<ver>)"
+    )
     args = ap.parse_args(argv)
 
     version = getattr(pkgforge, "__version__", "0")
@@ -150,7 +154,9 @@ def main(argv=None):
     print(f"{name}  ({result['python']} on {result['processor']})")
     print(f"{'metric':20s} {'median':>10s} {'min':>10s} {'max':>10s}   (ms/call)")
     for key, m in metrics.items():
-        print(f"{key:20s} {m['median_ms']:10.4f} {m['min_ms']:10.4f} {m['max_ms']:10.4f}")
+        print(
+            f"{key:20s} {m['median_ms']:10.4f} {m['min_ms']:10.4f} {m['max_ms']:10.4f}"
+        )
 
     if args.save:
         dest = Path(__file__).resolve().parent / "results"

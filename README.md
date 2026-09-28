@@ -125,6 +125,7 @@ git clone https://github.com/jose-pr/pkgforge && cd pkgforge
 python -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev,docs]"
 
+black src tests benchmarks      # format (Python 3.10+)
 pytest -q                       # tests
 python benchmarks/run.py        # benchmarks (add --save to record)
 mkdocs serve                    # docs preview at http://127.0.0.1:8000

@@ -93,7 +93,9 @@ def _debian_artifacts(entries: "Entries") -> "typing.Dict[str, bytes]":
 PER_ENTRY_FORMATS: "typing.Dict[str, PerEntryDumper]" = {"rpmspecfiles": rpmspecfile}
 
 #: Multi-artifact formats: name -> (entries -> {filename: bytes}).
-MULTI_ARTIFACT_FORMATS: "typing.Dict[str, typing.Callable[[Entries], typing.Dict[str, bytes]]]" = {
+MULTI_ARTIFACT_FORMATS: (
+    "typing.Dict[str, typing.Callable[[Entries], typing.Dict[str, bytes]]]"
+) = {
     "debian": _debian_artifacts,
 }
 

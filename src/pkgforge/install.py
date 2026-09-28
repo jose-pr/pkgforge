@@ -157,7 +157,11 @@ class Install(FileEntryArgs, PkgForgeCmd):
         self._logger_.info(
             "Installing %s at %s", DEFAULT if src is None else src, self.buildpath(dst)
         )
-        if dst.exists() and src not in [DEFAULT, None] and src.resolve() == dst.resolve():
+        if (
+            dst.exists()
+            and src not in [DEFAULT, None]
+            and src.resolve() == dst.resolve()
+        ):
             return
         if self.type == FileType.File:
             dst.unlink(True)

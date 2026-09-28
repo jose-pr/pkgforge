@@ -94,7 +94,13 @@ def _entries():
     return [
         (
             "/usr/bin/tool",
-            {"mode": "755", "owner": "root", "group": "root", "type": "file", "meta": {}},
+            {
+                "mode": "755",
+                "owner": "root",
+                "group": "root",
+                "type": "file",
+                "meta": {},
+            },
         ),
         (
             "/etc/tool",
@@ -102,7 +108,13 @@ def _entries():
         ),
         (
             "/etc/tool/conf",
-            {"mode": "640", "owner": "root", "group": "adm", "type": "file", "meta": {}},
+            {
+                "mode": "640",
+                "owner": "root",
+                "group": "adm",
+                "type": "file",
+                "meta": {},
+            },
         ),
     ]
 

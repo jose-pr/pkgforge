@@ -250,9 +250,17 @@ class _TsvDb(DbProvider):
             if not line or line.startswith("#"):
                 continue
             path, mode = line.split("\t")
-            db[path] = None if mode == "-" else {
-                "mode": mode, "owner": "-", "group": "-", "type": "file", "meta": {}
-            }
+            db[path] = (
+                None
+                if mode == "-"
+                else {
+                    "mode": mode,
+                    "owner": "-",
+                    "group": "-",
+                    "type": "file",
+                    "meta": {},
+                }
+            )
         return db
 
     def add(self, path, entry):

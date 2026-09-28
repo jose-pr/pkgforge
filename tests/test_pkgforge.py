@@ -403,7 +403,8 @@ def test_add_and_load_db_roundtrip(tmp_path):
 def test_remove_entry_marks_none(tmp_path):
     cmd = _cmd(tmp_path)
     cmd.add_entry(
-        "/a", {"mode": "644", "owner": "-", "group": "-", "type": FileType.File, "meta": {}}
+        "/a",
+        {"mode": "644", "owner": "-", "group": "-", "type": FileType.File, "meta": {}},
     )
     cmd.remove_entry("/a")
     db = cmd.loaddb()
@@ -426,9 +427,15 @@ def test_compact_command(tmp_path):
     seed.db = db
     seed.db_format = None
     seed.buildroot = tmp_path
-    seed.add_entry("/x", {"mode": "644", "owner": "-", "group": "-", "type": "file", "meta": {}})
-    seed.add_entry("/x", {"mode": "600", "owner": "-", "group": "-", "type": "file", "meta": {}})
-    seed.add_entry("/y", {"mode": "644", "owner": "-", "group": "-", "type": "file", "meta": {}})
+    seed.add_entry(
+        "/x", {"mode": "644", "owner": "-", "group": "-", "type": "file", "meta": {}}
+    )
+    seed.add_entry(
+        "/x", {"mode": "600", "owner": "-", "group": "-", "type": "file", "meta": {}}
+    )
+    seed.add_entry(
+        "/y", {"mode": "644", "owner": "-", "group": "-", "type": "file", "meta": {}}
+    )
     seed.remove_entry("/y")
     assert len([l for l in db.read_text().splitlines() if l.strip()]) == 4
 
@@ -508,13 +515,19 @@ def test_nonmatching_recursive_dir_statement_falls_through():
     # statement. It must fall through (None) so statement 2 gets to decide.
     from pathlib import Path
 
-    stmts = [PathMatchStmt.parse("**/*.pyc"), PathMatchStmt.parse("(?type:directory)**/tmp")]
+    stmts = [
+        PathMatchStmt.parse("**/*.pyc"),
+        PathMatchStmt.parse("(?type:directory)**/tmp"),
+    ]
     m = PathMatch(stmts)
     assert m.match(Path("/a/tmp"), _entry(type=FileType.Directory)) is True
     # Order must not matter for these non-overlapping statements.
-    assert PathMatch(list(reversed(stmts))).match(
-        Path("/a/tmp"), _entry(type=FileType.Directory)
-    ) is True
+    assert (
+        PathMatch(list(reversed(stmts))).match(
+            Path("/a/tmp"), _entry(type=FileType.Directory)
+        )
+        is True
+    )
 
 
 def test_single_nonmatching_recursive_dir_still_keeps():
@@ -576,7 +589,13 @@ def test_rpmspecfile_dir_prefix():
 
     line = rpmspecfile(
         "/etc/app",
-        {"mode": "755", "owner": "root", "group": "root", "type": "directory", "meta": {}},
+        {
+            "mode": "755",
+            "owner": "root",
+            "group": "root",
+            "type": "directory",
+            "meta": {},
+        },
     )
     assert line.startswith(b"%dir ")
 

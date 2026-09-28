@@ -6,6 +6,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- The `dev` extra installs `black` on Python 3.10 and later.
+
 ## [0.1.2] - 2026-08-16
 
 ### Changed
