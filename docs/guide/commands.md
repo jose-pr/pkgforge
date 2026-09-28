@@ -20,11 +20,8 @@ Global flags work either before or after the subcommand
 environment variable (e.g. `PKGFORGE_DB_FORMAT=""`, as a CI pipeline commonly
 exports an unset input) counts as unset, same as leaving it out.
 
-**Exit status**: `0` success; `2` a usage mistake (a bad or missing argument
-value, e.g. a missing source or an unknown `--chown` owner); `1` any other
-failure (including a closed output pipe, e.g. `pkgforge dbdump ... | head`).
-On failure, one `pkgforge: error: ...` line goes to stderr; set
-`DUHO_TRACEBACK=1` to also print the traceback.
+See [Exit codes and completion](unattended.md#exit-codes-and-completion) for
+the exit-status contract and how to install shell completion.
 
 ## `initdb`
 

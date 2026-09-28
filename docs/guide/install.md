@@ -4,9 +4,11 @@
 pip install pkgforge
 ```
 
-pkgforge requires **Python 3.9+**. Its only runtime dependencies are
-[duho](https://pypi.org/project/duho/) (the CLI framework) and
-[PyYAML](https://pypi.org/project/pyyaml/) (the file DB format).
+pkgforge requires **Python 3.9+**. Its runtime dependencies, as declared in
+`pyproject.toml`, are [duho](https://pypi.org/project/duho/)`>=0.6.0,<0.7`
+(the CLI framework) and [PyYAML](https://pypi.org/project/pyyaml/)`>=6.0,<7`
+(for the `yaml` DB backend; JSON Lines, the default backend, needs no
+third-party parser).
 
 ## Platform support
 

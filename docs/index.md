@@ -2,8 +2,9 @@
 
 **pkgforge** stages files into a *build root* and records their intended
 install metadata — mode, owner, group, type, and free-form key/value `meta` — in
-a YAML *file DB*. That DB can then be dumped into packaging manifests such as an
-RPM `%files` list or Debian `install` + `permissions` + `dirs` files.
+a *file DB* (JSON Lines by default; YAML or SQLite backends). That DB can then
+be dumped into packaging manifests such as an RPM `%files` list or Debian
+`install` + `permissions` + `dirs` files.
 
 It is a small, dependency-light helper for unattended build pipelines on Linux:
 install a source into place, remember how it should be owned and permissioned,
@@ -18,7 +19,8 @@ and emit that record for the packager.
 - **Pythonic and portable.** Tar-family archives extract via stdlib `tarfile`
   (no external binary); `bsdtar` is only a fallback for formats it can't handle.
 - **Built on [duho](https://github.com/jose-pr/duho).** A declarative CLI with
-  `--version`, shell completion, and layered configuration for free.
+  `--version`, shell completion, and `PKGFORGE_*` environment-variable
+  defaults for free.
 
 ## Install
 

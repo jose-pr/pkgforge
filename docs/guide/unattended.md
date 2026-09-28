@@ -51,6 +51,28 @@ Every command logs under its own logger, `pkgforge.<command>` (`pkgforge.install
   whether stderr is a terminal, so output redirected to a file or a CI log is
   always plain text.
 
+## Exit codes and completion
+
+`pkgforge`'s exit codes: `0` success; `2` a usage mistake (a bad or missing
+argument value, e.g. a missing source or an unknown `--chown` owner); `1` any
+other failure, including a closed output pipe (e.g. `pkgforge dbdump ... |
+head`). On a `1` or `2`, one `pkgforge: error: ...` line goes to stderr, no
+traceback. Set `DUHO_TRACEBACK=1` (duho's boolean tokens: `1`/`true`/`yes`/
+`on`; `0`/`false`/`no`/`off`/`n`/`f` are off) to also print the traceback
+before that line.
+
+Install shell completion by writing `pkgforge --print-completion <shell>`
+where the shell looks for it:
+
+```sh
+# bash: user-local (or /etc/bash_completion.d/pkgforge for a system install)
+pkgforge --print-completion bash > ~/.local/share/bash-completion/completions/pkgforge
+# fish
+pkgforge --print-completion fish > ~/.config/fish/completions/pkgforge.fish
+# zsh: anywhere on $fpath, named _pkgforge
+pkgforge --print-completion zsh > "${fpath[1]}/_pkgforge"
+```
+
 ## Design notes for unattended use
 
 - **No prompts.** Commands never wait for input. A `-` source reads stdin to
