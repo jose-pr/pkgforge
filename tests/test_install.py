@@ -1422,3 +1422,35 @@ def test_install_missing_parent_without_p_exits_2(tmp_path, cli):
     assert "-p" in lines[0]
     assert not (root / "missingdir").exists()
     assert not list(root.glob("**/*.pkgforge-tmp"))
+
+
+# --------------------------------------------------------------------------
+# -d conflicts with -t
+# --------------------------------------------------------------------------
+
+
+def test_install_d_conflicts_with_type(tmp_path):
+    # x-plat: a declared duho conflicts= group, enforced by argparse itself
+    # before Install is ever constructed.
+    root = tmp_path / "root"
+    root.mkdir()
+    src = tmp_path / "a.txt"
+    src.write_text("plain")
+
+    parser = Install._parser_()
+    with pytest.raises(SystemExit) as excinfo:
+        parser.parse_args(
+            [
+                "--db",
+                str(tmp_path / "files.jsonl"),
+                "--buildroot",
+                str(root),
+                "-d",
+                "-t",
+                "file",
+                str(src),
+                "out",
+            ]
+        )
+    assert excinfo.value.code == 2
+    assert not (root / "out").exists()

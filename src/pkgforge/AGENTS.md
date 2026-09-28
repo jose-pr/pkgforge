@@ -281,6 +281,9 @@ above).
   staged destination, and is refused with `UsageError`, before any staging,
   when a directory source contains the resolved destination or the `--db`
   file.
+  `-d` cannot be combined with `-t`/`--type` (a declared `conflicts=`
+  group; exit 2, enforced by argparse itself before `Install` is
+  constructed).
 - **`scan.ScanCmd(FileEntryArgs, PkgForgeCmd)`** (`pkgforge scan`) — walk a
   path under the build root, recording an entry per file; `--missing` only
   fills gaps not already in the DB. `--type/-t` is hidden from `--help` and

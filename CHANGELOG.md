@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- `-d` with `-t`/`--type` exits 2 instead of `-d` silently overriding `-t`
+  and turning a file source into a bsdtar-style directory extraction.
 - `install` checks `--chown`'s owner/group names, the `--db` directory and
   (without `-p`) the destination directory before staging (exit 2 with
   nothing on disk); refuses `--remove-source` up front (exit 2) when a

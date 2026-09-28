@@ -236,7 +236,11 @@ class Install(FileEntryArgs, PkgForgeCmd):
     ("--chown",)
     type: duho.Arg[
         typing.Union[FileType, str],
-        duho.NS(type=_parse_filetype, metavar="{file,directory,symlink}"),
+        duho.NS(
+            type=_parse_filetype,
+            metavar="{file,directory,symlink}",
+            conflicts="type",
+        ),
     ] = DEFAULT
     "file, directory or symlink, in any case (auto-detected from the source if unset, or given as '--')"
     ("--type", "-t")
@@ -260,6 +264,12 @@ class Install(FileEntryArgs, PkgForgeCmd):
     remove_source: bool = False
     "delete the source after staging (files or directories)"
     ("--remove-source",)
+    D: bool = False
+    "shortcut for -Tp"
+    ("-D",)
+    d: duho.Arg[bool, duho.NS(conflicts="type")] = False
+    "shortcut for --type directory (not allowed with -t/--type)"
+    ("-d",)
     #: One or more sources. Declared as a plain ``List[Path]``, not a
     #: ``Union[List[Path], Path]``: duho resolves a union by composing its
     #: members' scalar factories, so a collection member (which needs its own
@@ -294,24 +304,6 @@ class Install(FileEntryArgs, PkgForgeCmd):
         if decompress is None or decompress == "-":
             kwargs["decompress"] = True
         super().__init__(**kwargs)
-
-    @classmethod
-    def _parser_(cls, subparser=None, name=None, parents=(), **kwargs):
-        parser = super()._parser_(subparser, name, parents, **kwargs)
-        # Convenience shortcuts, translated in __init__:
-        #   -D  ->  -Tp (no-target-directory + parents)
-        #   -d  ->  --type directory (mutually exclusive with -t/--type)
-        parser.add_argument(
-            "-D", help="shortcut for -Tp", action="store_true", default=False
-        )
-        parser.add_argument(
-            "-d",
-            dest="d",
-            help="shortcut for --type directory",
-            action="store_true",
-            default=False,
-        )
-        return parser
 
     def _stage_file(self, src: Path, dst: Path) -> Path:
         """Write this clone's file content into a temp file next to ``dst``.

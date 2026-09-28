@@ -47,7 +47,7 @@ pkgforge install [options] SOURCE... DESTINATION
 | `-m, --mode` | 1-4 octal digits (`0644` is stored as `644`), `-` (leave default), `--`/`auto` (resolve from the staged file); ignored on disk for a symlink (recorded but not applied). Any other value, or an explicit empty value, exits 2 before anything is staged. Write `--mode=--`, `-m--` or `-m auto` -- a detached `-m --` is read as end of options and exits 2 |
 | `-o, --owner` / `-g, --group` | owner / group to record |
 | `-t, --type` | `file` / `directory` / `symlink`, in any case (auto-detected from the source if unset, or if given as `--`) |
-| `-d` | shortcut for `--type directory` |
+| `-d` | shortcut for `--type directory`; not allowed with `-t`/`--type` (exit 2) |
 | `-p, --parents` | create missing parent directories of the destination |
 | `-T, --no-target-directory` | treat DESTINATION as the final path, not a directory |
 | `-D` | shortcut for `-Tp` |
