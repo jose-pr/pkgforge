@@ -1750,3 +1750,76 @@ def test_install_directory_keeps_top_mode_and_dangling_link(tmp_path):
     assert link.is_symlink()
     assert os.readlink(link) == "no-such-target"
     assert not link.exists()  # dangling: the target still doesn't exist
+
+
+# --------------------------------------------------------------------------
+# install stages without a no-follow chmod (glibc < 2.32 has no
+# fchmodat(AT_SYMLINK_NOFOLLOW), and real Linux CPython never lists
+# os.chmod in os.supports_follow_symlinks in the first place)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.posix
+@pytest.mark.parametrize("kind", ["file", "symlink"])
+def test_install_mode_without_nofollow_chmod(tmp_path, monkeypatch, kind):
+    # Simulate glibc < 2.32: os.chmod(..., follow_symlinks=False) raises
+    # NotImplementedError for ANY path there, not just a symlink. The real
+    # os.supports_follow_symlinks is left untouched -- on Linux it already
+    # never lists os.chmod as a member (no lchmod; verified separately), and
+    # since fake_chmod is a brand new function object it is certainly not a
+    # member of that set either. Replacing the whole set with an empty one
+    # would also strip os.stat's own follow_symlinks support, which
+    # shutil.copystat (used by the symlink-source staging path) relies on.
+    real_chmod = os.chmod
+    calls = []
+
+    def fake_chmod(path, mode, *, follow_symlinks=True):
+        calls.append(follow_symlinks)
+        if follow_symlinks is False:
+            raise NotImplementedError("simulated pre-2.32 glibc")
+        return real_chmod(path, mode)
+
+    monkeypatch.setattr(os, "chmod", fake_chmod)
+
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+
+    if kind == "file":
+        src = tmp_path / "f.conf"
+        src.write_text("data")
+        Install._parser_().parse_args(
+            [
+                "--db",
+                str(db),
+                "--buildroot",
+                str(root),
+                "-p",
+                "-m",
+                "640",
+                str(src),
+                "/etc",
+            ]
+        )()
+        staged = root / "etc" / "f.conf"
+        assert (staged.stat().st_mode & 0o777) == 0o640
+        assert False not in calls
+    else:
+        link = tmp_path / "app.link"
+        link.symlink_to("/usr/bin/app")
+        Install._parser_().parse_args(
+            [
+                "--db",
+                str(db),
+                "--buildroot",
+                str(root),
+                "-p",
+                "-m",
+                "640",
+                str(link),
+                "/usr/bin",
+            ]
+        )()
+        staged = root / "usr" / "bin" / "app.link"
+        assert staged.is_symlink()
+        assert os.readlink(staged) == "/usr/bin/app"
