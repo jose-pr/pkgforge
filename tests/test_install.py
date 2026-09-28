@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import stat
 import tempfile
 from pathlib import Path
 
@@ -21,7 +22,7 @@ from pkgforge.install import Install
 
 @pytest.mark.posix
 def test_install_file_copies_and_records(tmp_path):
-    # F06: install copies file sources; it no longer hardlinks them.
+    # install copies file sources; it no longer hardlinks them.
     root = tmp_path / "root"
     root.mkdir()
     db = tmp_path / "files.jsonl"
@@ -58,8 +59,8 @@ def test_install_file_copies_and_records(tmp_path):
 
 @pytest.mark.posix
 def test_install_file_source_rewrite_keeps_staged(tmp_path):
-    # F06: rewriting the source in place after install must not change the
-    # already-staged copy (the old os.link behavior shared one inode).
+    # Rewriting the source in place after install must not change the
+    # already-staged copy (a hardlink would share the source's inode).
     root = tmp_path / "root"
     root.mkdir()
     db = tmp_path / "files.jsonl"
@@ -78,7 +79,7 @@ def test_install_file_source_rewrite_keeps_staged(tmp_path):
 
 @pytest.mark.posix
 def test_install_file_cross_filesystem_root(tmp_path):
-    # F06: os.link failed with EXDEV when the build root is on another
+    # A hardlink fails with EXDEV when the build root is on another
     # filesystem (e.g. the documented PKGFORGE_ROOT=/tmp/stage on tmpfs);
     # shutil.copy2 works across filesystems.
     shm = Path("/dev/shm")
@@ -106,7 +107,7 @@ def test_install_file_cross_filesystem_root(tmp_path):
 
 @pytest.mark.posix
 def test_install_non_owned_source(tmp_path):
-    # F06: os.link raised EPERM under fs.protected_hardlinks for a source the
+    # A hardlink raised EPERM under fs.protected_hardlinks for a source the
     # user does not own; a copy never touches the source's ownership at all.
     candidate = None
     for name in ("true", "false", "env", "sh"):
@@ -132,3 +133,49 @@ def test_install_non_owned_source(tmp_path):
     staged = root / "opt" / candidate.name
     assert staged.exists()
     assert staged.read_bytes() == candidate.read_bytes()
+
+
+# --------------------------------------------------------------------------
+# Direct Python-API construction must not silently enable decompress
+# --------------------------------------------------------------------------
+
+
+def test_install_direct_construction_does_not_decompress_path():
+    # Cross-platform: constructing Install() directly (not through the
+    # parser) with no `decompress=` must keep the documented default
+    # (False), not silently infer decompression the way a bare CLI -x does.
+    inst = Install(source=Path("a.txt"), destination=Path("opt"))
+    assert inst.decompress is False
+
+
+def test_install_direct_construction_does_not_decompress_list():
+    inst = Install(source=[Path("a.txt")], destination=Path("opt"))
+    assert inst.decompress is False
+
+
+@pytest.mark.posix
+def test_install_direct_construction_never_runs_source(tmp_path):
+    # Before the fix, leaving `decompress` out made __call__ infer a
+    # decompressor from the source's suffix and run it as a subprocess --
+    # for a `.sh` source that means executing it. Guard both the bare-Path
+    # and the list form.
+    root = tmp_path / "root"
+    root.mkdir()
+    marker = tmp_path / "marker"
+    src = tmp_path / "hello.sh"
+    src.write_text(f"#!/bin/sh\ntouch {marker}\necho ran\n")
+    src.chmod(src.stat().st_mode | stat.S_IEXEC)
+
+    for source in (src, [src]):
+        if marker.exists():
+            marker.unlink()
+        Install(
+            source=source,
+            destination=Path("/usr/bin"),
+            buildroot=root,
+            parents=True,
+            db=None,
+        )()
+        assert not marker.exists()
+        staged = root / "usr" / "bin" / "hello.sh"
+        assert staged.read_bytes() == src.read_bytes()

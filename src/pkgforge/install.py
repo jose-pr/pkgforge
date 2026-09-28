@@ -152,7 +152,14 @@ class Install(FileEntryArgs, PkgForgeCmd):
         if kwargs.pop("d", False):
             kwargs["type"] = "directory"
 
-        decompress = kwargs.get("decompress")
+        # `.get("decompress", False)`, not `.get("decompress")`: the CLI
+        # parser always supplies the key (None for a bare -x, since the
+        # field declares no `const`), but a direct Python-API construction
+        # that simply omits `decompress` must NOT be treated the same as a
+        # bare -x -- it means "off", matching the field's documented
+        # default. An explicitly passed `decompress=None` is still treated
+        # as "infer", same as the CLI's bare -x.
+        decompress = kwargs.get("decompress", False)
         if decompress is None or decompress == "-":
             kwargs["decompress"] = True
         super().__init__(**kwargs)
@@ -283,22 +290,30 @@ class Install(FileEntryArgs, PkgForgeCmd):
         else:
             raise NotImplementedError(self.type)
 
-    def __call__(self):
-        if isinstance(self.source, list):
-            for source in self.source:
-                cloned = dict(self._get_kwargs())
-                cloned["source"] = source
-                Install(**cloned)()
-            return
-
+    def _preflight(self) -> None:
+        """Validate/normalize this clone's arguments, before resolution or
+        any staging. Runs once per clone (a multi-source ``__call__`` fans
+        out into one single-source clone per source first)."""
         self.mode = normalize_mode(self.mode)
 
+    def _resolve(self) -> Path:
+        """Resolve this clone's type, decompress kind and destination.
+
+        Writes no file. Returns the local (buildroot-joined) destination
+        path that :meth:`_stage` will install into.
+        """
         if (
             isinstance(self.source, Path)
             and not self.source.exists()
             and not self.source.is_symlink()
         ):
             raise UsageError(f"source {self.source} does not exist")
+
+        if not self.no_target_directory and str(self.source) == DEFAULT:
+            raise UsageError(
+                "a '-' (stdin) source needs -T (or -D) and an explicit "
+                "destination file name"
+            )
 
         if self.type in (DEFAULT, AUTO, FileType._AUTO, []):
             self._logger_.debug("Determining type from source")
@@ -336,11 +351,6 @@ class Install(FileEntryArgs, PkgForgeCmd):
             )
 
         if not self.no_target_directory:
-            if str(self.source) == DEFAULT:
-                raise UsageError(
-                    "a '-' (stdin) source needs -T (or -D) and an explicit "
-                    "destination file name"
-                )
             self.destination = self.destination / self.source.name
             if self.decompress:
                 self.destination = self.destination.with_name(
@@ -368,7 +378,10 @@ class Install(FileEntryArgs, PkgForgeCmd):
                 dest = Path(self.buildroot, *dest.parts[1:])
             else:
                 dest = self.buildroot / dest
+        return dest
 
+    def _stage(self, dest: Path) -> None:
+        """Stage this clone's source at ``dest`` and record its entry."""
         if self.parents:
             dest.parent.mkdir(parents=True, exist_ok=True)
 
@@ -388,6 +401,18 @@ class Install(FileEntryArgs, PkgForgeCmd):
         if not self.noentry:
             fspath = os.fspath(self.buildpath(dest))
             self.add_entry(fspath, fileentry)
+
+    def __call__(self):
+        if isinstance(self.source, list):
+            for source in self.source:
+                cloned = dict(self._get_kwargs())
+                cloned["source"] = source
+                Install(**cloned)()
+            return
+
+        self._preflight()
+        dest = self._resolve()
+        self._stage(dest)
 
 
 Install._register()

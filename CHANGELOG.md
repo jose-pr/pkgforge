@@ -7,6 +7,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- `Install(...)` built directly from Python (not through the CLI parser) and
+  given no `decompress=` argument now stages the source unchanged, instead of
+  silently inferring a decompressor from its suffix and running it as a
+  subprocess (which, for a `.sh` source, executed it).
 - `install` copies file sources instead of hardlinking them: `-m`/`--chown`
   no longer change the source, and a build root on another filesystem (e.g.
   a tmpfs `/tmp`) or a source the caller doesn't own no longer fails.
