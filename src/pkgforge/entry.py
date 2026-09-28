@@ -43,6 +43,10 @@ DEFAULT = "-"
 
 
 class FileType(str, enum.Enum):
+    """The three on-disk kinds pkgforge stages/records: ``File``, ``Directory``,
+    ``Symlink``. The sentinel member ``_AUTO`` (value :data:`AUTO`) means
+    "determine from the file on disk"; :meth:`from_path` does that lookup."""
+
     File = "file"
     Directory = "directory"
     Symlink = "symlink"
@@ -214,6 +218,10 @@ def _key_value(text: str) -> typing.Dict[str, str]:
 
 
 class FileEntryArgs(Cmd):
+    """CLI mixin supplying ``--mode/-m``, ``--group/-g``, ``--owner/-o``,
+    ``--type/-t`` and ``-O/--meta KEY=VALUE`` -- the fields every leaf command
+    that stages or records a :class:`FileEntry` shares."""
+
     mode: duho.Arg[str, duho.NS(type=_parse_mode)] = DEFAULT
     "permission mode: 1-4 octal digits, '-' (leave default), '--' or 'auto' (resolve from the staged file)"
     ("--mode", "-m")
@@ -242,6 +250,13 @@ class FileEntryArgs(Cmd):
 
 
 class FileEntry(typing.TypedDict):
+    """One DB record: ``mode`` (an octal permission **string**, e.g. ``"644"``,
+    never a raw ``st_mode`` int), ``owner``, ``group``, ``type``, and a
+    free-form ``meta`` string map. A plain dict at runtime (a ``TypedDict``
+    carries no methods) -- use the module functions below, or the
+    back-compat unbound aliases ``FileEntry.from_args``/``from_path``/
+    ``resolve_for``/``apply``."""
+
     mode: str
     owner: str
     group: str

@@ -11,6 +11,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`--print-completion`).
 - The command guide documents `-O/--meta KEY=VALUE` (`rpmprefix=%config(noreplace)`,
   a symlink `target`) and `scan`'s entry options.
+
+### Changed
+- The API reference has one page per module, covers every public name and
+  no longer shows private helpers.
 - `dbdump -f` accepts `rpm`/`rpmspec` as aliases for `rpmspecfiles`, and
   `deb` as an alias for `debian`.
 - `pkgforge.db.DbProvider` and `pkgforge.dbdump.DumpFormat` (plus its two

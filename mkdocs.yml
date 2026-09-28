@@ -34,7 +34,14 @@ nav:
       - Exclude grammar: guide/exclude.md
       - Dump formats: guide/formats.md
       - Unattended builds: guide/unattended.md
-  - API Reference: api/reference.md
+  - API Reference:
+      - Overview: api/reference.md
+      - File entries: api/entry.md
+      - Command base: api/command.md
+      - DB backends: api/db.md
+      - Exclude grammar: api/exclude.md
+      - Dump formats: api/dbdump.md
+      - CLI subcommands: api/commands.md
   - Changelog: changelog.md
 
 plugins:

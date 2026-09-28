@@ -234,6 +234,10 @@ PathTest.factory = staticmethod(_make_test)  # type: ignore[attr-defined]
 
 
 class PathMatchStmt(NS):
+    """One parsed ``--exclude`` statement: ``negate``, ``tests`` (a list of
+    :class:`PathTest`) and ``pattern``. :meth:`parse` builds one from
+    ``[!](?name:arg)*<glob>``; :meth:`match` evaluates it against a path."""
+
     negate: bool
     tests: typing.List[PathTest]
     pattern: str
@@ -334,6 +338,11 @@ class PathMatchStmt(NS):
 
 
 class PathMatch(typing.List[PathMatchStmt]):
+    """An ordered set of :class:`PathMatchStmt`, optionally bound to a
+    ``root`` (absolute patterns are rebased onto it as copies; the caller's
+    own statements are left untouched). :meth:`match` evaluates each
+    statement in order and returns the first non-``None`` result."""
+
     def __init__(
         self,
         stmts: typing.Iterable[PathMatchStmt],
