@@ -1,9 +1,8 @@
 """Feeds dbdump's output to the real packaging consumers it targets:
 ``rpmbuild`` for ``rpmspecfiles``, ``dh_install``/``dh_installdirs`` for
-``debian``. Skipped outright when the tool isn't on ``PATH`` (see
-``.agents/AGENTS.md`` Dev env for where to reach a host that has them); not
-collected by the plain unit-test run, but not excluded from it either --
-these tests are cheap when skipped.
+``debian``. Skipped outright when the tool isn't on ``PATH``; not collected
+by the plain unit-test run, but not excluded from it either -- these tests
+are cheap when skipped.
 """
 
 from __future__ import annotations
@@ -43,8 +42,8 @@ requires_dh_install = pytest.mark.skipif(
     reason="dh_install/dh_installdirs not installed",
 )
 # rpm <4.19's %files -f parser expands and splits names differently (double
-# macro expansion via specExpand + rpmExpand; see rpm4_quoted_globs.md) --
-# strict xfail so a fixed floor turns this back into a real failure.
+# macro expansion via specExpand + rpmExpand) -- strict xfail so a fixed
+# floor turns this back into a real failure.
 xfail_rpm_below_419 = pytest.mark.xfail(
     _RPM_BELOW_419,
     strict=True,

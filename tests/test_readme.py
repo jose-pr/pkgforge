@@ -1,8 +1,8 @@
 """Pins README.md's samples to the CLI's real output, so they cannot drift.
 
-Not collected on non-POSIX: the Quick start stages real files (chmod) and
-records literal owner/group text, which only lines up with the real dump
-formats guide on a POSIX host (see .agents/AGENTS.md "Dev env").
+POSIX-only: the Quick start stages real files (chmod) and records literal
+owner/group text, which only lines up with the real dump formats output on
+a POSIX host.
 """
 
 from __future__ import annotations

@@ -77,8 +77,9 @@ def _rpm_quote(path: str) -> str:
     quoting: on rpm 4.19+ no spelling of ``%`` is literal inside or outside
     double quotes, so a path containing one is refused outright rather than
     escaped (below 4.19, ``%%`` ran the doubled-percent expansion and
-    ``%(cmd)`` ran ``cmd`` as a shell command -- there is no fix on that
-    range, only refusal; see ``rpm4_quoted_globs.md``). Glob characters
+    ``%(cmd)`` ran ``cmd`` as a shell command -- there is currently no
+    escaping that is safe on that range, so it is refused there too). Glob
+    characters
     (``* ? [ ]``) are never escaped: rpm's own shell-globbing quoting rules
     make a quoted glob character match only the literal path anyway.
     """
