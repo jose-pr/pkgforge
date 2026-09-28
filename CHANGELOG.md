@@ -7,6 +7,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- `-x`/`--decompress` takes `gz`, `xz`, `bz2`, `zst`, `lzma` or a decompressor
+  tool name (`gzip`/`gunzip`, `xz`/`unxz`, `bzip2`/`bunzip2`, `zstd`/`unzstd`,
+  `lzma`/`unlzma`), matched case-insensitively; any other kind, or a bare
+  `-x` on a source suffix that names none of them, exits 2 before anything
+  is staged, instead of silently compressing the file, leaving the old
+  suffix on the destination, or running an arbitrary word on `PATH` as a
+  command. `-x gzip` now decompresses (it used to compress); a resolved
+  kind whose tool is missing from `PATH` is named in one error line.
 - `Install(...)` built directly from Python (not through the CLI parser) and
   given no `decompress=` argument now stages the source unchanged, instead of
   silently inferring a decompressor from its suffix and running it as a

@@ -21,6 +21,7 @@ from .common import (
     AUTO,
     DEFAULT,
     PkgForgeCmd,
+    PkgForgeError,
     FileEntryArgs,
     FileType,
     UsageError,
@@ -34,7 +35,54 @@ from .common import (
 )
 from .exclude import PathMatch, PathMatchStmt
 
-DECOMPRESS_CMDS = {"gz": "gunzip", "xz": "unxz", "bz2": "bunzip2"}
+#: Kind -> (argv prefix, canonical suffix). ``argv`` always includes ``-d``
+#: (or the tool's own always-decompressing form), so a compressor's name
+#: passed as a KIND can never compress instead of decompress; the source (or
+#: ``-`` for stdin) is appended by :meth:`Install.install`.
+_DECOMPRESSORS: typing.Dict[str, typing.Tuple[typing.List[str], str]] = {
+    "gz": (["gzip", "-dc"], ".gz"),
+    "xz": (["xz", "-dc"], ".xz"),
+    "bz2": (["bzip2", "-dc"], ".bz2"),
+    "zst": (["zstd", "-dcq"], ".zst"),
+    "lzma": (["xz", "--format=lzma", "-dc"], ".lzma"),
+}
+#: Decompressor tool name -> canonical kind key in :data:`_DECOMPRESSORS`, so
+#: ``-x gunzip``/``-x unxz``/etc keep working as aliases for the kind.
+_KIND_ALIASES: typing.Dict[str, str] = {
+    "gzip": "gz",
+    "gunzip": "gz",
+    "xz": "xz",
+    "unxz": "xz",
+    "bzip2": "bz2",
+    "bunzip2": "bz2",
+    "zstd": "zst",
+    "unzstd": "zst",
+    "lzma": "lzma",
+    "unlzma": "lzma",
+}
+#: Canonical suffix (lowercased) -> kind key, for inferring KIND from a bare
+#: ``-x``'s source suffix.
+_SUFFIX_TO_KIND: typing.Dict[str, str] = {
+    suffix: kind for kind, (_, suffix) in _DECOMPRESSORS.items()
+}
+
+
+def _resolve_kind(kind: str) -> str:
+    """Resolve a ``--decompress`` value (a kind or a decompressor tool name,
+    matched case-insensitively) to a canonical key in :data:`_DECOMPRESSORS`.
+
+    Raises :class:`UsageError` for anything else -- never falls back to
+    running the value as an arbitrary command.
+    """
+    key = kind.lower()
+    key = _KIND_ALIASES.get(key, key)
+    if key not in _DECOMPRESSORS:
+        raise UsageError(
+            f"unknown compression kind {kind!r}; use one of "
+            f"{', '.join(sorted(_DECOMPRESSORS))}"
+        )
+    return key
+
 
 #: Archive suffixes handled by stdlib :mod:`tarfile` (tar family + compression).
 #: Anything else (e.g. ``.iso``) falls back to ``bsdtar``.
@@ -197,12 +245,14 @@ class Install(FileEntryArgs, PkgForgeCmd):
             if not src:
                 dst.touch()
             elif self.decompress:
+                argv, _ = _DECOMPRESSORS[self.decompress]
                 with dst.open("wb") as f:
                     subprocess.run(
                         [
-                            DECOMPRESS_CMDS.get(self.decompress, self.decompress),
-                            "-kc",
-                            os.fspath(src),
+                            *argv,
+                            # An absolute path so a source starting with "-"
+                            # (e.g. "-v.gz") is never read as an option.
+                            os.fspath(src.absolute()) if str(src) != DEFAULT else "-",
                         ],
                         # Only a "-" source reads stdin; for a real file the
                         # child inherits ours. Taking .fileno() unconditionally
@@ -340,22 +390,38 @@ class Install(FileEntryArgs, PkgForgeCmd):
             # which stdin does not have (parsepath keeps "-" as a plain str).
             if not self.source or str(self.source) == DEFAULT:
                 raise UsageError("cannot infer compression from stdin; pass -x TYPE")
-            self.decompress = self.source.suffix[1:]
-        elif isinstance(self.decompress, str) and _looks_like_path(self.decompress):
-            # argparse gave -x the next positional (see _looks_like_path); say
-            # so instead of trying to run that path as a decompressor.
-            raise UsageError(
-                f"--decompress got {self.decompress!r}, which looks like a path, "
-                "not a compression kind; write the kind (-x gz), or put a bare "
-                "-x after the source and destination to infer it"
-            )
+            suffix = self.source.suffix.lower()
+            kind = _SUFFIX_TO_KIND.get(suffix)
+            if kind is None:
+                raise UsageError(
+                    f"cannot infer compression from {self.source.name!r}; "
+                    "pass -x KIND"
+                )
+            self.decompress = kind
+        elif self.decompress:
+            if isinstance(self.decompress, str) and _looks_like_path(self.decompress):
+                # argparse gave -x the next positional (see _looks_like_path);
+                # say so instead of trying to resolve that path as a kind.
+                raise UsageError(
+                    f"--decompress got {self.decompress!r}, which looks like a "
+                    "path, not a compression kind; write the kind (-x gz), or "
+                    "put a bare -x after the source and destination to infer it"
+                )
+            self.decompress = _resolve_kind(self.decompress)
+
+        if self.decompress:
+            argv, _ = _DECOMPRESSORS[self.decompress]
+            if shutil.which(argv[0]) is None:
+                raise PkgForgeError(f"decompressor {argv[0]!r} not found on PATH")
 
         if not self.no_target_directory:
             self.destination = self.destination / self.source.name
             if self.decompress:
-                self.destination = self.destination.with_name(
-                    self.destination.name.removesuffix(f".{self.decompress}")
-                )
+                suffix = _DECOMPRESSORS[self.decompress][1]
+                name = self.destination.name
+                if name.lower().endswith(suffix):
+                    name = name[: -len(suffix)]
+                self.destination = self.destination.with_name(name)
             if self.type == FileType.Directory:
                 name = self.destination.name
                 parts = name.split(".")

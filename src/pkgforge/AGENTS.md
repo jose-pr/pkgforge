@@ -241,6 +241,14 @@ above).
   the entry. `-D` = `-Tp` shortcut, `-d` = `--type directory` shortcut.
   `--type=--` (or the Python API's `FileType._AUTO`) auto-detects from the
   source, same as leaving `-t` unset.
+  `-x`/`--decompress [KIND]` accepts `gz`, `xz`, `bz2`, `zst`, `lzma` or a
+  decompressor tool name (`gzip`/`gunzip`, `xz`/`unxz`, `bzip2`/`bunzip2`,
+  `zstd`/`unzstd`, `lzma`/`unlzma`), matched case-insensitively; any other
+  kind, or a bare `-x` whose source suffix matches none of them, raises
+  `UsageError`, and a resolved kind whose tool is missing from `PATH` raises
+  `PkgForgeError` -- both before anything is staged. KIND is optional and
+  consumes the next token: write `-x KIND SRC DST`, `--decompress=KIND`, or
+  `-x` after the paths.
 - **`scan.ScanCmd(FileEntryArgs, PkgForgeCmd)`** (`pkgforge scan`) — walk a
   path under the build root, recording an entry per file; `--missing` only
   fills gaps not already in the DB. `--type/-t` is hidden from `--help` and

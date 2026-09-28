@@ -9,9 +9,15 @@ or in-memory state run on any platform and say so in a comment.
 
 from __future__ import annotations
 
+import bz2
+import gzip
+import io
+import lzma
 import os
 import shutil
 import stat
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -179,3 +185,256 @@ def test_install_direct_construction_never_runs_source(tmp_path):
         assert not marker.exists()
         staged = root / "usr" / "bin" / "hello.sh"
         assert staged.read_bytes() == src.read_bytes()
+
+
+# --------------------------------------------------------------------------
+# -x runs only a known decompressor
+# --------------------------------------------------------------------------
+
+
+def _write_compressed(path: Path, kind: str, data: bytes) -> None:
+    if kind == "gz":
+        with gzip.open(path, "wb") as fh:
+            fh.write(data)
+    elif kind == "xz":
+        with lzma.open(path, "wb", format=lzma.FORMAT_XZ) as fh:
+            fh.write(data)
+    elif kind == "bz2":
+        with bz2.open(path, "wb") as fh:
+            fh.write(data)
+    elif kind == "lzma":
+        with lzma.open(path, "wb", format=lzma.FORMAT_ALONE) as fh:
+            fh.write(data)
+    elif kind == "zst":
+        zstd = shutil.which("zstd")
+        if zstd is None:
+            pytest.skip("zstd not available")
+        subprocess.run(
+            [zstd, "-q", "-f", "-o", os.fspath(path)], input=data, check=True
+        )
+    else:
+        raise ValueError(kind)
+
+
+@pytest.mark.posix
+@pytest.mark.parametrize("alias", ["gzip", "gunzip"])
+def test_install_decompress_alias(tmp_path, alias):
+    # -x gzip is a COMPRESSOR name; it must still decompress, not compress
+    # the already-compressed source.
+    if shutil.which("gzip") is None:
+        pytest.skip("gzip not available")
+    root = tmp_path / "root"
+    root.mkdir()
+    src = tmp_path / "plain.gz"
+    _write_compressed(src, "gz", b"hello world\n")
+
+    parser = Install._parser_()
+    parser.parse_args(
+        [
+            "--db",
+            str(tmp_path / "files.jsonl"),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-x",
+            alias,
+            str(src),
+            "/a",
+        ]
+    )()
+
+    staged = root / "a" / "plain"
+    assert staged.read_bytes() == b"hello world\n"
+
+
+@pytest.mark.posix
+@pytest.mark.parametrize("kind", ["xz", "bz2", "zst", "lzma"])
+def test_install_decompress_kinds(tmp_path, kind):
+    tool = {"xz": "xz", "bz2": "bzip2", "zst": "zstd", "lzma": "xz"}[kind]
+    if shutil.which(tool) is None:
+        pytest.skip(f"{tool} not available")
+
+    root = tmp_path / "root"
+    root.mkdir()
+    src = tmp_path / f"plain.{kind}"
+    _write_compressed(src, kind, b"kind payload\n")
+
+    parser = Install._parser_()
+    parser.parse_args(
+        [
+            "--db",
+            str(tmp_path / "files.jsonl"),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-x",
+            kind,
+            str(src),
+            "/a",
+        ]
+    )()
+
+    staged = root / "a" / "plain"
+    assert staged.read_bytes() == b"kind payload\n"
+
+
+@pytest.mark.posix
+@pytest.mark.parametrize("name", ["nosuffix", "notes.txt", "x.evil"])
+def test_install_bare_x_unknown_suffix_refused(tmp_path, monkeypatch, name):
+    # Bare -x on a suffix that names no known kind must raise, and -- unlike
+    # the old suffix-as-command fallback -- never run anything on PATH.
+    root = tmp_path / "root"
+    root.mkdir()
+    src = tmp_path / name
+    src.write_text("plain")
+
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    marker = tmp_path / "evil-ran"
+    evil = bindir / "evil"
+    evil.write_text(f"#!/bin/sh\ntouch {marker}\n")
+    evil.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}")
+
+    parser = Install._parser_()
+    inst = parser.parse_args(
+        [
+            "--db",
+            str(tmp_path / "files.jsonl"),
+            "--buildroot",
+            str(root),
+            "-p",
+            str(src),
+            "/opt",
+            "-x",
+        ]
+    )
+    with pytest.raises(ValueError, match="cannot infer compression"):
+        inst()
+
+    assert not marker.exists()
+    assert not (root / "opt").exists()
+
+
+@pytest.mark.posix
+def test_install_unknown_kind_refused(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    src = tmp_path / "a.bin"
+    src.write_text("plain")
+
+    parser = Install._parser_()
+    inst = parser.parse_args(
+        [
+            "--db",
+            str(tmp_path / "files.jsonl"),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-x",
+            "lz4",
+            str(src),
+            "/opt",
+        ]
+    )
+    with pytest.raises(ValueError, match="unknown compression kind"):
+        inst()
+    assert not (root / "opt").exists()
+
+
+@pytest.mark.posix
+def test_install_leading_dash_source(tmp_path, monkeypatch):
+    if shutil.which("gzip") is None:
+        pytest.skip("gzip not available")
+    root = tmp_path / "root"
+    root.mkdir()
+    monkeypatch.chdir(tmp_path)
+    src = Path("-v.gz")
+    _write_compressed(src, "gz", b"dashed\n")
+
+    parser = Install._parser_()
+    parser.parse_args(
+        [
+            "--db",
+            str(tmp_path / "files.jsonl"),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-x",
+            "gz",
+            "./-v.gz",
+            "/opt",
+        ]
+    )()
+
+    staged = root / "opt" / "-v"
+    assert staged.read_bytes() == b"dashed\n"
+
+
+def test_install_decompress_from_stdin_pipe(tmp_path, monkeypatch):
+    # x-plat (relative DESTINATION): a real gzip'd file opened and handed to
+    # install as sys.stdin, decompressed via an explicit kind.
+    if shutil.which("gzip") is None:
+        pytest.skip("gzip not available")
+    root = tmp_path / "root"
+    root.mkdir()
+    gz_path = tmp_path / "data.gz"
+    _write_compressed(gz_path, "gz", b"piped content\n")
+
+    fh = open(gz_path, "rb")
+    monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(fh))
+    try:
+        parser = Install._parser_()
+        parser.parse_args(
+            [
+                "--db",
+                str(tmp_path / "files.jsonl"),
+                "--buildroot",
+                str(root),
+                "-p",
+                "-x",
+                "gz",
+                "-T",
+                "-",
+                "out",
+            ]
+        )()
+    finally:
+        fh.close()
+
+    staged = root / "out"
+    assert staged.read_bytes() == b"piped content\n"
+
+
+def test_install_decompressor_missing_is_one_line(tmp_path, monkeypatch, cli):
+    # x-plat (relative DESTINATION): a missing decompressor is one
+    # `pkgforge: error:` line naming the tool, and nothing is staged.
+    empty_bin = tmp_path / "emptybin"
+    empty_bin.mkdir()
+    monkeypatch.setenv("PATH", str(empty_bin))
+
+    root = tmp_path / "root"
+    root.mkdir()
+    src = tmp_path / "a.gz"
+    src.write_bytes(b"not really gzip, but the tool lookup fails first anyway")
+    db = tmp_path / "files.jsonl"
+
+    result = cli(
+        "--db",
+        str(db),
+        "--buildroot",
+        str(root),
+        "install",
+        "-p",
+        "-x",
+        "gz",
+        str(src),
+        "out",
+    )
+    assert result.rc == 1
+    lines = [line for line in result.err.decode().splitlines() if line]
+    assert len(lines) == 1
+    assert "pkgforge: error:" in lines[0]
+    assert "gzip" in lines[0]
+    assert "not found on PATH" in lines[0]
+    assert not (root / "out").exists()
