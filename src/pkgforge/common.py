@@ -394,6 +394,30 @@ def _env_root(value: str) -> Path:
     return Path(value) if value else Path(".")
 
 
+def _check_db_format(value: typing.Optional[str]) -> typing.Optional[str]:
+    """Validate a ``db_format`` value against the registered providers.
+
+    A falsy value (``None`` or ``""``) means "auto-detect" and is never
+    checked here -- ``open_db`` still resolves it from the ``--db`` suffix or,
+    for an existing file, by sniffing its content. Anything else must already
+    be a registered provider name, checked eagerly so a typo fails before any
+    file is staged, instead of surfacing as a traceback the first time the DB
+    is touched.
+    """
+    if not value:
+        return value
+    # Function-local, like PkgForgeCmd._provider() below: db.py's PROVIDERS is
+    # read fresh on every call, so a register_provider() call that runs after
+    # this module is imported (a third-party backend) is still recognized.
+    from .db import PROVIDERS
+
+    if value not in PROVIDERS:
+        raise UsageError(
+            f"unknown db format {value!r}; choose from {', '.join(sorted(PROVIDERS))}"
+        )
+    return value
+
+
 class PkgForgeCmd(LoggingArgs, Cmd):
     """Common base for every pkgforge subcommand.
 
@@ -415,6 +439,16 @@ class PkgForgeCmd(LoggingArgs, Cmd):
         os.environ.get("PKGFORGE_ROOT", "")
     )
     ("--buildroot", "-r")
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Checked after construction (so env/CLI/default fill-in has already
+        # happened) rather than as a `type=` converter: a converter only runs
+        # for a value that actually goes through argparse, so a direct
+        # Python-API construction (PkgForgeCmd(db_format="toml")) would
+        # otherwise bypass it entirely, same as the mode/type converters
+        # above.
+        self.db_format = _check_db_format(self.db_format)
 
     def localpath(self, buildpath: typing.Union[str, os.PathLike]) -> Path:
         p = PurePosixPath(os.fspath(buildpath))

@@ -115,6 +115,61 @@ def test_dbdump_unknown_format_fails(tmp_path, cli):
 
 
 # --------------------------------------------------------------------------
+# --db-format validation (checked before the command runs)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("case", ["db", "stdout"])
+def test_unknown_db_format_is_usage_error(tmp_path, cli, case):
+    db = tmp_path / "x.db"
+    argv = ["--db-format", "toml"]
+    if case == "db":
+        argv = ["--db", str(db), *argv]
+    result = cli(*argv, "initdb")
+    assert result.rc == 2
+    err = result.err.decode()
+    lines = [line for line in err.splitlines() if line]
+    assert len(lines) == 1
+    assert "choose from" in lines[0]
+    assert "jsonl" in lines[0]
+    assert "Traceback" not in err
+    if case == "db":
+        assert not db.exists()
+
+
+def test_unknown_db_format_from_env(tmp_path, cli, monkeypatch):
+    monkeypatch.setenv("PKGFORGE_DB_FORMAT", "toml")
+    db = tmp_path / "x.db"
+    result = cli("--db", str(db), "initdb")
+    assert result.rc == 2
+    err = result.err.decode()
+    assert "choose from" in err
+    assert "jsonl" in err
+    assert "Traceback" not in err
+    assert not db.exists()
+
+    assert cli("--help").rc == 0
+
+
+@pytest.mark.posix
+def test_unknown_db_format_stages_nothing(tmp_path, cli):
+    root = tmp_path / "root"
+    src = _write(tmp_path / "a")
+    result = cli(
+        "--db-format",
+        "toml",
+        "--buildroot",
+        str(root),
+        "install",
+        "-p",
+        str(src),
+        "/opt",
+    )
+    assert result.rc == 2
+    assert not root.exists()
+
+
+# --------------------------------------------------------------------------
 # initdb (cross-platform)
 # --------------------------------------------------------------------------
 

@@ -299,3 +299,16 @@ def test_register_provider_sniffer_wins(restore_registries, tmp_path):
 
 def test_register_provider_returns_class_for_decorator(restore_registries):
     assert register_provider("tsv", _TsvDb) is _TsvDb
+
+
+def test_register_provider_accepted_as_db_format(restore_registries, tmp_path):
+    from pkgforge.common import UsageError
+    from pkgforge.initdb import InitDb
+
+    with pytest.raises(UsageError) as excinfo:
+        InitDb(db=tmp_path / "x.jsonl", db_format="toml")
+    assert isinstance(excinfo.value, ValueError)
+
+    register_provider("custom", _TsvDb)
+    inst = InitDb(db=tmp_path / "x.jsonl", db_format="custom")
+    assert inst.db_format == "custom"

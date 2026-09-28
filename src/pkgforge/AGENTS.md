@@ -110,8 +110,10 @@ tree).
   octal permission string (`"644"`).
 - **`PkgForgeCmd(duho.LoggingArgs, duho.Cmd)`** — common base every
   subcommand extends. Fields: `--db PATH` (from `PKGFORGE_DB`),
-  `--db-format FMT` (from `PKGFORGE_DB_FORMAT`), `--buildroot/-r DIR` (from
-  `PKGFORGE_ROOT`, else `.`). The three env vars are read when
+  `--db-format FMT` (from `PKGFORGE_DB_FORMAT`; a built-in or
+  `register_provider`-registered name, else `UsageError` -- checked in
+  `__init__`, so it also covers direct Python-API construction),
+  `--buildroot/-r DIR` (from `PKGFORGE_ROOT`, else `.`). The three env vars are read when
   `pkgforge.main()`/`duho.parse` runs (precedence CLI > env > the class
   default), not once at import time; a bare `_parser_().parse_args()` does
   **not** apply them (duho's env layer lives in `main`/`parse`, not raw

@@ -7,6 +7,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- An unknown `--db-format` or `PKGFORGE_DB_FORMAT` exits 2 with one line
+  naming the valid formats, before anything is staged (was a traceback and
+  exit 1, after `install` had staged the file), also when `--db` is unset
+  (was ignored). Constructing a command with an unknown `db_format` raises
+  `UsageError` (a `ValueError`) immediately.
 - Usage, errors, `--version` and completion name the command `pkgforge` (was
   `PkgForge`), so completion binds. Regenerate installed ones.
 
