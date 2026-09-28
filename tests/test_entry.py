@@ -421,3 +421,110 @@ def test_install_mode_normalized_and_resolved(tmp_path):
     from pkgforge.dbdump import rpmspecfile
 
     assert rpmspecfile("/b/src_b", loaded["/b/src_b"]) == b'%attr(750,-,-) "/b/src_b"\n'
+
+
+# --------------------------------------------------------------------------
+# --type parsing
+# --------------------------------------------------------------------------
+
+
+def test_help_hides_private_type_sentinel():
+    import re
+
+    from pkgforge.install import Install
+    from pkgforge.scan import ScanCmd
+
+    assert "_AUTO" not in Install._parser_().format_help()
+    scan_help = ScanCmd._parser_().format_help()
+    assert "_AUTO" not in scan_help
+    # The class docstring itself mentions "--type/-t" in prose; only the
+    # OPTIONS listing (after that heading -- "options:" on 3.10+, "optional
+    # arguments:" on 3.9) must omit the flag.
+    heading = re.search(r"\n(?:optional arguments|options):\n", scan_help)
+    assert heading, scan_help
+    assert "--type" not in scan_help[heading.end() :]
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("file", FileType.File),
+        ("FILE", FileType.File),
+        ("Directory", FileType.Directory),
+    ],
+)
+def test_install_type_parses_any_case(value, expected):
+    from pkgforge.install import Install
+
+    parser = Install._parser_()
+    inst = parser.parse_args(["-t", value, "src", "/dst"])
+    assert inst.type == expected
+
+
+@pytest.mark.parametrize("value", ["bogus", "auto", "_AUTO"])
+def test_type_rejects_unknown(value, tmp_path, cli):
+    src = tmp_path / "src"
+    src.write_text("hi")
+    result = cli("install", "-t", value, str(src), "/dst")
+    err = result.err.decode()
+    assert result.rc == 2
+    assert "file" in err and "directory" in err and "symlink" in err
+
+
+@pytest.mark.posix
+def test_install_type_auto_sentinel_detects(tmp_path):
+    from pkgforge.install import Install
+
+    root = tmp_path / "root"
+    root.mkdir()
+    src = tmp_path / "src"
+    src.write_text("hi")
+    db = tmp_path / "db.jsonl"
+
+    parser = Install._parser_()
+    parser.parse_args(
+        [
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "-p",
+            "--type=--",
+            str(src),
+            "/a",
+        ]
+    )()
+
+    inst = Install(
+        type=FileType._AUTO,
+        source=src,
+        destination=Path("/b"),
+        buildroot=root,
+        db=db,
+        parents=True,
+    )
+    inst()  # must not raise (the regression: NotImplementedError on the API)
+
+    loaded = pkgforge.PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    assert loaded["/a/src"]["type"] == "file"
+    assert loaded["/b/src"]["type"] == "file"
+
+
+@pytest.mark.parametrize("value", ["file", "-"])
+def test_scan_type_ignored_with_warning(value, tmp_path, cli, caplog):
+    root = tmp_path / "root"
+    (root / "sub").mkdir(parents=True)
+    (root / "sub" / "f").write_text("x")
+    db = tmp_path / "db.jsonl"
+
+    with caplog.at_level("WARNING"):
+        result = cli(
+            "--db", str(db), "--buildroot", str(root), "scan", "-t", value, "sub"
+        )
+    assert result.rc == 0
+    assert any("ignored" in r.message for r in caplog.records)
+
+    loaded = pkgforge.PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    # Normalize DB keys: os.walk yields "\\"-joined paths on Windows.
+    loaded = {k.replace("\\", "/"): v for k, v in loaded.items()}
+    assert loaded["/sub/f"]["type"] == "file"

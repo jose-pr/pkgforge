@@ -29,6 +29,8 @@ from .common import (
     normalize_mode,
     parsepath,
     resolve_entry,
+    _filetype,
+    _parse_filetype,
 )
 from .exclude import PathMatch, PathMatchStmt
 
@@ -98,7 +100,10 @@ class Install(FileEntryArgs, PkgForgeCmd):
     ("--noentry",)
     chown: bool = False
     ("--chown",)
-    type: typing.Union[FileType, str] = DEFAULT
+    type: duho.Arg[
+        typing.Union[FileType, str],
+        duho.NS(type=_parse_filetype, metavar="{file,directory,symlink}"),
+    ] = DEFAULT
     ("--type", "-t")
     exclude: duho.Arg[
         typing.List[PathMatchStmt],
@@ -283,14 +288,14 @@ class Install(FileEntryArgs, PkgForgeCmd):
         ):
             raise UsageError(f"source {self.source} does not exist")
 
-        if self.type == DEFAULT:
+        if self.type in (DEFAULT, AUTO, FileType._AUTO, []):
             self._logger_.debug("Determining type from source")
             if self.source and self.source != DEFAULT:
                 self.type = FileType.from_path(self.source)
             else:
                 self.type = FileType.File
         else:
-            self.type = FileType(self.type)
+            self.type = _filetype(self.type)
 
         if self.type == FileType.Symlink and (
             str(self.source) == DEFAULT or not self.source

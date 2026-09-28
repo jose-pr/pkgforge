@@ -95,8 +95,10 @@ tree).
   at parse time: 1-4 octal digits, `-`, `--` or `auto`; an explicit empty
   value exits 2; normalized, so `0644` is stored as `644`), `--group/-g`,
   `--owner/-o` (each default `"-"`, no octal validation), `--type/-t`
-  (`Optional[FileType]`, default `None`), `-O/--meta KEY=VALUE` (repeatable,
-  merges into a `dict[str, str]`).
+  (`Optional[FileType]`, default `None`; validated at parse time: `file`,
+  `directory` or `symlink` in any case, or `-`/`--` for the sentinels;
+  anything else, including `auto`/`_AUTO`, exits 2), `-O/--meta KEY=VALUE`
+  (repeatable, merges into a `dict[str, str]`).
 - **`AUTO = "--"`** / **`DEFAULT = "-"`** — module-level sentinels: `AUTO`
   means "resolve from the file on disk" (used by `resolve_for`); `DEFAULT`
   means "leave at the OS/system default, do not set explicitly" (used by
@@ -207,9 +209,13 @@ you're embedding the CLI layer itself:
   stage a source (file / directory / symlink / tar-family archive /
   decompress-on-copy) into the build root, apply mode/ownership, and record
   the entry. `-D` = `-Tp` shortcut, `-d` = `--type directory` shortcut.
+  `--type=--` (or the Python API's `FileType._AUTO`) auto-detects from the
+  source, same as leaving `-t` unset.
 - **`scan.ScanCmd(FileEntryArgs, PkgForgeCmd)`** (`pkgforge scan`) — walk a
   path under the build root, recording an entry per file; `--missing` only
-  fills gaps not already in the DB.
+  fills gaps not already in the DB. `--type/-t` is hidden from `--help` and
+  never applied (scan always records each path's own on-disk type); an
+  explicit value logs a warning instead of doing nothing silently.
 - **`dbdump.DbDump(PkgForgeCmd)`** (`pkgforge dbdump -f FORMAT [output]`) —
   render surviving (post-`--exclude`) DB entries via the format registry
   above.

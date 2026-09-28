@@ -171,6 +171,38 @@ def _or_default(value: str) -> str:
     return value if value else DEFAULT
 
 
+def _filetype(value: typing.Union[str, FileType]) -> typing.Union[FileType, str]:
+    """Normalize a ``--type`` value.
+
+    ``-`` means :data:`DEFAULT` (auto-detect from the source); ``--`` or
+    :attr:`FileType._AUTO` means :data:`AUTO` (the explicit auto-detect
+    sentinel). The value or member name of ``File``, ``Directory`` or
+    ``Symlink``, matched case-insensitively, returns that member. Anything
+    else -- including ``auto``/``_AUTO``, which name the sentinel member but
+    are not a documented spelling of it -- raises :class:`UsageError`.
+    """
+    if value == DEFAULT:
+        return DEFAULT
+    if value == AUTO or value == FileType._AUTO:
+        return AUTO
+    if isinstance(value, FileType) and value != FileType._AUTO:
+        return value
+    if isinstance(value, str):
+        for member in (FileType.File, FileType.Directory, FileType.Symlink):
+            if value.lower() in (member.value, member.name.lower()):
+                return member
+    raise UsageError(f"invalid type {value!r} (choose from file, directory, symlink)")
+
+
+def _parse_filetype(text: str) -> typing.Union[FileType, str]:
+    """CLI ``type=`` converter for ``--type``: wraps :func:`_filetype`,
+    translating :class:`UsageError` to argparse's own error type."""
+    try:
+        return _filetype(text)
+    except UsageError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from None
+
+
 class FileEntryArgs(Cmd):
     mode: duho.Arg[str, duho.NS(type=_parse_mode)] = DEFAULT
     ("--mode", "-m")
@@ -178,7 +210,10 @@ class FileEntryArgs(Cmd):
     ("--group", "-g")
     owner: str = DEFAULT
     ("--owner", "-o")
-    type: typing.Optional[FileType] = None
+    type: duho.Arg[
+        typing.Optional[FileType],
+        duho.NS(type=_parse_filetype, metavar="{file,directory,symlink}"),
+    ] = None
     ("--type", "-t")
     meta: duho.Arg[
         typing.Dict[str, str],

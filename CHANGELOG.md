@@ -66,6 +66,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   default) everywhere it is read: applying the entry, and both the RPM and
   Debian dump formats. Previously the RPM format emitted `%attr(,-,-)`, which
   rpmbuild rejects, for an empty mode.
+- `install -t`/`--type` now accepts `file`, `directory` or `symlink` in any
+  case and rejects anything else with exit 2 instead of a Python traceback;
+  `--type=--` (or the Python API's `FileType._AUTO`) now auto-detects from
+  the source instead of raising `NotImplementedError`. `scan --type` is
+  hidden from `--help` (`scan` always records each path's own on-disk type)
+  and now warns instead of silently doing nothing when given a value.
 
 ## [0.1.2] - 2026-08-16
 

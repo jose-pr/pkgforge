@@ -2,21 +2,41 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 import typing
 from pathlib import Path
 
 import duho
 
-from .common import PkgForgeCmd, FileEntryArgs, entry_from_args, resolve_entry
+from .common import (
+    AUTO,
+    FileType,
+    PkgForgeCmd,
+    FileEntryArgs,
+    entry_from_args,
+    resolve_entry,
+    _parse_filetype,
+)
 from .exclude import PathMatch, PathMatchStmt
 
 
 class ScanCmd(FileEntryArgs, PkgForgeCmd):
-    """Scan a path under the build root and record each file's entry in the DB."""
+    """Scan a path under the build root and record each file's entry in the DB.
+
+    ``--type/-t`` is hidden from ``--help`` and, unlike ``install``, never
+    applied: scan always records each path's own on-disk type (a single type
+    stamped over a whole tree would be nonsense). An explicit value logs a
+    warning instead of silently doing nothing.
+    """
 
     _parsername_ = "scan"
 
+    type: duho.Arg[
+        typing.Optional[FileType],
+        duho.NS(type=_parse_filetype, help=argparse.SUPPRESS),
+    ] = None
+    ("--type", "-t")
     exclude: duho.Arg[
         typing.List[PathMatchStmt],
         duho.Append(PathMatchStmt.parse),
@@ -28,8 +48,12 @@ class ScanCmd(FileEntryArgs, PkgForgeCmd):
     ("path",)
 
     def __call__(self):
+        if self.type not in (None, AUTO):
+            self._logger_.warning(
+                "scan records each path's on-disk type; --type is ignored"
+            )
         db = self.loaddb() if self.missing else {}
-        baseentry = entry_from_args(self, type="--")
+        baseentry = entry_from_args(self, type=AUTO)
         scanpath = self.buildroot / self.path.lstrip("/")
         filter = PathMatch(self.exclude, scanpath)
         self._logger_.info("Scanning %s", scanpath)
