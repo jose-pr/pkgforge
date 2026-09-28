@@ -6,7 +6,8 @@ supplies those fields (:class:`FileEntryArgs`), and the common command base
 (:class:`PkgForgeCmd`) that every subcommand extends.
 
 Storage is pluggable (see :mod:`pkgforge.db`: ``jsonl`` by default, plus
-``yaml`` and ``sqlite``, and a third party can register its own). On load,
+``yaml`` and ``sqlite``, and a third party can add its own by subclassing
+:class:`~pkgforge.db.DbProvider`). On load,
 the last record for a path wins. ``mode`` is always stored as an **octal
 permission string** (e.g. ``"644"``) so the DB round-trips cleanly and dumps
 (e.g. ``%attr(644,...)`` in an RPM spec) are correct.
@@ -464,27 +465,25 @@ def _env_root(value: str) -> Path:
 
 
 def _check_db_format(value: typing.Optional[str]) -> typing.Optional[str]:
-    """Validate a ``db_format`` value against the registered providers.
+    """Validate a ``db_format`` value against the registered providers,
+    returning its canonical :attr:`~pkgforge.db.DbProvider.NAME`.
 
     A falsy value (``None`` or ``""``) means "auto-detect" and is never
     checked here -- ``open_db`` still resolves it from the ``--db`` suffix or,
     for an existing file, by sniffing its content. Anything else must already
-    be a registered provider name, checked eagerly so a typo fails before any
-    file is staged, instead of surfacing as a traceback the first time the DB
-    is touched.
+    be a registered :class:`~pkgforge.db.DbProvider` subclass's ``NAME`` or
+    ``ALIASES`` entry, checked eagerly so a typo fails before any file is
+    staged, instead of surfacing as a traceback the first time the DB is
+    touched.
     """
     if not value:
         return value
-    # Function-local, like PkgForgeCmd._provider() below: db.py's PROVIDERS is
-    # read fresh on every call, so a register_provider() call that runs after
-    # this module is imported (a third-party backend) is still recognized.
-    from .db import PROVIDERS
+    # Function-local, like PkgForgeCmd._provider() below: DbProvider._registry
+    # is read fresh on every call, so a subclass defined after this module is
+    # imported (a third-party backend) is still recognized.
+    from .db import DbProvider
 
-    if value not in PROVIDERS:
-        raise UsageError(
-            f"unknown db format {value!r}; choose from {', '.join(sorted(PROVIDERS))}"
-        )
-    return value
+    return DbProvider.lookup(value).NAME
 
 
 class PkgForgeCmd(LoggingArgs, Cmd):
@@ -507,7 +506,7 @@ class PkgForgeCmd(LoggingArgs, Cmd):
         typing.Optional[str],
         duho.NS(env="PKGFORGE_DB_FORMAT", type=_env_str, metavar="FORMAT"),
     ] = _env_str(os.environ.get("PKGFORGE_DB_FORMAT", ""))
-    "storage backend: jsonl, yaml, sqlite, or a register_provider name (env PKGFORGE_DB_FORMAT); else inferred from the --db suffix"
+    "storage backend: jsonl, yaml, sqlite, or a registered DbProvider subclass's NAME (env PKGFORGE_DB_FORMAT); else inferred from the --db suffix"
     ("--db-format",)
     buildroot: duho.Arg[
         Path, duho.NS(env="PKGFORGE_ROOT", type=_env_root, metavar="DIR")
@@ -692,7 +691,7 @@ class PkgForgeCmd(LoggingArgs, Cmd):
         if self._no_file_db():
             # No file: emit the record as a JSON Lines line to stdout.
             # Function-local for the same reason as _provider() above.
-            from .db import _jsonl_line
+            from .db.jsonl import _jsonl_line
 
             print(_jsonl_line(path, entry), end="")
             return

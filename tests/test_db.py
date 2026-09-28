@@ -23,7 +23,6 @@ from pkgforge.db import (
     YamlDb,
     format_for_suffix,
     open_db,
-    register_provider,
     sniff_format,
 )
 
@@ -45,7 +44,7 @@ def provider(request, tmp_path):
 
 def _reload(provider):
     # A fresh provider instance, as a separate CLI invocation would use.
-    return open_db(provider.path, provider.format, for_read=True).load()
+    return open_db(provider.path, provider.NAME, for_read=True).load()
 
 
 def test_roundtrip(provider, make_entry):
@@ -121,14 +120,14 @@ def test_sniff_detects_content_over_suffix(tmp_path, make_entry):
     path = tmp_path / "noext"
     open_db(path, "yaml").add("/a", make_entry())
     assert sniff_format(path) == "yaml"
-    assert open_db(path, for_read=True).format == "yaml"
+    assert open_db(path, for_read=True).NAME == "yaml"
 
 
 def test_sniff_detects_sqlite(tmp_path):
     path = tmp_path / "store"  # no .db suffix
     open_db(path, "sqlite").init()
     assert sniff_format(path) == "sqlite"
-    assert open_db(path, for_read=True).format == "sqlite"
+    assert open_db(path, for_read=True).NAME == "sqlite"
 
 
 def test_sniff_detects_jsonl(tmp_path, make_entry):
@@ -232,7 +231,7 @@ def test_yaml_uses_libyaml_when_available():
     if not getattr(yaml, "__with_libyaml__", False):
         pytest.skip("PyYAML installed without libyaml (no CSafeLoader/CSafeDumper)")
 
-    from pkgforge.db import _yaml_io
+    from pkgforge.db.yaml import _yaml_io
 
     _yaml_io.cache_clear()
     try:
@@ -260,13 +259,13 @@ def test_yaml_uses_libyaml_when_available():
 def test_yaml_loader_parity(tmp_path, monkeypatch, make_entry, which):
     # Whichever loader/dumper _yaml_io() picks, behavior (last-wins,
     # tombstones) and the exact bytes compact() writes must be unchanged.
-    import pkgforge.db as dbmod
+    import pkgforge.db.yaml as db_yaml
 
     if which == "pure":
         loader, dumper = yaml.SafeLoader, yaml.SafeDumper
     else:
         loader, dumper = yaml.CSafeLoader, yaml.CSafeDumper
-    monkeypatch.setattr(dbmod, "_yaml_io", lambda: (loader, dumper))
+    monkeypatch.setattr(db_yaml, "_yaml_io", lambda: (loader, dumper))
 
     p = open_db(tmp_path / "f.yaml", "yaml")
     p.init()
@@ -293,7 +292,7 @@ def test_open_db_unknown_format_has_no_context(tmp_path):
 def test_stdout_record_matches_jsonl_line(cmd, make_entry, capsys):
     # _write_entry's stdout fallback (no --db) must emit exactly the same
     # bytes JsonlDb.add/remove would append to a real file.
-    from pkgforge.db import _jsonl_line
+    from pkgforge.db.jsonl import _jsonl_line
 
     inst = cmd(db=None)
     entry = make_entry(mode="755")
@@ -386,31 +385,19 @@ def test_cmd_db_format_override(cmd, make_entry):
 
 
 # --------------------------------------------------------------------------
-# register_provider extension seam
+# DbProvider subclass extension seam
 # --------------------------------------------------------------------------
 
 
-@pytest.fixture
-def restore_registries():
-    """Snapshot/restore the provider registries around a registration test."""
-    providers = dict(dbmod.PROVIDERS)
-    suffixes = dict(dbmod.SUFFIX_FORMATS)
-    sniffers = list(dbmod._SNIFFERS)
-    try:
-        yield
-    finally:
-        dbmod.PROVIDERS.clear()
-        dbmod.PROVIDERS.update(providers)
-        dbmod.SUFFIX_FORMATS.clear()
-        dbmod.SUFFIX_FORMATS.update(suffixes)
-        dbmod._SNIFFERS[:] = sniffers
-        assert "tsv" not in dbmod.PROVIDERS
-
-
 class _TsvDb(DbProvider):
-    """A toy tab-separated backend for the registration test."""
+    """A toy tab-separated backend for provider-subclass tests.
 
-    format = "tsv"
+    Declares no ``NAME`` of its own, so subclassing it directly registers
+    nothing (mirrors an abstract intermediate class such as
+    ``AppendLogDb``); a test builds a real, registered backend with
+    ``type("TsvDb", (_TsvDb,), {"NAME": "tsv", ...})``.
+    """
+
     _MARK = "#pkgforge-tsv\n"
 
     def load(self):
@@ -453,40 +440,41 @@ class _TsvDb(DbProvider):
         self.path.write_text(self._MARK)
 
 
-def test_register_provider_selectable_by_name(restore_registries, tmp_path, make_entry):
-    register_provider("tsv", _TsvDb, suffixes=(".tsv",))
+def test_db_provider_subclass_selectable_by_name(
+    restore_registries, tmp_path, make_entry
+):
+    Tsv = type("TsvDb", (_TsvDb,), {"NAME": "tsv", "SUFFIXES": (".tsv",)})
     p = open_db(tmp_path / "f.out", "tsv")
-    assert isinstance(p, _TsvDb)
+    assert isinstance(p, Tsv)
     p.init()
     p.add("/a", make_entry(mode="644"))
     assert open_db(tmp_path / "f.out", "tsv").load()["/a"]["mode"] == "644"
 
 
-def test_register_provider_selectable_by_suffix(restore_registries, tmp_path):
-    register_provider("tsv", _TsvDb, suffixes=(".tsv",))
-    assert isinstance(open_db(tmp_path / "f.tsv"), _TsvDb)
+def test_db_provider_subclass_selectable_by_suffix(restore_registries, tmp_path):
+    Tsv = type("TsvDb", (_TsvDb,), {"NAME": "tsv", "SUFFIXES": (".tsv",)})
+    assert isinstance(open_db(tmp_path / "f.tsv"), Tsv)
     assert format_for_suffix(tmp_path / "f.tsv") == "tsv"
 
 
-def test_register_provider_sniffer_wins(restore_registries, tmp_path):
-    register_provider(
-        "tsv",
-        _TsvDb,
-        suffixes=(".tsv",),
-        sniff=lambda head: head.startswith(b"#pkgforge-tsv"),
+def test_db_provider_subclass_sniffer_wins(restore_registries, tmp_path):
+    type(
+        "TsvDb",
+        (_TsvDb,),
+        {
+            "NAME": "tsv",
+            "SUFFIXES": (".tsv",),
+            "sniff": staticmethod(lambda head: head.startswith(b"#pkgforge-tsv")),
+        },
     )
     path = tmp_path / "noext"
     open_db(path, "tsv").init()
     # Content sniffed as tsv even though the suffix is unknown.
     assert sniff_format(path) == "tsv"
-    assert open_db(path, for_read=True).format == "tsv"
+    assert open_db(path, for_read=True).NAME == "tsv"
 
 
-def test_register_provider_returns_class_for_decorator(restore_registries):
-    assert register_provider("tsv", _TsvDb) is _TsvDb
-
-
-def test_register_provider_accepted_as_db_format(restore_registries, tmp_path):
+def test_db_provider_subclass_accepted_as_db_format(restore_registries, tmp_path):
     from pkgforge.common import UsageError
     from pkgforge.initdb import InitDb
 
@@ -494,21 +482,41 @@ def test_register_provider_accepted_as_db_format(restore_registries, tmp_path):
         InitDb(db=tmp_path / "x.jsonl", db_format="toml")
     assert isinstance(excinfo.value, ValueError)
 
-    register_provider("custom", _TsvDb)
+    type("TsvDb", (_TsvDb,), {"NAME": "custom"})
     inst = InitDb(db=tmp_path / "x.jsonl", db_format="custom")
     assert inst.db_format == "custom"
 
 
-def test_register_provider_adds_leading_dot(restore_registries, tmp_path):
-    register_provider("tsv", _TsvDb, suffixes=("TSV",))  # no dot, upper-case
+def test_db_provider_subclass_adds_leading_dot(restore_registries, tmp_path):
+    Tsv = type(
+        "TsvDb", (_TsvDb,), {"NAME": "tsv", "SUFFIXES": ("TSV",)}
+    )  # no dot, upper-case
     assert format_for_suffix(tmp_path / "x.tsv") == "tsv"
-    assert isinstance(open_db(tmp_path / "x.tsv"), _TsvDb)
+    assert isinstance(open_db(tmp_path / "x.tsv"), Tsv)
 
 
-def test_register_provider_rejects_multi_dot_suffix(restore_registries):
+def test_db_provider_subclass_rejects_multi_dot_suffix(restore_registries):
     with pytest.raises(ValueError):
-        register_provider("targz", _TsvDb, suffixes=(".tar.gz",))
-    assert "targz" not in dbmod.PROVIDERS
+        type("TargzDb", (_TsvDb,), {"NAME": "targz", "SUFFIXES": (".tar.gz",)})
+    assert "targz" not in DbProvider._registry
+
+
+def test_db_provider_subclass_inherits_neither_aliases_nor_suffixes(
+    restore_registries, tmp_path
+):
+    # A subclass that does not redeclare ALIASES/SUFFIXES in its OWN body
+    # must not silently claim its parent's: registration (and therefore
+    # lookup/format_for_suffix) reads only what a class's own __dict__ sets,
+    # never what plain attribute access would show as inherited.
+    Base = type(
+        "TsvDb",
+        (_TsvDb,),
+        {"NAME": "tsv", "ALIASES": ("tabsep",), "SUFFIXES": (".tsv",)},
+    )
+    type("TsvDbSub", (Base,), {"NAME": "tsv2"})
+
+    assert DbProvider.lookup("tabsep") is Base
+    assert format_for_suffix(tmp_path / "x.tsv") == "tsv"
 
 
 # --------------------------------------------------------------------------
@@ -843,7 +851,7 @@ def test_compact_rewrites_flow_yaml_to_block(tmp_path, make_entry):
 
 @pytest.mark.parametrize("fmt", ["jsonl", "yaml"])
 def test_compact_failure_leaves_db_intact(tmp_path, monkeypatch, make_entry, fmt):
-    import pkgforge.db as dbmod
+    import pkgforge.db._appendlog as db_appendlog
 
     p = open_db(tmp_path / f"f.{fmt}", fmt)
     p.init()
@@ -855,7 +863,7 @@ def test_compact_failure_leaves_db_intact(tmp_path, monkeypatch, make_entry, fmt
     def _raise(*a, **k):
         raise OSError(28, "No space left on device")
 
-    monkeypatch.setattr(dbmod.os, "replace", _raise)
+    monkeypatch.setattr(db_appendlog.os, "replace", _raise)
 
     with pytest.raises(OSError):
         p.compact()
@@ -972,7 +980,9 @@ def test_db_imports_without_fcntl(tmp_path):
 def test_batch_commits_every_n_rows(tmp_path, monkeypatch, make_entry):
     import sqlite3
 
-    monkeypatch.setattr(dbmod, "_BATCH_ROWS", 2)
+    import pkgforge.db.sqlite as db_sqlite
+
+    monkeypatch.setattr(db_sqlite, "_BATCH_ROWS", 2)
     db_path = tmp_path / "f.db"
     p = open_db(db_path, "sqlite")
     p.init()
@@ -1020,7 +1030,7 @@ def test_batch_keeps_rows_on_error(tmp_path, make_entry):
 def test_scan_with_provider_without_batch(tmp_path, cli, restore_registries):
     # A third-party provider that never overrides batch() (inherits the
     # DbProvider default, a no-op) still works under scan.
-    register_provider("tsv", _TsvDb, suffixes=(".tsv",))
+    type("TsvDb", (_TsvDb,), {"NAME": "tsv", "SUFFIXES": (".tsv",)})
 
     root = tmp_path / "root"
     tree = root / "usr" / "share" / "tool"

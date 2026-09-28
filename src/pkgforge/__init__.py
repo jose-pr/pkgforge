@@ -30,7 +30,7 @@ from .common import (
     normalize_mode,
     resolve_entry,
 )
-from .db import DbError, DbProvider, open_db, register_provider
+from .db import DbError, DbProvider, open_db
 from . import compact, dbdump, initdb, install, scan
 
 try:  # resolve the installed distribution version, if any
@@ -56,7 +56,6 @@ __all__ = [
     "resolve_entry",
     "main",
     "open_db",
-    "register_provider",
     "compact",
     "dbdump",
     "initdb",

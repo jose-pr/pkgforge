@@ -70,7 +70,7 @@ def test_env_vars_configure_root_db_and_format(tmp_path):
 
     staged = root / "opt" / "src.txt"
     assert stat.S_IMODE(staged.stat().st_mode) == 0o700
-    assert open_db(db, for_read=True).format == "sqlite"
+    assert open_db(db, for_read=True).NAME == "sqlite"
     loaded = open_db(db, "sqlite", for_read=True).load()
     assert loaded["/opt/src.txt"]["mode"] == "700"
 
