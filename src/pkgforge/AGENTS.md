@@ -317,6 +317,11 @@ above).
   Re-running an install always works: it replaces a staged file or symlink
   (never a real directory, which raises `UsageError` instead), and several
   directory/archive sources sharing a destination keep merging as before.
+  A directory (or archive-merge) copy replaces a stale destination symlink
+  at any name instead of failing with `FileExistsError`, and never writes a
+  regular-file source's content through a leftover destination symlink; a
+  real destination directory is left alone (a source symlink colliding with
+  one still raises).
   `--mode`, `--chown`'s owner/group names (only when `--chown` is set; a
   recorded-only name is never resolved) and the `--db` directory are
   validated before anything is staged; without `-p`, a missing destination

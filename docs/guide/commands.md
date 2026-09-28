@@ -80,6 +80,11 @@ destination still merge into it, as they always have.
 A tar-family archive given as a `directory`-typed source is extracted with
 stdlib `tarfile`; other archive types fall back to `bsdtar`.
 
+Re-running a directory install onto an existing destination always works:
+any stale destination symlink (from an earlier run, or left there by
+something else) is replaced rather than causing a `FileExistsError` or,
+for a regular-file source, being written through to wherever it points.
+
 ## `scan`
 
 Walk a path under the build root and record a `FileEntry` for each file.

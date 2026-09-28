@@ -7,6 +7,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- Re-running a directory install whose source holds symlinks no longer
+  fails with `shutil.Error`; a stale symlink left at the destination
+  (including a directory-source's own symlink retargeted between runs) is
+  replaced instead, and a regular-file source is never written through a
+  leftover destination symlink.
 - `**` in `--exclude` matches any number of directories on every Python
   version: `/**/*.pyc` excludes `.pyc` files at any depth, `/opt/app/**`
   excludes everything below `/opt/app` but not `/opt/app` itself. Some

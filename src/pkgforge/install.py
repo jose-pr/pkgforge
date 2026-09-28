@@ -204,6 +204,74 @@ def _refuse_real_directory_dest(dst: Path) -> None:
         raise UsageError(f"{dst}: cannot replace a directory with a file or symlink")
 
 
+def _copy_ignore(
+    src: Path,
+    dst: Path,
+    exclude: typing.Optional[PathMatch],
+    skip: typing.FrozenSet[str] = frozenset(),
+    meta: typing.Optional[typing.Dict[str, str]] = None,
+) -> typing.Callable[[str, typing.List[str]], typing.List[str]]:
+    """Build a ``shutil.copytree`` ``ignore=`` callback shared by a
+    directory source's copy and a fresh archive extraction's merge into an
+    already-existing destination.
+
+    Beyond the ``-X`` filtering (delegated to ``exclude``'s
+    :class:`~pkgforge.exclude.PathMatch`, unchanged from before -- a
+    statement whose glob already matched but whose inline test needs a
+    file type ``copytree`` cannot give still raises :class:`PkgForgeError`)
+    and ``skip`` (paths this call must never copy at all, e.g. the build
+    root or the file DB sitting inside the source), every kept name gets a
+    stale destination entry cleared before ``copytree`` reaches it:
+
+    * an existing destination *symlink* is unlinked unconditionally --
+      ``copytree(symlinks=True)`` recreates a source link with a bare
+      ``os.symlink``, which raises ``FileExistsError`` over one, and a
+      regular-file source copied with ``copy2`` would otherwise write its
+      new content straight through a leftover destination link (possibly
+      outside the build root);
+    * a destination *regular file* is unlinked only when the source entry
+      at that name is itself a symlink, so the link can be created in its
+      place.
+
+    A real destination *directory* is never touched here: a source link or
+    file colliding with one still raises from ``copytree`` itself, rather
+    than being silently replaced by an ``rmtree``.
+    """
+    resolved_meta = {} if meta is None else meta
+
+    def _ignore(_dir: str, _names: typing.List[str]) -> typing.List[str]:
+        ignored: typing.List[str] = []
+        base = dst / os.path.relpath(_dir, os.fspath(src))
+        for name in _names:
+            if name in skip:
+                ignored.append(name)
+                continue
+            path = Path(_dir, name)
+            if exclude is not None:
+                try:
+                    if exclude.match(path, meta=resolved_meta):
+                        ignored.append(name)
+                        continue
+                except TypeError as exc:
+                    # FileType.from_path raises TypeError for a fifo/socket.
+                    # A glob-only -X (e.g. '*.fifo') already excluded such a
+                    # path above without ever reaching here; this is a
+                    # test-bearing statement whose glob still hit one.
+                    raise PkgForgeError(
+                        f"{path}: unsupported file type (not a "
+                        "file, directory or symlink); exclude it "
+                        "with -X"
+                    ) from exc
+            dst_entry = base / name
+            if dst_entry.is_symlink():
+                dst_entry.unlink()
+            elif path.is_symlink() and dst_entry.is_file():
+                dst_entry.unlink()
+        return ignored
+
+    return _ignore
+
+
 def _extract_tar(path: typing.Union[str, os.PathLike], dst: Path) -> None:
     """Extract the tar-family archive at ``path`` into ``dst`` using stdlib
     :mod:`tarfile`.
@@ -464,7 +532,13 @@ class Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
                         check=True,
                     )
                 if dst.exists():
-                    shutil.copytree(tmp, dst, symlinks=True, dirs_exist_ok=True)
+                    shutil.copytree(
+                        tmp,
+                        dst,
+                        symlinks=True,
+                        ignore=_copy_ignore(tmp, dst, None),
+                        dirs_exist_ok=True,
+                    )
                     shutil.rmtree(tmp)
                     return dst
                 return tmp
@@ -478,34 +552,7 @@ class Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
         created = not dst.exists()
         try:
             dst.mkdir(exist_ok=True)
-            if self.exclude:
-                matcher = PathMatch(self.exclude, src)
-
-                def _ignore(_dir: str, _files: typing.List[str]):
-                    excluded = []
-                    for file in _files:
-                        path = Path(_dir, file)
-                        try:
-                            # meta=dict(self.meta): a (?meta:k=v) inline
-                            # test then sees this run's -O values, same as
-                            # scan (see exclude.py's PathMatch.match header).
-                            if matcher.match(path, meta=dict(self.meta)):
-                                excluded.append(file)
-                        except TypeError as exc:
-                            # FileType.from_path raises TypeError for a
-                            # fifo/socket. A glob-only -X (e.g. '*.fifo')
-                            # already excluded such a path above without
-                            # reaching here; this is a test-bearing
-                            # statement whose glob still hit one.
-                            raise PkgForgeError(
-                                f"{path}: unsupported file type (not a "
-                                "file, directory or symlink); exclude it "
-                                "with -X"
-                            ) from exc
-                    return excluded
-
-            else:
-                _ignore = None
+            matcher = PathMatch(self.exclude, src) if self.exclude else None
             # copytree stamps the top directory's own stat (mode, mtime)
             # once it finishes, unconditionally -- a copystat here first
             # would only be overwritten by that one, so there is none. The
@@ -516,7 +563,7 @@ class Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
                 src,
                 dst,
                 symlinks=True,
-                ignore=_ignore,
+                ignore=_copy_ignore(src, dst, matcher, meta=dict(self.meta)),
                 dirs_exist_ok=True,
             )
         except BaseException:
