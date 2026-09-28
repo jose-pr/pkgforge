@@ -1721,3 +1721,32 @@ def test_install_falsy_buildroot_refused(tmp_path, monkeypatch, buildroot):
         )()
 
     assert list(tmp_path.iterdir()) == [src]
+
+
+# --------------------------------------------------------------------------
+# Directory staging: top mode/mtime and a dangling symlink survive the
+# cleanup of install.py's dead/redundant code (no behavior change)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.posix
+def test_install_directory_keeps_top_mode_and_dangling_link(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    srcdir = tmp_path / "srcdir"
+    srcdir.mkdir(mode=0o750)
+    os.chmod(srcdir, 0o750)  # mkdir's mode is umask-adjusted; pin it exactly
+    (srcdir / "f").write_text("x")
+    (srcdir / "dangling").symlink_to("no-such-target")
+    db = tmp_path / "files.jsonl"
+
+    Install._parser_().parse_args(
+        ["--db", str(db), "--buildroot", str(root), "-d", "-D", str(srcdir), "/opt/app"]
+    )()
+
+    staged = root / "opt" / "app"
+    assert (staged.stat().st_mode & 0o777) == 0o750
+    link = staged / "dangling"
+    assert link.is_symlink()
+    assert os.readlink(link) == "no-such-target"
+    assert not link.exists()  # dangling: the target still doesn't exist

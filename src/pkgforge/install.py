@@ -204,19 +204,18 @@ def _refuse_real_directory_dest(dst: Path) -> None:
         raise UsageError(f"{dst}: cannot replace a directory with a file or symlink")
 
 
-def _extract_tar(fileobj_or_name, dst: Path) -> None:
-    """Extract a tar-family archive into ``dst`` using stdlib :mod:`tarfile`.
+def _extract_tar(path: typing.Union[str, os.PathLike], dst: Path) -> None:
+    """Extract the tar-family archive at ``path`` into ``dst`` using stdlib
+    :mod:`tarfile`.
 
     Uses the safe ``data`` extraction filter where the interpreter supports it
     (guards against absolute paths / traversal / special files); older
-    interpreters without ``filter=`` extract without it.
+    interpreters without ``filter=`` extract without it. Path-only: a stdin
+    (``-``) source is never tar-family-typed (:func:`_is_tar_source` only
+    runs on a real path) and stages through ``bsdtar`` instead.
     """
     kwargs = {}
-    if isinstance(fileobj_or_name, (str, os.PathLike)):
-        opener = tarfile.open(name=os.fspath(fileobj_or_name), mode="r:*")
-    else:
-        opener = tarfile.open(fileobj=fileobj_or_name, mode="r|*")
-    with opener as tar:
+    with tarfile.open(name=os.fspath(path), mode="r:*") as tar:
         if _TARFILE_HAS_FILTER:
             kwargs["filter"] = "data"
         tar.extractall(os.fspath(dst), **kwargs)
@@ -312,6 +311,9 @@ class Install(FileEntryArgs, PkgForgeCmd):
         ``os.replace``s the returned temp onto ``dst``. On any failure the
         temp is removed and the exception re-raised.
         """
+        # Computed once and reused below: str(src) == DEFAULT means the "-"
+        # positional placeholder, i.e. this clone actually reads stdin.
+        from_stdin = str(src) == DEFAULT
         fd, tmp_name = tempfile.mkstemp(
             dir=os.fspath(dst.parent), prefix=f".{dst.name}.", suffix=".pkgforge-tmp"
         )
@@ -333,18 +335,18 @@ class Install(FileEntryArgs, PkgForgeCmd):
                             *argv,
                             # An absolute path so a source starting with "-"
                             # (e.g. "-v.gz") is never read as an option.
-                            os.fspath(src.absolute()) if str(src) != DEFAULT else "-",
+                            "-" if from_stdin else os.fspath(src.absolute()),
                         ],
                         # Only a "-" source reads stdin; for a real file the
                         # child inherits ours. Passing the file object (not
                         # a bare .fileno()) lets subprocess resolve it even
                         # when stdin has been replaced with a wrapped file
                         # object (as the tests do).
-                        stdin=sys.stdin if str(src) == DEFAULT else None,
+                        stdin=sys.stdin if from_stdin else None,
                         stdout=f,
                         check=True,
                     )
-            elif str(src) != DEFAULT:
+            elif not from_stdin:
                 if stat.S_ISREG(os.stat(src).st_mode):
                     # Copy src -> tmp. mkstemp already created tmp; copy2
                     # wants to create the file itself (to also copy the
@@ -356,8 +358,8 @@ class Install(FileEntryArgs, PkgForgeCmd):
                     # /dev/stdin, process substitution): stream its bytes.
                     # copy2/copystat do not apply to a non-regular file.
                     os.chmod(tmp, 0o666 & ~_umask())
-                    with open(src, "rb") as input, tmp.open("wb") as output:
-                        shutil.copyfileobj(input, output)
+                    with open(src, "rb") as stream_in, tmp.open("wb") as stream_out:
+                        shutil.copyfileobj(stream_in, stream_out)
             else:
                 self._logger_.info("Obtaining data from stdin")
                 os.chmod(tmp, 0o666 & ~_umask())
@@ -469,21 +471,24 @@ class Install(FileEntryArgs, PkgForgeCmd):
         created = not dst.exists()
         try:
             dst.mkdir(exist_ok=True)
-            shutil.copystat(src, dst, follow_symlinks=False)
             if self.exclude:
-                filter = PathMatch(self.exclude, src)
+                matcher = PathMatch(self.exclude, src)
 
                 def _ignore(_dir: str, _files: typing.List[str]):
-                    return [file for file in _files if filter.match(Path(_dir, file))]
+                    return [file for file in _files if matcher.match(Path(_dir, file))]
 
             else:
                 _ignore = None
+            # copytree stamps the top directory's own stat (mode, mtime)
+            # once it finishes, unconditionally -- a copystat here first
+            # would only be overwritten by that one, so there is none.
+            # ignore_dangling_symlinks is not passed: it only has any effect
+            # when symlinks=False, so it would be a silent no-op here.
             shutil.copytree(
                 src,
                 dst,
                 symlinks=True,
                 ignore=_ignore,
-                ignore_dangling_symlinks=True,
                 dirs_exist_ok=True,
             )
         except BaseException:
