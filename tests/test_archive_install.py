@@ -799,3 +799,75 @@ def test_install_archive_from_stdin_via_bsdtar_guard(tmp_path):
     )
     assert proc.returncode == 0, proc.stderr.decode()
     assert (root / "opt" / "x" / "bundle" / "a").read_text() == "data"
+
+
+# --------------------------------------------------------------------------
+# A directory copy skips the build root, destination and DB inside it
+# --------------------------------------------------------------------------
+
+
+def test_install_dir_containing_buildroot_skips_it(tmp_path, monkeypatch):
+    proj = tmp_path / "proj"
+    (proj / "src").mkdir(parents=True)
+    (proj / "src" / "a.txt").write_text("A")
+    (proj / "build" / "root" / "usr" / "bin").mkdir(parents=True)
+    (proj / "build" / "root" / "usr" / "bin" / "tool").write_text("tool")
+    monkeypatch.chdir(proj)
+
+    from pkgforge.initdb import InitDb
+
+    InitDb._parser_().parse_args(["--db", "files.jsonl"])()
+    assert Path("files.jsonl").exists()
+
+    inst = Install._parser_().parse_args(
+        [
+            "--buildroot",
+            "build/root",
+            "--db",
+            "files.jsonl",
+            "-p",
+            "-T",
+            "-d",
+            ".",
+            "/opt/app",
+        ]
+    )
+    inst()
+
+    staged = Path("build/root/opt/app")
+    assert (staged / "src" / "a.txt").read_text() == "A"
+    assert (staged / "build").is_dir()
+    assert list((staged / "build").iterdir()) == []
+    assert not (staged / "files.jsonl").exists()
+    assert "/opt/app" in inst.loaddb()
+
+
+def test_install_dir_containing_buildroot_with_exclude(tmp_path, monkeypatch):
+    proj = tmp_path / "proj"
+    (proj / "src").mkdir(parents=True)
+    (proj / "src" / "a.txt").write_text("A")
+    (proj / "src" / "b.pyc").write_text("compiled")
+    (proj / "build" / "root").mkdir(parents=True)
+    monkeypatch.chdir(proj)
+
+    Install._parser_().parse_args(
+        [
+            "--buildroot",
+            "build/root",
+            "--db",
+            "files.jsonl",
+            "-p",
+            "-T",
+            "-d",
+            "-X",
+            "**/*.pyc",
+            ".",
+            "/opt/app",
+        ]
+    )()
+
+    staged = Path("build/root/opt/app")
+    assert (staged / "src" / "a.txt").read_text() == "A"
+    assert not (staged / "src" / "b.pyc").exists()
+    assert (staged / "build").is_dir()
+    assert list((staged / "build").iterdir()) == []

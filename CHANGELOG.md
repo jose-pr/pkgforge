@@ -30,6 +30,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   with one message, not a traceback.
 
 ### Fixed
+- A directory install whose source contains the build root, destination or
+  file DB skips them (their parents are created empty) instead of
+  recursing into `RecursionError`.
 - Tar archives holding absolute symlinks, or symlinks that climb above the
   destination, extract with their targets kept exactly as written (instead
   of `tarfile.AbsoluteLinkError`/`LinkOutsideDestinationError`), and

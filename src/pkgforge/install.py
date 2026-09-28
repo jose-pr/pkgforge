@@ -343,9 +343,13 @@ def _copy_ignore(
     :class:`~pkgforge.exclude.PathMatch`, unchanged from before -- a
     statement whose glob already matched but whose inline test needs a
     file type ``copytree`` cannot give still raises :class:`PkgForgeError`)
-    and ``skip`` (paths this call must never copy at all, e.g. the build
-    root or the file DB sitting inside the source), every kept name gets a
-    stale destination entry cleared before ``copytree`` reaches it:
+    and ``skip`` (paths -- relative to ``src``, as :meth:`Install._self_copy_skips`
+    returns them, not bare names -- this call must never copy at all, e.g.
+    the build root or the file DB sitting inside the source; an ancestor
+    directory of a skipped path is still created, empty, since only the
+    exact skipped name is ever added to ``copytree``'s own ignore list),
+    every kept name gets a stale destination entry cleared before
+    ``copytree`` reaches it:
 
     * an existing destination *symlink* is unlinked unconditionally --
       ``copytree(symlinks=True)`` recreates a source link with a bare
@@ -365,9 +369,11 @@ def _copy_ignore(
 
     def _ignore(_dir: str, _names: typing.List[str]) -> typing.List[str]:
         ignored: typing.List[str] = []
-        base = dst / os.path.relpath(_dir, os.fspath(src))
+        rel_dir = os.path.relpath(_dir, os.fspath(src))
+        base = dst if rel_dir == os.curdir else dst / rel_dir
         for name in _names:
-            if name in skip:
+            entry_rel = name if rel_dir == os.curdir else os.path.join(rel_dir, name)
+            if entry_rel in skip:
                 ignored.append(name)
                 continue
             path = Path(_dir, name)
@@ -706,6 +712,40 @@ class Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
             raise
         return tmp
 
+    def _self_copy_skips(self, src: Path, dst: Path) -> typing.FrozenSet[str]:
+        """Names (each relative to ``src.resolve()``, not a bare filename)
+        that a directory copy from ``src`` onto ``dst`` must never descend
+        into: the resolved destination, the build root, and the file DB
+        (unless there is none, :meth:`PkgForgeCmd._no_file_db`), whichever
+        of them sit *strictly inside* the resolved source.
+
+        A directory install's own build root commonly does (Debian's
+        ``debian/tmp``, say), and without this ``shutil.copytree`` walks
+        into its own output, nesting the destination inside itself until
+        ``RecursionError``. Skipping, not raising, leaves each skipped
+        name's parent directories created as normal -- possibly empty, if
+        nothing else lived there -- since :func:`_copy_ignore` only ever
+        adds the exact skipped path to ``copytree``'s own ignore list, not
+        a prefix. A source that equals or sits inside ``dst`` (an in-place
+        build, or a nested merge) is unaffected: that case merges, and
+        never reaches the recursion this guards against.
+
+        Checked as ``src_real in real.parents`` (excluding ``real ==
+        src_real`` itself, an in-place build), the same containment idiom
+        used elsewhere in this module.
+        """
+        src_real = Path(os.path.realpath(src))
+        candidates = [dst, Path(self.buildroot)]
+        if not self._no_file_db():
+            candidates.append(Path(self.db))
+        skip: typing.Set[str] = set()
+        for candidate in candidates:
+            real = Path(os.path.realpath(candidate))
+            if real == src_real or src_real not in real.parents:
+                continue
+            skip.add(real.relative_to(src_real).as_posix())
+        return frozenset(skip)
+
     def _stage_directory(self, src: Path, dst: Path) -> Path:
         """Stage a directory (or archive) source at ``dst``.
 
@@ -768,6 +808,7 @@ class Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
         try:
             dst.mkdir(exist_ok=True)
             matcher = PathMatch(self.exclude, src) if self.exclude else None
+            skip = self._self_copy_skips(src, dst)
             # copytree stamps the top directory's own stat (mode, mtime)
             # once it finishes, unconditionally -- a copystat here first
             # would only be overwritten by that one, so there is none. The
@@ -778,7 +819,7 @@ class Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
                 src,
                 dst,
                 symlinks=True,
-                ignore=_copy_ignore(src, dst, matcher, meta=dict(self.meta)),
+                ignore=_copy_ignore(src, dst, matcher, skip=skip, meta=dict(self.meta)),
                 dirs_exist_ok=True,
             )
         except BaseException:

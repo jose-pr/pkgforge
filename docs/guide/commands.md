@@ -77,6 +77,13 @@ With several SOURCEs, two that resolve to the same non-directory destination
 before anything is staged; directory (and archive) sources sharing a
 destination still merge into it, as they always have.
 
+A directory copy never descends into its own resolved destination, the
+build root, or the file DB, when any of them sits inside the source
+directory (a project tree commonly contains its own build root, e.g.
+Debian's `debian/tmp`) -- their parent directories are still created, just
+possibly empty, instead of `shutil.copytree` recursing into its own output
+until `RecursionError`.
+
 A tar-family archive given as a `directory`-typed source is extracted with
 stdlib `tarfile`; other archive types (and a `-` stdin source, even a tar
 stream) fall back to `bsdtar`. `tarfile` extraction also needs its

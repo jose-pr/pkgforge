@@ -341,6 +341,13 @@ above).
   A failed install leaves `DESTINATION` exactly as it was: file, stream and
   decompress staging write a sibling temp next to it and `os.replace` it in
   only after the entry is applied, removing the temp on any failure.
+  A directory copy never descends into its own resolved destination, the
+  build root, or the file DB, whichever of them sit strictly inside the
+  source directory (a project tree commonly contains its own build root);
+  each skipped name's own parent directories are still created, possibly
+  empty, instead of recursing into the destination until `RecursionError`.
+  A source that equals or sits inside the destination (an in-place build,
+  or a nested merge) is unaffected -- that case merges, as before.
   Re-running an install always works: it replaces a staged file or symlink
   (never a real directory, which raises `UsageError` instead), and several
   directory/archive sources sharing a destination keep merging as before.
