@@ -299,3 +299,14 @@ def test_api_reference_docstrings():
         module_name, qualname = target.rsplit(".", 1)
         obj = getattr(importlib.import_module(module_name), qualname)
         assert obj.__doc__, target
+
+
+def test_header_documents_all():
+    text = HEADER.read_text(encoding="utf-8")
+    for name in pkgforge.__all__:
+        obj = getattr(pkgforge, name, None)
+        if inspect.ismodule(obj):
+            continue  # the leaf-command submodules, documented as a group
+        pattern = re.compile(r"\*\*`[\w.]*" + re.escape(name) + r"(?!\w)")
+        assert pattern.search(text), name
+    assert text.count("## Exit status") == 1

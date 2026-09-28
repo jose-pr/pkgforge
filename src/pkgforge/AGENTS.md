@@ -3,7 +3,7 @@
 Header-file-style reference for the `pkgforge` package: every `__all__`
 export with its signature, arguments, contract, and gotchas, so this module
 can be consumed without reading its source. Kept current with the public
-API. For the CLI overview and code layout, see the shipped `README.md`, or <https://github.com/jose-pr/pkgforge>.
+API. For the CLI overview see the shipped `README.md` or <https://github.com/jose-pr/pkgforge>.
 
 `pkgforge.__all__`: `PkgForgeCmd`, `PkgForge`, `PkgForgeError`, `DbError`,
 `DbProvider`, `FileEntry`, `FileEntryArgs`, `FileType`, `UsageError`,
@@ -18,16 +18,24 @@ tree).
 
 - **`main(argv=None) -> int`** — build the parser and dispatch the selected
   subcommand (`duho.main(PkgForge, argv)`). Bound as the `pkgforge` console
-  script and `python -m pkgforge`. This is pkgforge's only error boundary:
-  a `UsageError` prints one `pkgforge: error: ...` line to stderr and returns
-  2; any other `PkgForgeError`, `OSError` or `subprocess.CalledProcessError`
-  prints the same and returns 1; a `BrokenPipeError` (a closed output pipe)
-  returns 1 silently; anything else propagates with its traceback. Set
-  `DUHO_TRACEBACK` to a true value (duho's boolean tokens: `1`/`true`/`yes`/
-  `on`; `0`/`false`/`no`/`off`/`n`/`f` are off) to also print the traceback
-  before that one line.
-  Calling a command directly (not through `main()`) still raises the plain
-  exception — the boundary only wraps the CLI entry point.
+  script and `python -m pkgforge`. This is pkgforge's only error boundary --
+  see [Exit status](#exit-status) for its exit codes. Calling a command
+  directly (not through `main()`) still raises the plain exception -- the
+  boundary only wraps the CLI entry point.
+- **`__version__: str`** — the installed distribution version
+  (`importlib.metadata.version("pkgforge")`); `"0.0.0"` when running from a
+  source checkout that is not installed.
+
+## Exit status
+
+`main()` returns `0` on success; a `UsageError` prints one
+`pkgforge: error: ...` line to stderr and returns `2`; any other
+`PkgForgeError`, `OSError` or `subprocess.CalledProcessError` prints the same
+and returns `1`; a `BrokenPipeError` (a closed output pipe) returns `1`
+silently; anything else propagates with its traceback. Set `DUHO_TRACEBACK`
+to a true value (duho's boolean tokens: `1`/`true`/`yes`/`on`;
+`0`/`false`/`no`/`off`/`n`/`f` are off) to also print the traceback before
+that one line.
 
 ## Errors (`errors.py`)
 

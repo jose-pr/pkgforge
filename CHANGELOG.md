@@ -15,6 +15,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 - The API reference has one page per module, covers every public name and
   no longer shows private helpers.
+
+### Added
+- The header documents `__version__`.
 - `dbdump -f` accepts `rpm`/`rpmspec` as aliases for `rpmspecfiles`, and
   `deb` as an alias for `debian`.
 - `pkgforge.db.DbProvider` and `pkgforge.dbdump.DumpFormat` (plus its two
