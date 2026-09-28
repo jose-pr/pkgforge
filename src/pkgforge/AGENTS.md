@@ -330,9 +330,11 @@ value as of import. An empty value counts as unset for all three.
   keeps only the last record per path. Call `compact()` (or `pkgforge
   compact`) to reclaim space / drop history. `sqlite` has no log to compact
   beyond dropping removed rows.
-- File sources are copied (`shutil.copy2`), never linked: `-m`/`--chown`
-  apply to the staged copy only, and the source keeps its original content,
-  mode and ownership.
+- File sources are copied, never linked: the copy carries the source's
+  content, permission bits and modification time (never its BSD file flags
+  or extended attributes, e.g. an SELinux label); `-m`/`--chown` apply to
+  the staged copy only, and the source keeps its original content, mode
+  and ownership.
 - `chown` (owner/group) requires the Unix `pwd`/`grp` stdlib modules; both
   import guarded to `None` off POSIX, so `.apply(chown=True, ...)` raises
   `RuntimeError` there. Parser/`--help` construction still works everywhere.

@@ -14,6 +14,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - With no `--buildroot` or `PKGFORGE_ROOT`, `install` and `scan` run from `/`
   exit 2 instead of using the live filesystem as the build root; pass
   `--buildroot /` (or `PKGFORGE_ROOT=/`) to do that on purpose.
+- A file install no longer fails on macOS for a source with a BSD file flag
+  set (e.g. a system binary), where copying the source's flags along with
+  its content used to raise a permission error even though the source is
+  only read. The staged copy carries the source's content, permission bits
+  and modification time; it never carries file flags or extended
+  attributes (e.g. an SELinux label).
 - `-d` with `-t`/`--type` exits 2 instead of `-d` silently overriding `-t`
   and turning a file source into a bsdtar-style directory extraction.
 - `install` checks `--chown`'s owner/group names, the `--db` directory and

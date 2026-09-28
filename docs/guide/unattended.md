@@ -62,8 +62,9 @@ Every command logs under its own logger, `pkgforge.<command>` (`pkgforge.install
   `--buildroot /` (or `PKGFORGE_ROOT=/`) to do that on purpose.
 - **Ownership is opt-in.** `install` records owner/group but only *applies* them
   with `--chown`, so an unprivileged build doesn't fail trying to `chown`.
-- **Sources are never modified.** File sources are copied (`shutil.copy2`), so
-  `-m`/`--chown` never touch the source, and the build root may sit on any
-  filesystem (including a tmpfs `/tmp`).
+- **Sources are never modified.** File sources are copied (content,
+  permission bits and modification time), so `-m`/`--chown` never touch the
+  source, and the build root may sit on any filesystem (including a tmpfs
+  `/tmp`).
 - **No external archiver required** for tar-family sources — stdlib `tarfile`
   handles them; `bsdtar` is only needed for other formats (e.g. `.iso`).

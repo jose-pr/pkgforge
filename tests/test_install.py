@@ -90,7 +90,7 @@ def test_install_file_source_rewrite_keeps_staged(tmp_path):
 def test_install_file_cross_filesystem_root(tmp_path):
     # A hardlink fails with EXDEV when the build root is on another
     # filesystem (e.g. the documented PKGFORGE_ROOT=/tmp/stage on tmpfs);
-    # shutil.copy2 works across filesystems.
+    # a real copy works across filesystems.
     shm = Path("/dev/shm")
     if not shm.is_dir():
         pytest.skip("/dev/shm not available")
@@ -1823,3 +1823,55 @@ def test_install_mode_without_nofollow_chmod(tmp_path, monkeypatch, kind):
         staged = root / "usr" / "bin" / "app.link"
         assert staged.is_symlink()
         assert os.readlink(staged) == "/usr/bin/app"
+
+
+# --------------------------------------------------------------------------
+# File staging never needs BSD file flags or extended attributes
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.posix
+def test_install_file_source_chflags_denied(tmp_path, monkeypatch):
+    # On macOS, a source with any BSD file flag set (e.g. a system binary)
+    # makes shutil.copy2's copystat() call os.chflags(), which raises
+    # PermissionError for a non-owner/non-root caller even though this
+    # process only reads the source. Staging must not need chflags (or any
+    # other file-flag/xattr copy) at all.
+    #
+    # os.chflags and stat_result.st_flags both don't exist on Linux, so
+    # both are faked here (creating them if absent) -- this is what makes
+    # the *old* copy2-based staging code actually attempt the call on every
+    # platform, this box's Linux included, not only on macOS.
+    def fake_chflags(path, flags, *, follow_symlinks=True):
+        raise PermissionError("simulated: flags not settable by this user")
+
+    monkeypatch.setattr(os, "chflags", fake_chflags, raising=False)
+
+    real_stat = os.stat
+
+    class _StatWithFlags:
+        def __init__(self, real):
+            object.__setattr__(self, "_real", real)
+            object.__setattr__(self, "st_flags", 0)
+
+        def __getattr__(self, name):
+            return getattr(object.__getattribute__(self, "_real"), name)
+
+    monkeypatch.setattr(
+        os, "stat", lambda *a, **kw: _StatWithFlags(real_stat(*a, **kw))
+    )
+
+    root = tmp_path / "root"
+    root.mkdir()
+    src = tmp_path / "f.conf"
+    src.write_text("data")
+    os.chmod(src, 0o644)
+    db = tmp_path / "files.jsonl"
+
+    Install._parser_().parse_args(
+        ["--db", str(db), "--buildroot", str(root), "-p", "-m", "640", str(src), "/etc"]
+    )()
+
+    staged = root / "etc" / "f.conf"
+    assert staged.read_text() == "data"
+    assert (staged.stat().st_mode & 0o777) == 0o640

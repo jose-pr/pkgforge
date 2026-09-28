@@ -349,15 +349,27 @@ class Install(FileEntryArgs, PkgForgeCmd):
                     )
             elif not from_stdin:
                 if stat.S_ISREG(os.stat(src).st_mode):
-                    # Copy src -> tmp. mkstemp already created tmp; copy2
-                    # wants to create the file itself (to also copy the
-                    # source's own mode/mtime), so remove the placeholder.
+                    # Copy src -> tmp: content, permission bits and
+                    # modification time only -- never shutil.copy2, which
+                    # (via copystat) also copies BSD file flags and extended
+                    # attributes (e.g. an SELinux label). Staging should not
+                    # carry either: on macOS, copystat's chflags() call
+                    # raises PermissionError for a source with any of the
+                    # user-immutable/no-dump flags set, even though this
+                    # process only reads the source. mkstemp already created
+                    # tmp; copyfile wants to create the file itself, so
+                    # remove the placeholder first. A mode set by -m still
+                    # wins over the copied one, applied later by
+                    # apply_entry().
                     tmp.unlink()
-                    shutil.copy2(os.fspath(src), os.fspath(tmp))
+                    shutil.copyfile(os.fspath(src), os.fspath(tmp))
+                    shutil.copymode(os.fspath(src), os.fspath(tmp))
+                    src_stat = os.stat(src)
+                    os.utime(tmp, ns=(src_stat.st_atime_ns, src_stat.st_mtime_ns))
                 else:
                     # A FIFO or non-terminal character device (a named pipe,
                     # /dev/stdin, process substitution): stream its bytes.
-                    # copy2/copystat do not apply to a non-regular file.
+                    # copyfile/copymode do not apply to a non-regular file.
                     os.chmod(tmp, 0o666 & ~_umask())
                     with open(src, "rb") as stream_in, tmp.open("wb") as stream_out:
                         shutil.copyfileobj(stream_in, stream_out)
