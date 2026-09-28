@@ -98,19 +98,9 @@ is a sanity check only (see Caveats) and is never used as before/after
 evidence for a performance claim.
 
 - `pkgforge-0.1.2-baseline-local-py3.14.json` -- local sanity run, pkgforge
-  0.1.2, WSL2 (Linux, aarch64). Not CI-comparable.
+  0.1.2, a developer machine (Linux, aarch64). Not CI-comparable.
 - `pkgforge-0.1.2-baseline-local-py3.9.json` -- same, py3.9.
-
-**CI baseline pending.** The CI-taken `pkgforge-0.1.2-baseline-ci-py3.14.json`
-and `pkgforge-0.1.2-baseline-ci-py3.9.json` this project's before/after
-comparisons need have not been recorded yet. To record them (see Recording
-above for the general form):
-
-```sh
-T=ci-bench-baseline-$(date -u +%Y%m%d%H%M%S)
-git tag "$T" && git push origin "$T"
-gh workflow run test.yml --ref "$T" -f benchmark=true
-# wait for the workflow_dispatch run (not the tag's own push run) to finish,
-# then download its artifacts and rewrite/commit as in Recording above
-git push origin ":refs/tags/$T" && git tag -d "$T"
-```
+- `pkgforge-0.1.2-baseline-ci-py3.14.json` -- CI-taken baseline, pkgforge 0.1.2
+  code before the scan/DB performance fixes, `ubuntu-latest`, CPython 3.14.7.
+  Use this for before/after comparisons.
+- `pkgforge-0.1.2-baseline-ci-py3.9.json` -- same, CPython 3.9.25.

@@ -1,0 +1,69 @@
+{
+  "db_size": 1000,
+  "iterations": {
+    "load_inner": 10,
+    "render_inner": 500,
+    "repeat": 5,
+    "scan_cmd_inner": 1,
+    "scan_inner": 20
+  },
+  "metrics": {
+    "db.load_jsonl": {
+      "max_ms": 3.2368,
+      "median_ms": 3.1919,
+      "min_ms": 3.1306
+    },
+    "db.load_sqlite": {
+      "max_ms": 3.028,
+      "median_ms": 2.9908,
+      "min_ms": 2.9693
+    },
+    "db.load_yaml": {
+      "max_ms": 522.9341,
+      "median_ms": 518.4625,
+      "min_ms": 517.7805
+    },
+    "dump.debian": {
+      "max_ms": 1.1818,
+      "median_ms": 1.1706,
+      "min_ms": 1.1664
+    },
+    "dump.rpmspecfiles": {
+      "max_ms": 0.9723,
+      "median_ms": 0.9632,
+      "min_ms": 0.9613
+    },
+    "fs.walk_baseline": {
+      "max_ms": 0.2316,
+      "median_ms": 0.2279,
+      "min_ms": 0.2215
+    },
+    "scan.cmd_auto_owner": {
+      "max_ms": 33.45,
+      "median_ms": 33.0943,
+      "min_ms": 32.9297
+    },
+    "scan.cmd_jsonl": {
+      "max_ms": 33.6335,
+      "median_ms": 33.497,
+      "min_ms": 33.2169
+    },
+    "scan.cmd_sqlite": {
+      "max_ms": 275.0967,
+      "median_ms": 273.38,
+      "min_ms": 264.1414
+    },
+    "scan.cmd_yaml": {
+      "max_ms": 115.6537,
+      "median_ms": 115.1193,
+      "min_ms": 114.7974
+    }
+  },
+  "name": "pkgforge-0.1.2-baseline-ci-py3.9",
+  "pkgforge_version": "0.1.2",
+  "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+  "processor": "x86_64",
+  "python": "3.9.25",
+  "scan_tree_size": 250,
+  "timestamp": "2026-09-28T03:45:35+00:00"
+}
