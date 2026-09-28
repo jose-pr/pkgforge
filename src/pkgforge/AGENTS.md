@@ -216,7 +216,10 @@ tree).
   `for_read` and `path` already exists, its content is sniffed (so a
   mislabeled/legacy file still loads correctly); else the `path` suffix
   decides, defaulting to `"jsonl"`. Raises `ValueError` for an unknown
-  format name.
+  format name. `for_read=True` means "sniff an existing file's content",
+  not "this call only reads" -- `PkgForgeCmd._write_entry` passes it on
+  writes too, so an append keeps the file's actual format instead of
+  writing JSON Lines into, say, a legacy YAML file under a `.jsonl` suffix.
 - **`register_provider(name, provider_cls, *, suffixes=(), sniff=None) ->
   type[DbProvider]`** — the extension seam for third-party backends. `name`
   is used by `--db-format` and error messages; `suffixes` (case-insensitive;
@@ -238,7 +241,8 @@ tree).
   pkgforge's own output and a hand-written `{ "path": ...}` both match, but a
   flow-style YAML mapping with a plain key -- what `yaml.safe_dump` emits --
   does not); **`YamlDb`** (`format="yaml"`, suffixes `.yaml`/`.yml`) —
-  append-only YAML, concatenated single-key documents; a flow-style
+  append-only YAML: a single mapping, appended key by key (the last
+  duplicate key wins); a flow-style
   top-level document (e.g. `{/usr/bin/x: {...}}`, or `{}`) is read fine, but
   `add`/`remove` raise `DbError` instead of appending a block-style mapping
   after it (which would be invalid YAML) -- `compact()` rewrites the file in

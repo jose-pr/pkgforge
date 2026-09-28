@@ -345,6 +345,21 @@ def test_yaml_reads_legacy_written_db(tmp_path, make_entry):
     assert db["/gone"] is None
 
 
+def test_write_to_sniffed_legacy_yaml_keeps_format(tmp_path, make_entry):
+    # Pin: a legacy YAML mapping under a .jsonl path keeps being appended
+    # to as YAML (open_db's for_read=True sniffing applies on writes too),
+    # never silently switched to JSON Lines.
+    path = tmp_path / "legacy.jsonl"
+    path.write_text(yaml.safe_dump({"/old": make_entry(mode="755")}))
+
+    open_db(path, for_read=True).add("/new", make_entry(mode="600"))
+
+    assert not path.read_text().lstrip().startswith("{")
+    db = open_db(path, for_read=True).load()
+    assert db["/old"]["mode"] == "755"
+    assert db["/new"]["mode"] == "600"
+
+
 # --------------------------------------------------------------------------
 # PkgForgeCmd delegation
 # --------------------------------------------------------------------------

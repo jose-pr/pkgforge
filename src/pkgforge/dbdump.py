@@ -107,7 +107,7 @@ def dump_formats() -> typing.List[str]:
 
 
 class DbDump(ExcludeArgs, PkgForgeCmd):
-    """Dump the file DB into a packaging manifest (rpm or debian)."""
+    """Dump the file DB into a packaging manifest (rpmspecfiles or debian)."""
 
     _parsername_ = "dbdump"
     _logger_name_ = "pkgforge.dbdump"

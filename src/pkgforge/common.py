@@ -5,16 +5,17 @@ Defines the on-disk *file DB* record (:class:`FileEntry`) and its metadata
 supplies those fields (:class:`FileEntryArgs`), and the common command base
 (:class:`PkgForgeCmd`) that every subcommand extends.
 
-The file DB is an append-only **JSON Lines** log: one JSON object per line,
-each carrying a build-relative ``path`` plus the entry's fields (or
-``{"path": ..., "_removed": true}`` to mark a removal). On load the last record
-for a path wins. ``mode`` is always stored as an **octal permission string**
-(e.g. ``"644"``) so the DB round-trips cleanly and dumps (e.g. ``%attr(644,...)``
-in an RPM spec) are correct.
+Storage is pluggable (see :mod:`pkgforge.db`: ``jsonl`` by default, plus
+``yaml`` and ``sqlite``, and a third party can register its own). On load,
+the last record for a path wins. ``mode`` is always stored as an **octal
+permission string** (e.g. ``"644"``) so the DB round-trips cleanly and dumps
+(e.g. ``%attr(644,...)`` in an RPM spec) are correct.
 
-Legacy DBs written in the older single-document YAML format are still read
-transparently (auto-detected), and are upgraded to JSON Lines in place on the
-next write.
+An existing file is content-sniffed on both read and write, so a legacy or
+mislabeled DB (e.g. a single-document YAML file, whatever its ``--db``
+suffix) keeps loading, and keeps being appended to, in its own format
+rather than being silently misread or corrupted. To convert one to a
+different backend, ``initdb --db-format FMT`` a new path and re-record.
 """
 
 from __future__ import annotations
@@ -68,8 +69,8 @@ class UsageError(PkgForgeError, ValueError):
 def parsepath(path: str) -> typing.Optional[typing.Union[str, Path]]:
     """Parse a CLI path argument.
 
-    ``"-"`` (stdin/stdout) and the empty string are preserved as-is; anything
-    else becomes a :class:`~pathlib.Path`.
+    ``"-"`` (stdin/stdout) is returned as-is; the empty string becomes
+    ``None``; anything else becomes a :class:`~pathlib.Path`.
     """
     if path == "-":
         return "-"
@@ -489,8 +490,9 @@ def _check_db_format(value: typing.Optional[str]) -> typing.Optional[str]:
 class PkgForgeCmd(LoggingArgs, Cmd):
     """Common base for every pkgforge subcommand.
 
-    Carries the two app-wide options (``--db`` and ``--buildroot``), the file-DB
-    read/write helpers, and the build-root <-> local-path translation. Each leaf
+    Carries the three app-wide options (``--db``, ``--db-format`` and
+    ``--buildroot``), the file-DB read/write helpers, and the build-root
+    <-> local-path translation. Each leaf
     command subclasses this and implements ``__call__``; a leaf attaches itself
     to the :class:`PkgForge` root's subcommand tree via :meth:`_register`.
     """

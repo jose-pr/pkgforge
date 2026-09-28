@@ -9,7 +9,7 @@ of which is used, because they all load to the same shape.
 | Format | Extensions | Model |
 | --- | --- | --- |
 | `jsonl` (default) | `.jsonl`, `.ndjson` | append-only JSON Lines, last record per path wins |
-| `yaml` | `.yaml`, `.yml` | append-only YAML documents, last mapping key wins |
+| `yaml` | `.yaml`, `.yml` | append-only YAML: a single mapping, appended key by key; last duplicate key wins |
 | `sqlite` | `.db`, `.sqlite`, `.sqlite3` | a real SQLite store, upserted in place |
 
 The backend is chosen from the `--db` file's **extension**; `--db-format`
@@ -41,8 +41,10 @@ human-editable.
 The `jsonl` and `yaml` backends are append logs: a path installed twice leaves
 two records (the later wins) and a removal leaves a tombstone. The
 [`compact`](commands.md) command rewrites the log with one record per live path.
-The `sqlite` backend upserts in place, so it never accumulates history (compact
-just reclaims space). `initdb` starts a fresh, empty DB in any backend.
+The `sqlite` backend upserts in place, but still records a removal as a
+flagged row rather than deleting it outright; `compact` deletes those rows
+and `VACUUM`s to reclaim the space. `initdb` starts a fresh, empty DB in any
+backend.
 
 `compact` writes a temp file beside the DB and renames it into place, so the
 directory must be writable; a failure (a full disk, a kill) leaves the

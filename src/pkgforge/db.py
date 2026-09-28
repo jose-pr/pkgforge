@@ -5,7 +5,8 @@ A file DB maps a build-relative *path* to a :class:`~pkgforge.common.FileEntry`
 storage backends behind one :class:`DbProvider` interface:
 
 * :class:`JsonlDb` -- append-only JSON Lines (one JSON object per line);
-* :class:`YamlDb`  -- append-only YAML (concatenated single-key documents);
+* :class:`YamlDb`  -- append-only YAML (a single mapping, appended key by
+  key; the last duplicate key wins);
 * :class:`SqliteDb` -- a real SQLite store (upsert in place, no log to compact).
 
 All three return the **same** ``load()`` shape, so the rest of pkgforge is
@@ -526,7 +527,8 @@ def _yaml_io() -> typing.Tuple[type, type]:
 
 
 class YamlDb(DbProvider):
-    """Append-only YAML: concatenated single-key documents, last key wins.
+    """Append-only YAML: a single mapping, appended key by key -- the last
+    duplicate key wins.
 
     Kept for compatibility and as an explicitly-selectable backend. Reading
     relies on the YAML loader letting a later duplicate mapping key win -- a
@@ -890,6 +892,13 @@ def open_db(
     Precedence: an explicit ``fmt`` wins; otherwise, when ``for_read`` and the
     file already exists, its content is sniffed (so a mislabeled or legacy file
     still loads); otherwise the suffix decides (defaulting to JSON Lines).
+
+    ``for_read=True`` means "sniff an existing file's content", not
+    "this call only reads" -- :meth:`~pkgforge.common.PkgForgeCmd._write_entry`
+    passes it on *writes* too, on purpose: it keeps an append in the file's
+    actual format (e.g. legacy YAML content under a ``.jsonl`` suffix stays
+    YAML) instead of appending JSON Lines into a file sniffing would have
+    read back as something else.
     """
     if fmt is None:
         detected = sniff_format(path) if (for_read and path.exists()) else None
