@@ -9,14 +9,16 @@ facilities (chmod, real owner/group names, symlinks) are marked
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from pkgforge.common import PkgForgeCmd
 from pkgforge.dbdump import rpmspecfile
 
 # --------------------------------------------------------------------------
-# What scan records (F01): below PATH, not PATH itself; '-' unless AUTO;
-# replaces existing entries unless --missing.
+# What scan records: below PATH, not PATH itself; '-' unless AUTO; replaces
+# existing entries unless --missing.
 # --------------------------------------------------------------------------
 
 
@@ -203,3 +205,100 @@ def test_scan_documented_recipe_owns_no_shared_dirs(tmp_path, cli):
     assert (
         lines["/usr/share/tool/a"] == '%dir %attr(755,root,root) "/usr/share/tool/a"\n'
     )
+
+
+# --------------------------------------------------------------------------
+# A missing PATH is a clean usage error; a symlink PATH is recorded as a
+# symlink, never followed.
+# --------------------------------------------------------------------------
+
+
+def test_scan_missing_path_is_usage_error(tmp_path, cli):
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+
+    result = cli("--db", str(db), "--buildroot", str(root), "scan", "/nope")
+    assert result.rc == 2
+    lines = result.err.decode().splitlines()
+    assert len(lines) == 1
+    assert "does not exist" in lines[0]
+    assert "/nope" in lines[0]
+    assert not db.exists()
+
+
+@pytest.mark.posix
+@pytest.mark.parametrize("kind", ["relative", "absolute"])
+def test_scan_symlinked_path_recorded_as_link(tmp_path, kind):
+    from pkgforge.scan import ScanCmd
+
+    root = tmp_path / "root"
+    if kind == "relative":
+        (root / "opt" / "real").mkdir(parents=True)
+        (root / "opt" / "real" / "f").write_text("x")
+        (root / "usr" / "lib").mkdir(parents=True)
+        link = root / "usr" / "lib" / "app"
+        link.symlink_to(Path("../../opt/real"))
+        path = "/usr/lib/app"
+    else:
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "f").write_text("x")
+        (root / "usr" / "lib").mkdir(parents=True)
+        link = root / "usr" / "lib" / "hostdir"
+        link.symlink_to(outside)
+        path = "/usr/lib/hostdir"
+
+    db = tmp_path / "files.jsonl"
+    parser = ScanCmd._parser_()
+    inst = parser.parse_args(["--db", str(db), "--buildroot", str(root), path])
+    inst()
+
+    recorded = inst.loaddb()
+    assert set(recorded) == {path}
+    assert recorded[path]["type"] == "symlink"
+
+
+@pytest.mark.posix
+def test_scan_dangling_symlink_path_recorded(tmp_path, cli):
+    # Regression guard: a dangling symlink PATH was, and stays, recordable.
+    root = tmp_path / "root"
+    root.mkdir()
+    link = root / "dangling"
+    link.symlink_to(root / "does-not-exist")
+    db = tmp_path / "files.jsonl"
+
+    assert cli("--db", str(db), "--buildroot", str(root), "scan", "/dangling").rc == 0
+    recorded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    assert recorded["/dangling"]["type"] == "symlink"
+
+
+@pytest.mark.posix
+def test_scan_symlinked_ancestor_escape_rejected(tmp_path, cli):
+    root = tmp_path / "root"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (root / "usr").mkdir(parents=True)
+    link = root / "usr" / "lib"
+    link.symlink_to(outside)
+    db = tmp_path / "files.jsonl"
+
+    result = cli("--db", str(db), "--buildroot", str(root), "scan", "/usr/lib/sub")
+    assert result.rc == 2
+    assert not db.exists()
+
+
+@pytest.mark.posix
+def test_scan_symlinked_buildroot_still_walked(tmp_path, cli):
+    # Regression guard: PATH "/" is always walked, even through a
+    # symlinked --buildroot.
+    real_root = tmp_path / "real_root"
+    (real_root / "usr").mkdir(parents=True)
+    (real_root / "usr" / "a").write_text("x")
+    root = tmp_path / "root_link"
+    root.symlink_to(real_root)
+    db = tmp_path / "files.jsonl"
+
+    assert cli("--db", str(db), "--buildroot", str(root), "scan", "/").rc == 0
+    recorded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    assert "/usr/a" in {k.replace("\\", "/") for k in recorded}

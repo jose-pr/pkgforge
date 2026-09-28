@@ -393,7 +393,13 @@ above).
   directory entry scan records becomes an RPM `%dir` ownership claim in
   `rpmspecfiles` -- never scan a directory a distro package already owns
   (`/usr`, `/usr/bin`, `/usr/share`, `/etc`); narrow PATH to a directory
-  your own package owns instead.
+  your own package owns instead. PATH that does not exist under the build
+  root raises `UsageError` (exit 2, one message) before anything else runs.
+  A symlink PATH is recorded as a single `symlink` entry, never followed --
+  including a dangling one, and an absolute target that would otherwise
+  walk the build host's own filesystem -- except when PATH normalizes to
+  the build root itself (`/`), which is always walked even when
+  `--buildroot` resolves through a symlink.
 - **`dbdump.DbDump(ExcludeArgs, PkgForgeCmd)`** (`pkgforge dbdump -f FORMAT [output]`) —
   render surviving (post-`--exclude`) DB entries via the format registry
   above.

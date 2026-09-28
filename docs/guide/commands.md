@@ -148,6 +148,10 @@ package alone owns, e.g. `scan --missing --mode=-- /usr/share/mypkg`, or
 stage that directory explicitly first (`install -D -d ...`).
 
 PATH must resolve inside `--buildroot`, the same as `install`'s DESTINATION.
+A PATH that does not exist under the build root exits 2 with one message,
+before anything is touched. A symlink PATH is recorded as one `symlink`
+entry, never followed -- including a symlinked `--buildroot` itself for
+`PATH /`, which is always walked.
 
 ## `compact`
 

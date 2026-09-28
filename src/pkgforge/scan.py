@@ -14,6 +14,7 @@ from .common import (
     FileType,
     PkgForgeCmd,
     PkgForgeError,
+    UsageError,
     FileEntryArgs,
     entry_from_args,
     resolve_entry,
@@ -51,7 +52,22 @@ class ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
             self._logger_.warning(
                 "scan records each path's on-disk type; --type is ignored"
             )
-        scanpath = self._rootpath(self.path, follow_final=True)
+        # follow_final=False (unlike install's DESTINATION): the leaf is
+        # never followed here, only realpath(parent) is checked, so a
+        # symlink PATH pointing at a directory outside the root is recorded
+        # as a symlink below, not refused. An escaping *ancestor* component
+        # is still refused by _rootpath itself.
+        scanpath = self._rootpath(self.path, follow_final=False)
+        if not os.path.lexists(scanpath):
+            raise UsageError(
+                f"{self.path!r} does not exist under build root "
+                f"{os.fspath(self.buildroot)!r}"
+            )
+        # True when PATH normalizes to the root itself ("/", or a plain
+        # "."): PATH "/" must still be walked even when --buildroot itself
+        # resolves through a symlink, so the symlink-leaf check below is
+        # skipped for it.
+        is_root = scanpath == Path(self.buildroot)
         db = self.loaddb() if self.missing else {}
         baseentry = entry_from_args(self, type=AUTO)
         filter = PathMatch(self.exclude, scanpath)
@@ -91,7 +107,14 @@ class ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
                     "or symlink); exclude it with -X"
                 ) from exc
 
-        if not scanpath.is_dir():
+        if not is_root and scanpath.is_symlink():
+            # A symlink PATH (a link to a directory included) is recorded as
+            # a single symlink entry, never followed -- otherwise its
+            # target's contents would be recorded under the link's own
+            # path, and an absolute target would walk the build HOST's
+            # filesystem instead of the build root.
+            _scanfile(scanpath)
+        elif not scanpath.is_dir():
             _scanfile(scanpath)
         else:
             for top, dirs, files in os.walk(scanpath):

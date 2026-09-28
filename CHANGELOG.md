@@ -33,6 +33,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   with one message, not a traceback.
 
 ### Fixed
+- `scan` of a PATH that does not exist under the build root exits 2 with
+  one message, instead of a raw `FileNotFoundError` traceback.
+- `scan` records a symlink PATH as one `symlink` entry instead of walking
+  its target: previously, scanning a link to a directory (an absolute
+  target included, e.g. `/etc`) recorded the target's own contents under
+  the link's path -- for an absolute target, the build **host**'s
+  filesystem. `PATH /` is unaffected and is still walked, even through a
+  symlinked `--buildroot`.
 - The README quick start, the docs landing page and the unattended guide no
   longer run `scan --missing` over `/usr` or `/etc`: every directory a scan
   walks becomes an RPM `%dir` ownership claim, and Fedora/RHEL's
