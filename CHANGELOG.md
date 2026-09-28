@@ -26,6 +26,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 - Python 3.14 classifier.
+- `entry_from_args`, `entry_from_path`, `resolve_entry`, `apply_entry`, typed
+  forms of the `FileEntry` helpers (entries are dicts; `.resolve_for`/`.apply`
+  on an entry never worked).
 
 ### Fixed
 - The wheel and sdist never include files named `*.local.*` or `CLAUDE*`, even when built from a tree without `.gitignore`.

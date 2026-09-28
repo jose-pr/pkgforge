@@ -7,7 +7,17 @@ root's subcommand tree.
 
 from __future__ import annotations
 
-from .common import PkgForgeCmd, PkgForge, FileEntry, FileEntryArgs, FileType
+from .common import (
+    PkgForgeCmd,
+    PkgForge,
+    FileEntry,
+    FileEntryArgs,
+    FileType,
+    apply_entry,
+    entry_from_args,
+    entry_from_path,
+    resolve_entry,
+)
 from .db import DbProvider, open_db, register_provider
 from . import compact, dbdump, initdb, install, scan
 
@@ -29,6 +39,10 @@ __all__ = [
     "FileEntryArgs",
     "FileType",
     "__version__",
+    "apply_entry",
+    "entry_from_args",
+    "entry_from_path",
+    "resolve_entry",
     "main",
     "open_db",
     "register_provider",

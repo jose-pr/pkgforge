@@ -108,80 +108,113 @@ class FileEntry(typing.TypedDict):
     type: str
     meta: typing.Dict[str, str]
 
-    @classmethod
-    def from_args(cls, args: FileEntryArgs, **overwrite) -> FileEntry:
-        entry = {
-            "mode": args.mode,
-            "owner": args.owner,
-            "group": args.group,
-            "type": FileType(args.type) if args.type else args.type,
-            "meta": dict(args.meta),
-        }
-        entry.update(overwrite)
-        return entry
 
-    @classmethod
-    def from_path(cls, path: Path, meta: typing.Dict[str, str] = None) -> FileEntry:
-        stat = path.lstat()
-        owner = group = DEFAULT
-        if pwd is not None:
-            try:
-                owner = pwd.getpwuid(stat.st_uid).pw_name
-            except KeyError:
-                owner = DEFAULT
-        if grp is not None:
-            try:
-                group = grp.getgrgid(stat.st_gid).gr_name
-            except KeyError:
-                group = DEFAULT
+def entry_from_args(args: FileEntryArgs, **overwrite) -> FileEntry:
+    """Build a :class:`FileEntry` from a parsed :class:`FileEntryArgs` mixin.
 
-        return {
-            # Store mode as an octal permission string so the DB round-trips and
-            # dumps (e.g. %attr(644,...)) are correct; apply() reads it back via
-            # int(mode, 8).
-            "mode": mode_to_octal(stat.st_mode),
-            "owner": owner,
-            "group": group,
-            "type": FileType.from_path(path),
-            "meta": {} if meta is None else meta,
-        }
+    ``type`` is converted via :class:`FileType` only when ``overwrite`` does
+    not itself supply ``type`` -- a caller overwriting ``type`` (e.g. ``scan``
+    passing ``type="--"``) never pays for, or risks, converting ``args.type``.
+    """
+    if "type" in overwrite:
+        type_ = overwrite.pop("type")
+    else:
+        type_ = FileType(args.type) if args.type else args.type
+    entry: FileEntry = {
+        "mode": args.mode,
+        "owner": args.owner,
+        "group": args.group,
+        "type": type_,
+        "meta": dict(args.meta),
+    }
+    entry.update(overwrite)
+    return entry
 
-    def resolve_for(self, path: Path, lookupval=AUTO, **overwrite) -> FileEntry:
-        resolved: FileEntry = {**self}
-        ondisk = FileEntry.from_path(path)
-        for k, v in resolved.items():
-            if v == lookupval:
-                resolved[k] = ondisk[k]
-        resolved.update(overwrite)
 
-        return resolved
+def entry_from_path(
+    path: Path, meta: typing.Optional[typing.Dict[str, str]] = None
+) -> FileEntry:
+    """Build a :class:`FileEntry` by ``lstat``-ing a real path on disk."""
+    stat = path.lstat()
+    owner = group = DEFAULT
+    if pwd is not None:
+        try:
+            owner = pwd.getpwuid(stat.st_uid).pw_name
+        except KeyError:
+            owner = DEFAULT
+    if grp is not None:
+        try:
+            group = grp.getgrgid(stat.st_gid).gr_name
+        except KeyError:
+            group = DEFAULT
 
-    def apply(
-        self,
-        path: Path,
-        chown=False,
-        *,
-        logger: logging.Logger = None,
-        usedefault=DEFAULT,
-    ):
-        mode = self["mode"]
-        owner = self["owner"]
-        group = self["group"]
+    return {
+        # Store mode as an octal permission string so the DB round-trips and
+        # dumps (e.g. %attr(644,...)) are correct; apply_entry() reads it back
+        # via int(mode, 8).
+        "mode": mode_to_octal(stat.st_mode),
+        "owner": owner,
+        "group": group,
+        "type": FileType.from_path(path),
+        "meta": {} if meta is None else meta,
+    }
 
-        if mode and mode != usedefault:
-            mode = int(mode, 8) if isinstance(mode, str) else mode
-            if logger:
-                logger.debug("Setting mode for %s to %o", path, mode)
-            os.chmod(path, mode, follow_symlinks=False)
 
-        if chown and (owner != usedefault or group != usedefault):
-            if pwd is None or grp is None:
-                raise RuntimeError("chown requires the Unix pwd/grp modules")
-            owner = -1 if owner == usedefault else pwd.getpwnam(owner).pw_uid
-            group = -1 if group == usedefault else grp.getgrnam(group).gr_gid
-            if logger:
-                logger.debug("Setting owner/group for %s to %s:%s", path, owner, group)
-            os.chown(path, owner, group, follow_symlinks=False)
+def resolve_entry(
+    entry: FileEntry, path: Path, lookupval: str = AUTO, **overwrite
+) -> FileEntry:
+    """Replace every field of ``entry`` equal to ``lookupval`` with the on-disk value."""
+    resolved: FileEntry = {**entry}
+    ondisk = entry_from_path(path)
+    for k, v in resolved.items():
+        if v == lookupval:
+            resolved[k] = ondisk[k]
+    resolved.update(overwrite)
+
+    return resolved
+
+
+def apply_entry(
+    entry: FileEntry,
+    path: Path,
+    chown: bool = False,
+    *,
+    logger: typing.Optional[logging.Logger] = None,
+    usedefault: str = DEFAULT,
+) -> None:
+    """Apply ``entry``'s mode (and, if ``chown``, owner/group) to ``path``."""
+    mode = entry["mode"]
+    owner = entry["owner"]
+    group = entry["group"]
+
+    if mode and mode != usedefault:
+        mode = int(mode, 8) if isinstance(mode, str) else mode
+        if logger:
+            logger.debug("Setting mode for %s to %o", path, mode)
+        os.chmod(path, mode, follow_symlinks=False)
+
+    if chown and (owner != usedefault or group != usedefault):
+        if pwd is None or grp is None:
+            raise RuntimeError("chown requires the Unix pwd/grp modules")
+        owner = -1 if owner == usedefault else pwd.getpwnam(owner).pw_uid
+        group = -1 if group == usedefault else grp.getgrnam(group).gr_gid
+        if logger:
+            logger.debug("Setting owner/group for %s to %s:%s", path, owner, group)
+        os.chown(path, owner, group, follow_symlinks=False)
+
+
+# Runtime back-compat aliases: FileEntry values are plain dicts (it is a
+# TypedDict), so these are called *unbound* through the class --
+# ``FileEntry.apply(entry, path)``, never ``entry.apply(path)``. Assigning a
+# plain function onto the class after its body (rather than defining it
+# inside, which is what produced the historical "Invalid statement in
+# TypedDict definition" mypy errors) means attribute access through the class
+# returns the function itself, unbound, exactly as these callers expect
+# (measured 2026-09-28, py3.9.25 and 3.14, duho 0.5.0).
+setattr(FileEntry, "from_args", entry_from_args)
+setattr(FileEntry, "from_path", entry_from_path)
+setattr(FileEntry, "resolve_for", resolve_entry)
+setattr(FileEntry, "apply", apply_entry)
 
 
 class PkgForgeCmd(LoggingArgs, Cmd):

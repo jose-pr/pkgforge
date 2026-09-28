@@ -21,10 +21,12 @@ from .common import (
     AUTO,
     DEFAULT,
     PkgForgeCmd,
-    FileEntry,
     FileEntryArgs,
     FileType,
+    apply_entry,
+    entry_from_args,
     parsepath,
+    resolve_entry,
 )
 from .exclude import PathMatch, PathMatchStmt
 
@@ -333,9 +335,9 @@ class Install(FileEntryArgs, PkgForgeCmd):
             else:
                 self.source.unlink()
 
-        fileentry = FileEntry.from_args(self)
-        fileentry = FileEntry.resolve_for(fileentry, dest)
-        FileEntry.apply(fileentry, dest, chown=self.chown, logger=self._logger_)
+        fileentry = entry_from_args(self)
+        fileentry = resolve_entry(fileentry, dest)
+        apply_entry(fileentry, dest, chown=self.chown, logger=self._logger_)
 
         if not self.noentry:
             fspath = os.fspath(self.buildpath(dest))

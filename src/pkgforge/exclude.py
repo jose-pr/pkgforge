@@ -17,7 +17,7 @@ from pathlib import Path
 
 from duho import NS
 
-from .common import FileEntry, FileType
+from .common import FileEntry, FileType, entry_from_path
 
 FilterTestRe = re.compile(r"^\(\?([^:())]+):([^()]+)\)")
 
@@ -141,7 +141,7 @@ class PathMatch(typing.List[PathMatchStmt]):
     ):
         if not self:
             return True
-        fileentry = FileEntry.from_path(path) if not entry else entry
+        fileentry = entry_from_path(path) if not entry else entry
         fileentry.update(overrides)
 
         for stmt in self:

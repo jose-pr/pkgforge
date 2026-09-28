@@ -8,7 +8,7 @@ from pathlib import Path
 
 import duho
 
-from .common import PkgForgeCmd, FileEntry, FileEntryArgs
+from .common import PkgForgeCmd, FileEntryArgs, entry_from_args, resolve_entry
 from .exclude import PathMatch, PathMatchStmt
 
 
@@ -29,7 +29,7 @@ class ScanCmd(FileEntryArgs, PkgForgeCmd):
 
     def __call__(self):
         db = self.loaddb() if self.missing else {}
-        baseentry = FileEntry.from_args(self, type="--")
+        baseentry = entry_from_args(self, type="--")
         scanpath = self.buildroot / self.path.lstrip("/")
         filter = PathMatch(self.exclude, scanpath)
         self._logger_.info("Scanning %s", scanpath)
@@ -41,7 +41,7 @@ class ScanCmd(FileEntryArgs, PkgForgeCmd):
             fspath = os.fspath(self.buildpath(path))
             if db.get(fspath) is None:
                 self._logger_.info("Updating file entry for: %s", fspath)
-                self.add_entry(fspath, entry=FileEntry.resolve_for(baseentry, path))
+                self.add_entry(fspath, entry=resolve_entry(baseentry, path))
 
         if not scanpath.is_dir():
             _scanfile(scanpath)

@@ -6,10 +6,11 @@ can be consumed without reading its source. Kept current with the public
 API. For the CLI overview and code layout, see the shipped `README.md`, or <https://github.com/jose-pr/pkgforge>.
 
 `pkgforge.__all__`: `PkgForgeCmd`, `PkgForge`, `DbProvider`, `FileEntry`,
-`FileEntryArgs`, `FileType`, `__version__`, `main`, `open_db`,
-`register_provider`, plus the leaf-command submodules themselves (`compact`,
-`dbdump`, `initdb`, `install`, `scan` — importing `pkgforge` runs each
-module's `_register()` call, attaching it to the `PkgForge` subcommand tree).
+`FileEntryArgs`, `FileType`, `__version__`, `apply_entry`, `entry_from_args`,
+`entry_from_path`, `resolve_entry`, `main`, `open_db`, `register_provider`,
+plus the leaf-command submodules themselves (`compact`, `dbdump`, `initdb`,
+`install`, `scan` — importing `pkgforge` runs each module's `_register()`
+call, attaching it to the `PkgForge` subcommand tree).
 
 ## Entry point
 
@@ -25,18 +26,30 @@ module's `_register()` call, attaching it to the `PkgForge` subcommand tree).
   `TypeError` if it's none of the three).
 - **`FileEntry(typing.TypedDict)`** — one DB record: `mode` (octal permission
   **string**, e.g. `"644"`, not a raw `st_mode` int), `owner`, `group`,
-  `type`, `meta: dict[str, str]`. Classmethods/methods:
-  - `FileEntry.from_args(args: FileEntryArgs, **overwrite) -> FileEntry` —
-    build from a parsed CLI mixin.
-  - `FileEntry.from_path(path, meta=None) -> FileEntry` — build by `lstat`-ing
-    a real path; owner/group resolve via `pwd`/`grp` (fall back to `"-"` if
-    those modules are unavailable, i.e. non-POSIX).
-  - `.resolve_for(path, lookupval="--", **overwrite) -> FileEntry` — replace
-    every field equal to `lookupval` (default the `AUTO` sentinel) with the
-    on-disk value for `path`.
-  - `.apply(path, chown=False, *, logger=None, usedefault="-")` — `chmod`
-    (always, unless `mode == usedefault`) and, if `chown=True`, `chown`
-    (raises `RuntimeError` if `pwd`/`grp` are unavailable).
+  `type`, `meta: dict[str, str]`. A `FileEntry` value is a **plain dict** at
+  runtime (it is a `TypedDict`), so it carries no methods of its own; use the
+  module functions below. For back-compat, `FileEntry.from_args`,
+  `FileEntry.from_path`, `FileEntry.resolve_for` and `FileEntry.apply` remain
+  as aliases for those functions, called **unbound** through the class
+  (`FileEntry.resolve_for(entry, path, ...)`, `FileEntry.apply(entry, path,
+  ...)`) — never `entry.resolve_for(...)`/`entry.apply(...)`, which raise
+  `AttributeError` on a plain dict.
+  - **`entry_from_args(args: FileEntryArgs, **overwrite) -> FileEntry`** —
+    build from a parsed CLI mixin. `type` is converted via `FileType` only
+    when `overwrite` does not itself supply `type`.
+  - **`entry_from_path(path: Path, meta: Optional[dict[str, str]] = None) ->
+    FileEntry`** — build by `lstat`-ing a real path; owner/group resolve via
+    `pwd`/`grp` (fall back to `"-"` if those modules are unavailable, i.e.
+    non-POSIX).
+  - **`resolve_entry(entry: FileEntry, path: Path, lookupval: str = "--",
+    **overwrite) -> FileEntry`** — replace every field of `entry` equal to
+    `lookupval` (default the `AUTO` sentinel) with the on-disk value for
+    `path`.
+  - **`apply_entry(entry: FileEntry, path: Path, chown: bool = False, *,
+    logger: Optional[logging.Logger] = None, usedefault: str = "-") -> None`**
+    — `chmod` (unless `mode` is falsy or equals `usedefault`) and, if
+    `chown=True`, `chown` (raises `RuntimeError` if `pwd`/`grp` are
+    unavailable).
 - **`FileEntryArgs(duho.Cmd)`** — CLI mixin supplying `--mode/-m`,
   `--group/-g`, `--owner/-o` (each default `"-"`), `--type/-t`
   (`Optional[FileType]`, default `None`), `-O/--meta KEY=VALUE` (repeatable,
