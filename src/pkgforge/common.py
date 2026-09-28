@@ -201,6 +201,19 @@ def _parse_filetype(text: str) -> typing.Union[FileType, str]:
         raise argparse.ArgumentTypeError(str(exc)) from None
 
 
+def _key_value(text: str) -> typing.Dict[str, str]:
+    """CLI ``type=`` converter for ``-O``/``--meta``: one ``KEY=VALUE`` pair
+    as a single-entry dict (merged by :class:`duho.UpdateAction`). A value
+    missing ``=`` raises argparse's own error type directly (naming what was
+    given), instead of the opaque ``invalid <lambda> value`` a bare lambda
+    converter reports.
+    """
+    if "=" not in text:
+        raise argparse.ArgumentTypeError(f"expected KEY=VALUE, got {text!r}")
+    key, value = text.split("=", maxsplit=1)
+    return {key: value}
+
+
 class FileEntryArgs(Cmd):
     mode: duho.Arg[str, duho.NS(type=_parse_mode)] = DEFAULT
     "permission mode: 1-4 octal digits, '-' (leave default), '--' or 'auto' (resolve from the staged file)"
@@ -221,7 +234,7 @@ class FileEntryArgs(Cmd):
         typing.Dict[str, str],
         duho.NS(
             action=duho.UpdateAction,
-            type=lambda x: dict([x.split("=", maxsplit=1)]),
+            type=_key_value,
             metavar="KEY=VALUE",
         ),
     ] = {}

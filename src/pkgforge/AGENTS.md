@@ -98,7 +98,8 @@ tree).
   (`Optional[FileType]`, default `None`; validated at parse time: `file`,
   `directory` or `symlink` in any case, or `-`/`--` for the sentinels;
   anything else, including `auto`/`_AUTO`, exits 2), `-O/--meta KEY=VALUE`
-  (repeatable, merges into a `dict[str, str]`).
+  (repeatable, merges into a `dict[str, str]`; a value missing `=` exits 2
+  with `expected KEY=VALUE, got '...'`).
 - **`AUTO = "--"`** / **`DEFAULT = "-"`** — module-level sentinels: `AUTO`
   means "resolve from the file on disk" (used by `resolve_for`); `DEFAULT`
   means "leave at the OS/system default, do not set explicitly" (used by
@@ -241,7 +242,16 @@ tree).
   every statement sees the path exactly as given.
 - **`ExcludeArgs(duho.Cmd)`** — the `--exclude`/`-X` field, declared once and
   shared: `Install`, `ScanCmd` and `DbDump` all take `--exclude` from this
-  mixin instead of each declaring it separately.
+  mixin instead of each declaring it separately. `--help` shows the
+  grammar (`[!][(?[!]test:arg)...]GLOB`).
+- **`ExcludeSyntaxError(UsageError, argparse.ArgumentTypeError)`** — raised
+  for a malformed `-X` statement: an unknown inline test name, an invalid
+  `(?type:...)`/`(?meta:...)` argument, or an unterminated `(?...` (which
+  used to silently become a literal glob that excluded nothing). Caught by
+  `pkgforge.main()`'s error boundary like any `UsageError` (one line, exit
+  2); also an `argparse.ArgumentTypeError`, so argparse itself reports it
+  cleanly rather than letting it escape as a traceback from the `-X`
+  `type=` converter.
 
 ## `dbdump` format registry (`dbdump.py`)
 

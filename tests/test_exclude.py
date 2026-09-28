@@ -621,3 +621,90 @@ def test_scan_missing_descends_into_recorded_dir(tmp_path, cli, cmd, make_entry)
 
     recorded = set(PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb())
     assert "/opt/src/keep/k" in recorded
+
+
+# --------------------------------------------------------------------------
+# malformed -X / -O values: a clean usage error, never a traceback
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "stmt",
+    [
+        "(?typo:file)*",
+        "(?type:bogus)*",
+        "(?meta:novalue)*",
+        "(?type:file*.pyc",
+    ],
+)
+def test_parse_rejects(stmt):
+    from pkgforge.exclude import ExcludeSyntaxError
+
+    with pytest.raises(ExcludeSyntaxError):
+        PathMatchStmt.parse(stmt)
+    # A ValueError (via UsageError), so an existing pytest.raises(ValueError)
+    # or Python-API try/except ValueError still catches it.
+    with pytest.raises(ValueError):
+        PathMatchStmt.parse(stmt)
+
+
+@pytest.mark.parametrize("command", ["install", "scan", "dbdump"])
+def test_malformed_exclude_exits_2(tmp_path, cli, command):
+    db = tmp_path / "files.jsonl"
+    root = tmp_path / "root"
+    if command == "install":
+        src = tmp_path / "src"
+        src.mkdir()
+        argv = [
+            "install",
+            "-p",
+            "-X",
+            "(?typo:file)*",
+            str(src),
+            "/opt/app",
+        ]
+    elif command == "scan":
+        argv = ["scan", "-X", "(?typo:file)*", "/"]
+    else:
+        argv = ["dbdump", "-f", "rpmspecfiles", "-X", "(?typo:file)*", "-"]
+
+    result = cli("--db", str(db), "--buildroot", str(root), *argv)
+    assert result.rc == 2
+    err = result.err.decode()
+    assert "unknown exclude test" in err
+    assert "Traceback" not in err
+
+
+def test_meta_option_needs_equals(tmp_path, cli):
+    db = tmp_path / "files.jsonl"
+    root = tmp_path / "root"
+    src = tmp_path / "src"
+    src.mkdir()
+
+    result = cli(
+        "--db",
+        str(db),
+        "--buildroot",
+        str(root),
+        "install",
+        "-p",
+        "-O",
+        "novalue",
+        str(src),
+        "/opt/app",
+    )
+    assert result.rc == 2
+    err = result.err.decode()
+    assert "expected KEY=VALUE, got 'novalue'" in err
+    assert "<lambda>" not in err
+
+
+@pytest.mark.parametrize("command", ["install", "scan", "dbdump"])
+def test_exclude_help_shows_grammar(command):
+    from pkgforge.dbdump import DbDump
+    from pkgforge.install import Install
+    from pkgforge.scan import ScanCmd
+
+    classes = {"install": Install, "scan": ScanCmd, "dbdump": DbDump}
+    text = classes[command]._parser_().format_help()
+    assert "[!][(?[!]test:arg)...]GLOB" in text

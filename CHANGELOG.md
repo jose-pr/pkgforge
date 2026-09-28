@@ -28,6 +28,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   are no longer recorded (as with `install`). To leave only the directory
   out of a manifest, exclude it in `dbdump` instead:
   `dbdump -X '(?type:directory)/usr'`.
+- A malformed `-X` statement (an unknown inline test, an invalid
+  `(?type:...)`/`(?meta:...)` argument, or an unterminated `(?...`) now
+  exits 2 naming the problem, instead of a traceback (unknown test) or
+  silently becoming a literal glob that excluded nothing (an unterminated
+  test). `-O`/`--meta` without `=` reports `expected KEY=VALUE, got '...'`
+  instead of `invalid <lambda> value`. Every command's `--help` now shows
+  the `-X` grammar.
 - `install` and `scan` exit 2 when DESTINATION or PATH leaves the build root
   through a `..` that climbs above it, or a symlinked path component leading
   outside it, instead of writing or recording outside `--buildroot`. An
@@ -135,6 +142,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   result schema is documented in `benchmarks/README.md`.
 
 ### Added
+- `pkgforge.exclude.ExcludeSyntaxError`, a `UsageError` and
+  `argparse.ArgumentTypeError`, raised for a malformed `--exclude` statement.
 - Python 3.14 classifier.
 - `PKGFORGE_MCP=stdio` serves pkgforge's commands as MCP tools over stdio
   (from duho 0.6). Unset, nothing changes.

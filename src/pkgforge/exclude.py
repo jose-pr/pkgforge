@@ -10,6 +10,7 @@ test), and a trailing glob pattern, e.g.::
 
 from __future__ import annotations
 
+import argparse
 import functools
 import glob
 import os
@@ -20,9 +21,24 @@ from pathlib import Path, PurePath
 import duho
 from duho import NS
 
-from .common import FileEntry, FileType, entry_from_path
+from .common import FileEntry, FileType, UsageError, entry_from_path
 
-FilterTestRe = re.compile(r"^\(\?([^:())]+):([^()]+)\)")
+FilterTestRe = re.compile(r"^\(\?([^:()]+):([^()]+)\)")
+
+
+class ExcludeSyntaxError(UsageError, argparse.ArgumentTypeError):
+    """A malformed ``--exclude`` statement: an unknown inline test name, a
+    bad ``(?type:...)``/``(?meta:...)`` argument, or an unterminated
+    ``(?...`` that never closed.
+
+    Subclasses both :class:`~pkgforge.common.UsageError` (so
+    ``pkgforge.main()``'s error boundary maps it to a clean one-line message
+    and exit 2, and a Python-API caller catching ``ValueError`` still works)
+    and :class:`argparse.ArgumentTypeError` (the only exception type argparse
+    itself reports as a usage error rather than letting escape as a
+    traceback, since ``--exclude`` is parsed through a ``type=`` converter).
+    """
+
 
 #: What a statement is actually matched against: either the real ``Path`` a
 #: caller passed in, or -- once :class:`PathMatch` has rebased it relative to
@@ -146,11 +162,18 @@ def _relative_candidate(path: Path, root: Path) -> str:
 
 
 def filetypetest(name: str) -> PathTest:
-    ftype = FileType(name)
+    try:
+        ftype = FileType(name)
+    except ValueError:
+        raise ExcludeSyntaxError(
+            f"invalid type {name!r}; choose from file, directory, symlink"
+        ) from None
     return lambda _path, e: e["type"] == ftype
 
 
 def metatest(arg: str) -> PathTest:
+    if "=" not in arg:
+        raise ExcludeSyntaxError(f"meta test needs KEY=VALUE, got {arg!r}")
     k, v = arg.split("=", maxsplit=1)
     return lambda _path, e: e["meta"].get(k) == v
 
@@ -177,7 +200,13 @@ _TESTS: typing.Dict[str, typing.Callable[[str], PathTest]] = {
 
 
 def _make_test(name: str, arg: str, inverse: bool) -> PathTest:
-    test = _TESTS[name](arg)
+    factory = _TESTS.get(name)
+    if factory is None:
+        raise ExcludeSyntaxError(
+            f"unknown exclude test {name!r}; choose from "
+            f"{', '.join(sorted(_TESTS))}"
+        )
+    test = factory(arg)
     if inverse:
 
         def _test(path: Path, entry: FileEntry) -> bool:
@@ -259,6 +288,7 @@ class PathMatchStmt(NS):
 
     @classmethod
     def parse(cls, pattern: str) -> PathMatchStmt:
+        original = pattern
         tests: typing.List[PathTest] = []
 
         if pattern.startswith("!"):
@@ -280,6 +310,15 @@ class PathMatchStmt(NS):
                 inversed = False
             tests.append(_make_test(name, arg, inversed))
             pattern = pattern[test.span()[1] :]
+
+        if pattern.startswith("(?"):
+            # FilterTestRe stopped matching partway through a "(?...": the
+            # old behavior silently turned the rest into a literal glob
+            # that excluded nothing. A leading "(" meant as a literal
+            # character is written as the glob class "[(]" instead.
+            raise ExcludeSyntaxError(
+                f"unterminated or malformed inline test in {original!r}"
+            )
 
         return cls(negate=negate, tests=tests, pattern=pattern)
 
@@ -373,7 +412,8 @@ class ExcludeArgs(duho.Cmd):
         typing.List[PathMatchStmt],
         duho.Append(PathMatchStmt.parse, metavar="STMT"),
         duho.Meta(
-            help="exclude paths matching STMT (repeatable); see the "
+            help="exclude paths matching STMT (repeatable); "
+            "STMT is [!][(?[!]test:arg)...]GLOB; see the "
             "exclude-pattern guide for the grammar"
         ),
     ] = []
