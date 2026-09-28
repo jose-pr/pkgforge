@@ -36,7 +36,7 @@ export PKGFORGE_ROOT=/tmp/stage PKGFORGE_DB=/tmp/files.jsonl
 
 pkgforge initdb
 pkgforge install -p -m 755 -o root -g root ./build/tool /usr/bin
-pkgforge install -p -m 640 -o root -g adm  ./tool.conf  /etc
+pkgforge install -p -m 640 -o root -g adm -O rpmprefix=%config ./tool.conf /etc
 pkgforge install -D -d -m 755 -o root -g root ./share /usr/share/tool
 pkgforge scan --missing --mode=-- -o root -g root /usr/share/tool
 pkgforge dbdump -f rpmspecfiles rpm-files.txt
@@ -90,14 +90,29 @@ reading an existing file auto-detects its actual format.
 | `rpmspecfiles` | RPM `%files` lines (`%attr(...)`, `%dir`, `meta.rpmprefix`) to a file or `-` |
 | `debian` | `install` + `permissions` + `dirs` files into an output directory (or `-`, sectioned) |
 
-```
-# rpmspecfiles
-%attr(755,root,root) "/usr/bin/tool"
-%config %attr(640,root,adm) "/etc/tool.conf"
+Output of the Quick start above:
 
-# debian/install            # debian/permissions
-usr/bin/tool usr/bin        /usr/bin/tool 755 root root
-etc/tool.conf etc           /etc/tool.conf 640 root adm
+```
+$ pkgforge dbdump -f rpmspecfiles -
+%config %attr(640,root,adm) "/etc/tool.conf"
+%attr(755,root,root) "/usr/bin/tool"
+%dir %attr(755,root,root) "/usr/share/tool"
+%attr(644,root,root) "/usr/share/tool/data.txt"
+```
+
+```
+$ pkgforge dbdump -f debian -
+# === install ===
+etc/tool.conf etc
+usr/bin/tool usr/bin
+usr/share/tool/data.txt usr/share/tool
+# === permissions ===
+/etc/tool.conf 640 root adm
+/usr/bin/tool 755 root root
+/usr/share/tool 755 root root
+/usr/share/tool/data.txt 644 root root
+# === dirs ===
+usr/share/tool
 ```
 
 ## File entries
