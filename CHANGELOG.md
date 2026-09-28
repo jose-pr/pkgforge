@@ -19,6 +19,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Building from source requires `hatchling` 1.27 or later.
 - The `docs` extra is bounded to mkdocs 1.x, mkdocs-material 9.x and mkdocstrings below 2.
 - `twine` and `hatchling` are no longer in the `dev` extra; install them directly if you used them from it.
+- Requires `duho>=0.6.0,<0.7` (was `>=0.5.0,<0.6`). `DUHO_TRACEBACK` now
+  follows duho's boolean tokens: `n` and `f` turn it off (they used to turn it
+  on). `--loglevel` accepts `[NAME:]LEVEL[,...]` and rejects a malformed value
+  with exit 2; `-v`/`-q` gain `--verbose`/`--quiet`; log output is colored only
+  on a terminal and never when `NO_COLOR` is set.
 - `benchmarks/run.py` times the `scan` command end to end per DB backend
   (`scan.cmd_jsonl`, `scan.cmd_yaml`, `scan.cmd_sqlite`, `scan.cmd_auto_owner`).
   `scan.walk`, which timed only `os.walk`, is renamed `fs.walk_baseline`. The
@@ -26,6 +31,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 - Python 3.14 classifier.
+- `PKGFORGE_MCP=stdio` serves pkgforge's commands as MCP tools over stdio
+  (from duho 0.6). Unset, nothing changes.
 - `entry_from_args`, `entry_from_path`, `resolve_entry`, `apply_entry`, typed
   forms of the `FileEntry` helpers (entries are dicts; `.resolve_for`/`.apply`
   on an entry never worked).

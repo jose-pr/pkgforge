@@ -1,12 +1,13 @@
 """Shared pytest fixtures and markers for the pkgforge test suite.
 
 Hermeticity: ``pkgforge.common`` binds ``PKGFORGE_ROOT``/``PKGFORGE_DB``/
-``PKGFORGE_DB_FORMAT`` into class defaults AT IMPORT TIME (F51/F22), so a
-developer shell that exports the README's env vars -- or a stray
-``PKGFORGE_DB_FORMAT`` -- would otherwise change what the suite does. This
-module pops all three BEFORE the first ``import pkgforge`` anywhere in the
-process: pytest always imports a directory's ``conftest.py`` before collecting
-its test modules, so this runs first. Keep the pop here, at MODULE level, not
+``PKGFORGE_DB_FORMAT`` into class defaults AT IMPORT TIME, so a developer
+shell that exports the README's env vars -- or a stray ``PKGFORGE_DB_FORMAT``
+-- would otherwise change what the suite does, and duho's MCP/agent-help
+triggers would make ``main()`` serve MCP or print agent help instead of running
+a command. This module pops all of them BEFORE the first ``import pkgforge``
+anywhere in the process: pytest always imports a directory's ``conftest.py``
+before collecting its test modules, so this runs first. Keep the pop here, at MODULE level, not
 inside a fixture -- a fixture runs per-test, long after the class defaults are
 already bound.
 """
@@ -15,7 +16,20 @@ from __future__ import annotations
 
 import os
 
-for _name in ("PKGFORGE_ROOT", "PKGFORGE_DB", "PKGFORGE_DB_FORMAT"):
+#: Env vars that change what an in-process ``main()`` does: pkgforge's own
+#: configuration, plus duho's triggers that would serve MCP or print agent help
+#: instead of running the command.
+SCRUBBED_ENV = (
+    "PKGFORGE_ROOT",
+    "PKGFORGE_DB",
+    "PKGFORGE_DB_FORMAT",
+    "PKGFORGE_MCP",
+    "PKG_FORGE_MCP",
+    "AGENT_HELP",
+    "AGENTS_HELP",
+)
+
+for _name in SCRUBBED_ENV:
     os.environ.pop(_name, None)
 
 import typing
@@ -51,7 +65,7 @@ def _isolated_env(monkeypatch: pytest.MonkeyPatch):
     directly (e.g. a subprocess test that forgets to override one of the
     three), and stays correct once env resolution moves to parse time.
     """
-    for name in ("PKGFORGE_ROOT", "PKGFORGE_DB", "PKGFORGE_DB_FORMAT"):
+    for name in SCRUBBED_ENV:
         monkeypatch.delenv(name, raising=False)
     yield
 

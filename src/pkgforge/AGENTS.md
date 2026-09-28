@@ -22,8 +22,9 @@ tree).
   2; any other `PkgForgeError`, `OSError` or `subprocess.CalledProcessError`
   prints the same and returns 1; a `BrokenPipeError` (a closed output pipe)
   returns 1 silently; anything else propagates with its traceback. Set
-  `DUHO_TRACEBACK` (`1`/`true`/`yes`/`on`/`y`/`t`, case-insensitive,
-  whitespace-stripped) to also print the traceback before that one line.
+  `DUHO_TRACEBACK` to a true value (duho's boolean tokens: `1`/`true`/`yes`/
+  `on`; `0`/`false`/`no`/`off`/`n`/`f` are off) to also print the traceback
+  before that one line.
   Calling a command directly (not through `main()`) still raises the plain
   exception — the boundary only wraps the CLI entry point.
 
@@ -207,6 +208,10 @@ you're embedding the CLI layer itself:
 - **`PKGFORGE_ROOT`** — default `--buildroot`.
 - **`PKGFORGE_DB`** — default `--db`.
 - **`PKGFORGE_DB_FORMAT`** — default `--db-format`.
+- **`PKGFORGE_MCP`** — set to `stdio` to serve the command tree as MCP tools
+  over stdio instead of running a command (duho's launch trigger; any other
+  value exits 2). Unset, it does nothing. It is removed from the environment
+  as soon as it is read, so staged commands' children never inherit it.
 
 ## Gotchas
 

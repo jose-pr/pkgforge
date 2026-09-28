@@ -414,7 +414,7 @@ def test_decompress_path_kind_without_destination_exits_2(cli):
 def test_print_completion_bash(cli):
     result = cli("--print-completion", "bash")
     assert result.rc == 0
-    assert b"complete -F" in result.out
+    assert b" -F _duho_complete_" in result.out
 
 
 def test_python_m_runs_main(monkeypatch, capfdbinary):
