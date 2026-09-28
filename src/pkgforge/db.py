@@ -37,13 +37,13 @@ Sniffer = typing.Callable[[bytes], bool]
 
 #: Registered backends: format name -> provider class. Populated by
 #: :func:`register_provider` (the built-in three register themselves at import).
-PROVIDERS: "typing.Dict[str, typing.Type[DbProvider]]" = {}
+PROVIDERS: typing.Dict[str, typing.Type[DbProvider]] = {}
 
 #: File-suffix (lowercased) -> format name. Populated by :func:`register_provider`.
-SUFFIX_FORMATS: "typing.Dict[str, str]" = {}
+SUFFIX_FORMATS: typing.Dict[str, str] = {}
 
 #: Content sniffers, newest-registered first: (format-name, sniffer).
-_SNIFFERS: "typing.List[typing.Tuple[str, Sniffer]]" = []
+_SNIFFERS: typing.List[typing.Tuple[str, Sniffer]] = []
 
 #: Format used when the suffix is unknown / absent.
 DEFAULT_FORMAT = "jsonl"
@@ -54,11 +54,11 @@ _SQLITE_MAGIC = b"SQLite format 3\x00"
 
 def register_provider(
     name: str,
-    provider_cls: "typing.Type[DbProvider]",
+    provider_cls: typing.Type[DbProvider],
     *,
-    suffixes: "typing.Iterable[str]" = (),
-    sniff: "typing.Optional[Sniffer]" = None,
-) -> "typing.Type[DbProvider]":
+    suffixes: typing.Iterable[str] = (),
+    sniff: typing.Optional[Sniffer] = None,
+) -> typing.Type[DbProvider]:
     """Register a file-DB backend so :func:`open_db` can select it.
 
     This is the extension seam that keeps third-party backends OUT of core
@@ -87,7 +87,7 @@ def register_provider(
     return provider_cls
 
 
-def _record(path: str, entry: "typing.Optional[FileEntry]") -> dict:
+def _record(path: str, entry: typing.Optional[FileEntry]) -> dict:
     """A JSON/YAML-safe record dict for one entry (FileType coerced to str)."""
     if entry is None:
         return {"path": path, "_removed": True}
@@ -107,11 +107,11 @@ class DbProvider(abc.ABC):
         self.path = path
 
     @abc.abstractmethod
-    def load(self) -> "Db":
+    def load(self) -> Db:
         """Return the full DB as ``{path: entry-or-None}``."""
 
     @abc.abstractmethod
-    def add(self, path: str, entry: "FileEntry") -> None:
+    def add(self, path: str, entry: FileEntry) -> None:
         """Record ``entry`` for ``path``."""
 
     @abc.abstractmethod
@@ -137,10 +137,10 @@ class JsonlDb(DbProvider):
 
     format = "jsonl"
 
-    def load(self) -> "Db":
+    def load(self) -> Db:
         if not self.path.exists():
             return {}
-        db: "Db" = {}
+        db: Db = {}
         for line in self.path.read_text().splitlines():
             line = line.strip()
             if not line:
@@ -155,7 +155,7 @@ class JsonlDb(DbProvider):
         with self.path.open("a") as fh:
             fh.write(line)
 
-    def add(self, path: str, entry: "FileEntry") -> None:
+    def add(self, path: str, entry: FileEntry) -> None:
         self._append(_record(path, entry))
 
     def remove(self, path: str) -> None:
@@ -184,19 +184,19 @@ class YamlDb(DbProvider):
 
     format = "yaml"
 
-    def load(self) -> "Db":
+    def load(self) -> Db:
         if not self.path.exists():
             return {}
         return yaml.safe_load(self.path.read_text()) or {}
 
-    def _append(self, path: str, entry: "typing.Optional[FileEntry]") -> None:
+    def _append(self, path: str, entry: typing.Optional[FileEntry]) -> None:
         rec = _record(path, entry)
         rec.pop("path")
         value = None if entry is None else rec
         with self.path.open("a") as fh:
             fh.write(yaml.safe_dump({path: value}))
 
-    def add(self, path: str, entry: "FileEntry") -> None:
+    def add(self, path: str, entry: FileEntry) -> None:
         self._append(path, entry)
 
     def remove(self, path: str) -> None:
@@ -250,10 +250,10 @@ class SqliteDb(DbProvider):
         finally:
             conn.close()
 
-    def load(self) -> "Db":
+    def load(self) -> Db:
         if not self.path.exists():
             return {}
-        db: "Db" = {}
+        db: Db = {}
         with self._connect() as conn:
             for row in conn.execute(
                 'SELECT path, mode, owner, "group", type, meta_json, removed FROM entries'
@@ -271,7 +271,7 @@ class SqliteDb(DbProvider):
                     }
         return db
 
-    def add(self, path: str, entry: "FileEntry") -> None:
+    def add(self, path: str, entry: FileEntry) -> None:
         rec = _record(path, entry)
         with self._connect() as conn:
             conn.execute(
@@ -342,7 +342,7 @@ def format_for_suffix(path: Path) -> str:
     return SUFFIX_FORMATS.get(path.suffix.lower(), DEFAULT_FORMAT)
 
 
-def sniff_format(path: Path) -> "typing.Optional[str]":
+def sniff_format(path: Path) -> typing.Optional[str]:
     """Detect an existing file's format from its content, or ``None`` if unknown.
 
     Registered sniffers are tried newest-first; if none claims the file, the
@@ -371,7 +371,7 @@ def sniff_format(path: Path) -> "typing.Optional[str]":
 
 
 def open_db(
-    path: Path, fmt: "typing.Optional[str]" = None, *, for_read: bool = False
+    path: Path, fmt: typing.Optional[str] = None, *, for_read: bool = False
 ) -> DbProvider:
     """Resolve and construct the :class:`DbProvider` for ``path``.
 

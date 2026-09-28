@@ -44,7 +44,7 @@ AUTO = "--"
 DEFAULT = "-"
 
 
-def parsepath(path: str) -> "typing.Optional[typing.Union[str, Path]]":
+def parsepath(path: str) -> typing.Optional[typing.Union[str, Path]]:
     """Parse a CLI path argument.
 
     ``"-"`` (stdin/stdout) and the empty string are preserved as-is; anything
@@ -66,7 +66,7 @@ class FileType(str, enum.Enum):
     _AUTO = AUTO
 
     @classmethod
-    def from_path(cls, path: Path) -> "FileType":
+    def from_path(cls, path: Path) -> FileType:
         if path.is_symlink():
             return FileType.Symlink
         elif path.is_dir():
@@ -89,7 +89,7 @@ class FileEntryArgs(Cmd):
     ("--group", "-g")
     owner: str = DEFAULT
     ("--owner", "-o")
-    type: "typing.Optional[FileType]" = None
+    type: typing.Optional[FileType] = None
     ("--type", "-t")
     meta: duho.Arg[
         typing.Dict[str, str],
@@ -106,10 +106,10 @@ class FileEntry(typing.TypedDict):
     owner: str
     group: str
     type: str
-    meta: "typing.Dict[str,str]"
+    meta: typing.Dict[str, str]
 
     @classmethod
-    def from_args(cls, args: "FileEntryArgs", **overwrite) -> "FileEntry":
+    def from_args(cls, args: FileEntryArgs, **overwrite) -> FileEntry:
         entry = {
             "mode": args.mode,
             "owner": args.owner,
@@ -121,7 +121,7 @@ class FileEntry(typing.TypedDict):
         return entry
 
     @classmethod
-    def from_path(cls, path: Path, meta: "typing.Dict[str, str]" = None) -> "FileEntry":
+    def from_path(cls, path: Path, meta: typing.Dict[str, str] = None) -> FileEntry:
         stat = path.lstat()
         owner = group = DEFAULT
         if pwd is not None:
@@ -146,7 +146,7 @@ class FileEntry(typing.TypedDict):
             "meta": {} if meta is None else meta,
         }
 
-    def resolve_for(self, path: Path, lookupval=AUTO, **overwrite) -> "FileEntry":
+    def resolve_for(self, path: Path, lookupval=AUTO, **overwrite) -> FileEntry:
         resolved: FileEntry = {**self}
         ondisk = FileEntry.from_path(path)
         for k, v in resolved.items():
@@ -193,11 +193,11 @@ class PkgForgeCmd(LoggingArgs, Cmd):
     to the :class:`PkgForge` root's subcommand tree via :meth:`_register`.
     """
 
-    db: "typing.Optional[Path]" = Path(filedb) if filedb else None
+    db: typing.Optional[Path] = Path(filedb) if filedb else None
     ("--db",)
-    db_format: "typing.Optional[str]" = os.environ.get("PKGFORGE_DB_FORMAT")
+    db_format: typing.Optional[str] = os.environ.get("PKGFORGE_DB_FORMAT")
     ("--db-format",)
-    buildroot: "typing.Union[Path, str]" = Path(buildroot) if buildroot else Path(".")
+    buildroot: typing.Union[Path, str] = Path(buildroot) if buildroot else Path(".")
     ("--buildroot", "-r")
 
     def localpath(self, buildpath: Path) -> Path:
@@ -216,7 +216,7 @@ class PkgForgeCmd(LoggingArgs, Cmd):
 
         return open_db(self.db, self.db_format, for_read=for_read)
 
-    def loaddb(self) -> "typing.Dict[str, typing.Optional[FileEntry]]":
+    def loaddb(self) -> typing.Dict[str, typing.Optional[FileEntry]]:
         if self._no_file_db():
             return {}
         return self._provider(for_read=True).load()
@@ -233,7 +233,7 @@ class PkgForgeCmd(LoggingArgs, Cmd):
             return
         self._provider().init()
 
-    def _write_entry(self, buildpath: Path, entry: "typing.Optional[FileEntry]"):
+    def _write_entry(self, buildpath: Path, entry: typing.Optional[FileEntry]):
         path = buildpath if isinstance(buildpath, str) else os.fspath(buildpath)
         if self._no_file_db():
             # No file: emit the record as a JSON Lines line to stdout.
@@ -247,7 +247,7 @@ class PkgForgeCmd(LoggingArgs, Cmd):
         else:
             provider.add(path, entry)
 
-    def add_entry(self, buildpath: Path, entry: "FileEntry"):
+    def add_entry(self, buildpath: Path, entry: FileEntry):
         self._write_entry(buildpath, entry)
 
     def remove_entry(self, buildpath: Path):

@@ -61,7 +61,7 @@ def _looks_like_path(kind: str) -> bool:
     return bool(kind) and any(sep in kind for sep in (".", "/", os.sep))
 
 
-def _is_tar_source(src: "Path | str") -> bool:
+def _is_tar_source(src: Path | str) -> bool:
     """True if ``src`` is a tar-family archive stdlib :mod:`tarfile` can extract."""
     name = os.fspath(src).lower()
     return name.endswith(TAR_SUFFIXES)
@@ -239,7 +239,7 @@ class Install(FileEntryArgs, PkgForgeCmd):
                 if self.exclude:
                     filter = PathMatch(self.exclude, src)
 
-                    def _ignore(_dir: str, _files: "typing.List[str]"):
+                    def _ignore(_dir: str, _files: typing.List[str]):
                         return [
                             file for file in _files if filter.match(Path(_dir, file))
                         ]

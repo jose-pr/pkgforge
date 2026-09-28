@@ -44,7 +44,7 @@ DB_SIZE = 1000
 SCAN_TREE_SIZE = 250
 
 
-def _make_db(n: int) -> "dict":
+def _make_db(n: int) -> dict:
     return {
         f"/usr/share/app/file{i:04d}.dat": {
             "mode": "644",
@@ -57,7 +57,7 @@ def _make_db(n: int) -> "dict":
     }
 
 
-def _entries_list(db: "dict"):
+def _entries_list(db: dict):
     return [(p, e) for p, e in db.items() if e is not None]
 
 

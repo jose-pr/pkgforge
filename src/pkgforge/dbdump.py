@@ -56,7 +56,7 @@ def rpmspecfile(path: str, entry: FileEntry) -> bytes:
 # --------------------------------------------------------------------------
 
 
-def _debian_artifacts(entries: "Entries") -> "typing.Dict[str, bytes]":
+def _debian_artifacts(entries: Entries) -> typing.Dict[str, bytes]:
     """Build Debian packaging artifacts from surviving DB entries.
 
     Returns a mapping of artifact filename -> bytes:
@@ -68,8 +68,8 @@ def _debian_artifacts(entries: "Entries") -> "typing.Dict[str, bytes]":
       (``dpkg-statoverride``-friendly) for every entry that pins a non-default
       mode/owner/group.
     """
-    install_lines: "typing.List[str]" = []
-    perm_lines: "typing.List[str]" = []
+    install_lines: typing.List[str] = []
+    perm_lines: typing.List[str] = []
     for path, entry in entries:
         rel = path.lstrip("/")
         if entry["type"] != "directory":
@@ -79,7 +79,7 @@ def _debian_artifacts(entries: "Entries") -> "typing.Dict[str, bytes]":
         if mode not in ("-", "") or owner != "-" or group != "-":
             perm_lines.append(f"{path} {mode} {owner} {group}")
 
-    def _join(lines: "typing.List[str]") -> bytes:
+    def _join(lines: typing.List[str]) -> bytes:
         return ("\n".join(lines) + "\n" if lines else "").encode()
 
     return {"install": _join(install_lines), "permissions": _join(perm_lines)}
@@ -90,17 +90,17 @@ def _debian_artifacts(entries: "Entries") -> "typing.Dict[str, bytes]":
 # --------------------------------------------------------------------------
 
 #: Per-entry line formats: name -> dumper.
-PER_ENTRY_FORMATS: "typing.Dict[str, PerEntryDumper]" = {"rpmspecfiles": rpmspecfile}
+PER_ENTRY_FORMATS: typing.Dict[str, PerEntryDumper] = {"rpmspecfiles": rpmspecfile}
 
 #: Multi-artifact formats: name -> (entries -> {filename: bytes}).
-MULTI_ARTIFACT_FORMATS: (
-    "typing.Dict[str, typing.Callable[[Entries], typing.Dict[str, bytes]]]"
-) = {
+MULTI_ARTIFACT_FORMATS: typing.Dict[
+    str, typing.Callable[[Entries], typing.Dict[str, bytes]]
+] = {
     "debian": _debian_artifacts,
 }
 
 
-def dump_formats() -> "typing.List[str]":
+def dump_formats() -> typing.List[str]:
     """All known format names, sorted (for --help / error messages)."""
     return sorted([*PER_ENTRY_FORMATS, *MULTI_ARTIFACT_FORMATS])
 
@@ -120,10 +120,10 @@ class DbDump(PkgForgeCmd):
     output: Path = Path("-")
     ("output",)
 
-    def _surviving_entries(self) -> "Entries":
+    def _surviving_entries(self) -> Entries:
         db = self.loaddb()
         filter = PathMatch(self.exclude)
-        entries: "Entries" = []
+        entries: Entries = []
         for path, entry in db.items():
             if entry is None or (self.exclude and filter.match(Path(path), entry)):
                 continue

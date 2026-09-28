@@ -52,7 +52,7 @@ class PathTest(typing.Protocol):
 
 class PathMatchStmt(NS):
     negate: bool
-    tests: "typing.List[PathTest]"
+    tests: typing.List[PathTest]
     pattern: str
 
     def match(self, path: Path, fileentry: FileEntry):
@@ -72,7 +72,7 @@ class PathMatchStmt(NS):
 
         return None
 
-    def rebased(self, root: Path) -> "PathMatchStmt":
+    def rebased(self, root: Path) -> PathMatchStmt:
         """Copy of this statement with an absolute pattern re-rooted at ``root``.
 
         Returns ``self`` when the pattern is relative (nothing to rewrite).
@@ -93,7 +93,7 @@ class PathMatchStmt(NS):
         return rebased
 
     @classmethod
-    def parse(cls, pattern: str) -> "PathMatchStmt":
+    def parse(cls, pattern: str) -> PathMatchStmt:
         filter = PathMatchStmt()
         filter.tests = []
 
@@ -123,7 +123,7 @@ class PathMatchStmt(NS):
 
 
 class PathMatch(typing.List[PathMatchStmt]):
-    def __init__(self, stmts: "typing.Iterable[PathMatchStmt]", root: Path = None):
+    def __init__(self, stmts: typing.Iterable[PathMatchStmt], root: Path = None):
         # Rebase absolute patterns onto `root` as COPIES: the incoming
         # statements come from parsed argv and are shared between
         # constructions (multi-source install builds one PathMatch per
