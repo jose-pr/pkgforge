@@ -56,6 +56,10 @@ Every command logs under its own logger, `pkgforge.<command>` (`pkgforge.install
   source needs `-T`/`-D` (an explicit destination file name).
 - **Resilient defaults.** `--buildroot` defaults to the current directory and
   `--db` to `PKGFORGE_DB`; a missing DB reads as empty rather than erroring.
+  The one exception: if that default resolves to `/` (e.g. a container's
+  default `WORKDIR`, with `PKGFORGE_ROOT` unset or lost), `install`/`scan`
+  exit 2 instead of treating the live filesystem as the build root -- pass
+  `--buildroot /` (or `PKGFORGE_ROOT=/`) to do that on purpose.
 - **Ownership is opt-in.** `install` records owner/group but only *applies* them
   with `--chown`, so an unprivileged build doesn't fail trying to `chown`.
 - **Sources are never modified.** File sources are copied (`shutil.copy2`), so

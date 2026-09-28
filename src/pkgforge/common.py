@@ -499,9 +499,26 @@ class PkgForgeCmd(LoggingArgs, Cmd):
         ``install`` re-checks right before its own mkdir, since an earlier
         source in the same multi-source invocation can plant a new symlink
         after this method already ran for a later one.
+
+        Also refuses an unusable ``--buildroot``: unset/empty (a falsy
+        value, reachable only from a direct Python-API construction) always
+        raises, and a *relative* build root (the ordinary cwd default)
+        whose realpath is ``/`` raises unless it was spelled explicitly
+        (``--buildroot /`` or ``PKGFORGE_ROOT=/``) -- otherwise an
+        unattended run started from ``/`` with no build root configured
+        would map straight onto the live filesystem, silently.
         """
-        root = Path(self.buildroot)
+        root = self.buildroot
+        if not root:
+            raise UsageError("no build root configured (--buildroot/PKGFORGE_ROOT)")
+        root = Path(root)
         real_root = os.path.realpath(root)
+        if not root.is_absolute() and real_root == os.path.realpath(os.sep):
+            raise UsageError(
+                f"build root {os.fspath(root)!r} resolves to '/'; pass "
+                "--buildroot / (or set PKGFORGE_ROOT=/) to target the live "
+                "filesystem"
+            )
 
         rel = posixpath.normpath(
             PurePosixPath(os.fspath(path)).as_posix().lstrip("/") or "."

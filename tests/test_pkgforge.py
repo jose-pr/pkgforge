@@ -245,6 +245,21 @@ def test_scan_staged_absolute_link_ok(tmp_path):
     assert recorded["/usr/bin/app.link"]["type"] == "symlink"
 
 
+@pytest.mark.posix
+def test_scan_relative_root_at_slash_refused(tmp_path, monkeypatch, cli):
+    # Same footgun as install: PKGFORGE_ROOT unset with a cwd of '/' must
+    # not silently scan (and record) the live filesystem.
+    monkeypatch.chdir("/")
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    (tree / "f").write_text("x")
+    db = tmp_path / "db.jsonl"
+
+    result = cli("--db", str(db), "scan", str(tree))
+    assert result.rc == 2
+    assert not db.exists()
+
+
 def test_scan_root_path_ok(tmp_path):
     # PATH "/" means the build root itself.
     from pkgforge.scan import ScanCmd

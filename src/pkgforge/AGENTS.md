@@ -113,7 +113,11 @@ tree).
   `--db-format FMT` (from `PKGFORGE_DB_FORMAT`; a built-in or
   `register_provider`-registered name, else `UsageError` -- checked in
   `__init__`, so it also covers direct Python-API construction),
-  `--buildroot/-r DIR` (from `PKGFORGE_ROOT`, else `.`). The three env vars are read when
+  `--buildroot/-r DIR` (from `PKGFORGE_ROOT`, else `.`; a relative build root
+  whose realpath is `/` -- the ordinary cwd default with no `PKGFORGE_ROOT`
+  set, run from a cwd of `/` -- raises `UsageError` unless it was spelled
+  explicitly as `--buildroot /`/`PKGFORGE_ROOT=/`; an unset/empty build root
+  from the Python API also raises). The three env vars are read when
   `pkgforge.main()`/`duho.parse` runs (precedence CLI > env > the class
   default), not once at import time; a bare `_parser_().parse_args()` does
   **not** apply them (duho's env layer lives in `main`/`parse`, not raw

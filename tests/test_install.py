@@ -25,6 +25,7 @@ from pathlib import Path
 
 import pytest
 
+from pkgforge.common import UsageError
 from pkgforge.install import Install
 
 
@@ -1655,3 +1656,68 @@ def test_install_directory_to_root_ok(tmp_path):
     )()
 
     assert (root / "payload").read_text() == "x"
+
+
+# --------------------------------------------------------------------------
+# A relative build root that resolves to '/' is refused
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.posix
+@pytest.mark.parametrize("root_env", ["unset", "empty_env"])
+def test_install_relative_root_at_slash_refused(tmp_path, monkeypatch, cli, root_env):
+    # With no --buildroot, PKGFORGE_ROOT unset (or explicitly empty, which
+    # counts as unset) falls back to the cwd -- if that cwd is '/' (a
+    # container's default WORKDIR), an unattended job that lost the
+    # variable must not silently map onto the live filesystem.
+    if root_env == "empty_env":
+        monkeypatch.setenv("PKGFORGE_ROOT", "")
+    monkeypatch.chdir("/")
+    victim = tmp_path / "victim"
+    victim.write_text("original")
+    src = tmp_path / "f"
+    src.write_text("new")
+    db = tmp_path / "files.jsonl"
+
+    result = cli("--db", str(db), "install", "-T", "-m", "600", str(src), str(victim))
+    assert result.rc == 2
+    assert victim.read_text() == "original"
+
+
+@pytest.mark.posix
+def test_install_explicit_root_slash_allowed(tmp_path, monkeypatch, cli):
+    # The deliberate opt-in keeps working: an explicit --buildroot / (or
+    # PKGFORGE_ROOT=/) targets the live filesystem on purpose.
+    monkeypatch.chdir("/")
+    dest = tmp_path / "out" / "g"
+    src = tmp_path / "f"
+    src.write_text("data")
+    db = tmp_path / "files.jsonl"
+
+    result = cli(
+        "--db", str(db), "--buildroot", "/", "install", "-D", str(src), str(dest)
+    )
+    assert result.rc == 0
+    assert dest.read_text() == "data"
+
+
+@pytest.mark.parametrize("buildroot", ["", None])
+def test_install_falsy_buildroot_refused(tmp_path, monkeypatch, buildroot):
+    # x-plat: a falsy build root is only reachable from the Python API (the
+    # CLI always parses --buildroot/PKGFORGE_ROOT to a real Path); it must
+    # be refused explicitly, not fall through to a deep TypeError/ValueError
+    # inside buildpath().
+    monkeypatch.chdir(tmp_path)
+    src = tmp_path / "f"
+    src.write_text("data")
+
+    with pytest.raises(UsageError):
+        Install(
+            source=src,
+            destination=Path("/etc/f"),
+            buildroot=buildroot,
+            parents=True,
+            db=None,
+        )()
+
+    assert list(tmp_path.iterdir()) == [src]

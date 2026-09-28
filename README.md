@@ -59,9 +59,12 @@ Global options (also read from the environment):
 | --- | --- | --- |
 | `--db PATH` | `PKGFORGE_DB` | file DB to read/write (`-` for stdout/stdin) |
 | `--db-format FMT` | `PKGFORGE_DB_FORMAT` | backend: `jsonl` / `yaml` / `sqlite` (else from the `--db` suffix) |
-| `--buildroot DIR` | `PKGFORGE_ROOT` | staging root that maps to `/` in the DB |
+| `--buildroot DIR` | `PKGFORGE_ROOT` | staging root that maps to `/` in the DB; DESTINATION/PATH must resolve inside it |
 
-Global flags work before or after the subcommand.
+Global flags work before or after the subcommand. With no `--buildroot` or
+`PKGFORGE_ROOT`, the default is the current directory -- except that a cwd of
+`/` is refused (exit 2); pass `--buildroot /` to target the live filesystem
+on purpose.
 
 ## Storage backends
 

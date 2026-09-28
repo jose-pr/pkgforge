@@ -670,9 +670,6 @@ class Install(FileEntryArgs, PkgForgeCmd):
                             self.destination = self.destination.with_name(name)
                             break
 
-        if not self.destination.is_absolute() and not self.buildroot:
-            raise ValueError(self.destination)
-
         dest = self._rootpath(
             self.destination, follow_final=(self.type == FileType.Directory)
         )
