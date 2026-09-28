@@ -9,6 +9,7 @@ class InitDb(PkgForgeCmd):
     """Create or reset (truncate) the file DB."""
 
     _parsername_ = "initdb"
+    _logger_name_ = "pkgforge.initdb"
 
     def __call__(self):
         if self._no_file_db():

@@ -112,6 +112,7 @@ class DbDump(PkgForgeCmd):
     """Dump the file DB into a packaging manifest (rpm or debian)."""
 
     _parsername_ = "dbdump"
+    _logger_name_ = "pkgforge.dbdump"
 
     exclude: duho.Arg[
         typing.List[PathMatchStmt],

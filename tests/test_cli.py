@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import json
+import logging
 import os
 import re
 import runpy
@@ -440,6 +441,24 @@ def test_completion_binds_pkgforge(cli, shell):
         assert text.startswith("#compdef pkgforge")
     else:
         assert "complete -c 'pkgforge'" in text
+
+
+def test_verbose_flag_reaches_command_logger(tmp_path, cli):
+    logger = logging.getLogger("pkgforge.initdb")
+
+    result = cli("-v", "--db", str(tmp_path / "x.jsonl"), "initdb")
+    assert result.rc == 0
+    assert logger.getEffectiveLevel() == logging.DEBUG
+
+    result = cli(
+        "--loglevel",
+        "pkgforge.initdb:WARNING",
+        "--db",
+        str(tmp_path / "y.jsonl"),
+        "initdb",
+    )
+    assert result.rc == 0
+    assert logger.getEffectiveLevel() == logging.WARNING
 
 
 def test_version_names_pkgforge(cli):

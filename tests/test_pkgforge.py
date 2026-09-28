@@ -8,6 +8,7 @@ read/write, and dbdump rendering. Tests that need POSIX facilities (chmod via
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
@@ -32,6 +33,25 @@ def test_root_parser_builds_and_help_renders():
     text = parser.format_help()
     for name in {c._parsername_ for c in PkgForge._subcommands_}:
         assert name in text
+
+
+def test_command_loggers_under_pkgforge(tmp_path, caplog):
+    from pkgforge.initdb import InitDb
+
+    for cls in PkgForge._subcommands_:
+        assert cls._logger_name_ == "pkgforge." + cls._parsername_
+
+    caplog.set_level(logging.INFO, logger="pkgforge")
+    InitDb(db=tmp_path / "x.jsonl")()
+    assert any(
+        r.name == "pkgforge.initdb" and "Initialized empty DB" in r.getMessage()
+        for r in caplog.records
+    )
+
+    caplog.clear()
+    caplog.set_level(logging.ERROR, logger="pkgforge")
+    InitDb(db=tmp_path / "y.jsonl")()
+    assert caplog.records == []
 
 
 def test_install_shortcuts_translate():

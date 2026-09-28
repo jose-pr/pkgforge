@@ -31,6 +31,7 @@ class ScanCmd(FileEntryArgs, PkgForgeCmd):
     """
 
     _parsername_ = "scan"
+    _logger_name_ = "pkgforge.scan"
 
     type: duho.Arg[
         typing.Optional[FileType],

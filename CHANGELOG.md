@@ -11,6 +11,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `PkgForge`), so completion binds. Regenerate installed ones.
 
 ### Changed
+- Commands log as `pkgforge.<command>` (was `<command>`, e.g. `scan`). Use the
+  new name in `--loglevel`, e.g. `--loglevel pkgforge.scan:WARNING`; in
+  Python, `logging.getLogger("pkgforge")` controls all of them.
 - The documentation site is now rebuilt from `main` whenever the docs change,
   and from the release tag after each final release. A pre-release tag leaves
   it unchanged.

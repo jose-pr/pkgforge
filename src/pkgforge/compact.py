@@ -9,6 +9,7 @@ class Compact(PkgForgeCmd):
     """Collapse the DB to one record per live path (drop superseded/removed)."""
 
     _parsername_ = "compact"
+    _logger_name_ = "pkgforge.compact"
 
     def __call__(self):
         if self._no_file_db():

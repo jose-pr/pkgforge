@@ -118,6 +118,17 @@ tree).
   argparse); a command constructed directly in Python (not through
   `main()`/`parse`) uses each var's value **as of import** (its own class
   default), same as before. An empty value counts as unset for all three.
+  Each leaf command declares `_logger_name_ = "pkgforge.<command>"`
+  (`pkgforge.install`, `pkgforge.scan`, `pkgforge.dbdump`, `pkgforge.initdb`,
+  `pkgforge.compact`), so `logging.getLogger("pkgforge")` controls every
+  command when it is constructed directly (not through `main()`/`duho.parse`).
+  Through the CLI, `main()` always sets the *dispatched* command's own logger
+  to an explicit level (INFO by default), which then wins over inherited
+  propagation: use `--loglevel LEVEL` (the running command) or
+  `--loglevel pkgforge.<command>:LEVEL`; a bare `--loglevel pkgforge:LEVEL`
+  has no effect on a CLI-dispatched command (the command's own INFO already
+  wins), though it still reaches one built directly in Python and left at
+  its default (NOTSET) level.
   Helpers: `localpath(buildpath: str | os.PathLike) -> Path` (accepts a
   `/`-rooted OR build-relative path; an absolute input has its leading `/`
   stripped, a relative one is taken as already build-relative) /

@@ -95,6 +95,7 @@ class Install(FileEntryArgs, PkgForgeCmd):
     """Install a source into the build root and record its file entry."""
 
     _parsername_ = "install"
+    _logger_name_ = "pkgforge.install"
 
     noentry: bool = False
     ("--noentry",)

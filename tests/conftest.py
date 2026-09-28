@@ -32,6 +32,7 @@ SCRUBBED_ENV = (
 for _name in SCRUBBED_ENV:
     os.environ.pop(_name, None)
 
+import logging
 import typing
 from pathlib import Path
 
@@ -68,6 +69,35 @@ def _isolated_env(monkeypatch: pytest.MonkeyPatch):
     for name in SCRUBBED_ENV:
         monkeypatch.delenv(name, raising=False)
     yield
+
+
+@pytest.fixture(autouse=True)
+def restore_pkgforge_log_levels():
+    """Snapshot/restore every ``pkgforge``/``pkgforge.*`` logger's level.
+
+    ``pkgforge.main()`` sets the dispatched command's own logger level (e.g.
+    from ``-v``/``--loglevel``), and that level persists in-process on the
+    module-level ``logging.Logger`` object -- there is no per-``main()``
+    reset. Without this, one test's ``-v``/``--loglevel`` leaks into the next
+    test that reads the same logger's effective level (e.g. a plain ``main()``
+    scan after a ``--loglevel pkgforge.scan:DEBUG`` test would otherwise still
+    see DEBUG). Restores each pre-existing logger's level and sets any
+    ``pkgforge.*`` logger created during the test to NOTSET.
+    """
+
+    def _pkgforge_loggers() -> typing.Dict[str, logging.Logger]:
+        loggers = {"pkgforge": logging.getLogger("pkgforge")}
+        for name, obj in logging.Logger.manager.loggerDict.items():
+            if isinstance(obj, logging.PlaceHolder):
+                continue
+            if name == "pkgforge" or name.startswith("pkgforge."):
+                loggers[name] = obj
+        return loggers
+
+    before = {name: logger.level for name, logger in _pkgforge_loggers().items()}
+    yield
+    for name, logger in _pkgforge_loggers().items():
+        logger.setLevel(before.get(name, logging.NOTSET))
 
 
 @pytest.fixture
