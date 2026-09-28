@@ -84,7 +84,7 @@ def check_completion(cwd: str) -> None:
         capture_output=True,
         text=True,
     )
-    if result.returncode != 0 or "complete -F" not in result.stdout:
+    if result.returncode != 0 or " -F _duho_complete_" not in result.stdout:
         raise AssertionError(f"completion failed: rc={result.returncode}")
     print("ok completion")
 

@@ -144,8 +144,9 @@ jobs:
           major, minor = (int(part) for part in version.split()[-1].split('.')[:2])
           assert (major, minor) < (2, 32), f'expected glibc < 2.32, got {version}'
           "
-      - name: Install libarchive-tools (bsdtar)
-        run: apt-get update && apt-get install -y libarchive-tools
+      # No bsdtar here: this job exists for the chmod path on old glibc, and
+      # the bsdtar-gated tests skip without it rather than depend on the
+      # distro mirror.
       - name: Install package with dev extras
         run: python -m pip install -e ".[dev]"
       - name: Run tests
