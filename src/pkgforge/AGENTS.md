@@ -193,6 +193,12 @@ tree).
   (`format="sqlite"`, suffixes `.db`/`.sqlite`/`.sqlite3`, sniffed by the
   SQLite file magic) — a real upserted-in-place table, no append log
   (`compact()` drops removed rows + `VACUUM`s).
+  `sqlite3` and PyYAML are both imported lazily (inside `SqliteDb._connect`
+  and a private `_yaml_io()` respectively), not at module top: `import
+  pkgforge`, `--help` and the `jsonl` backend all work on an interpreter
+  that lacks one of them. Actually using the `sqlite`/`yaml` backend on
+  such an interpreter raises `PkgForgeError` naming the missing module,
+  instead of a bare `ImportError`.
 - **`format_for_suffix(path: Path) -> str`** — suffix → registered format
   name, else `DEFAULT_FORMAT` (`"jsonl"`).
 - **`sniff_format(path: Path) -> str | None`** — detect an existing file's

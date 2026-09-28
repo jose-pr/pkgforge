@@ -18,13 +18,13 @@ from __future__ import annotations
 
 import abc
 import contextlib
+import functools
 import json
 import os
-import sqlite3
 import typing
 from pathlib import Path
 
-import yaml
+from .common import PkgForgeError
 
 if typing.TYPE_CHECKING:
     from .common import FileEntry
@@ -172,6 +172,27 @@ class JsonlDb(DbProvider):
         self.path.write_text("")
 
 
+@functools.lru_cache(maxsize=None)
+def _yaml_io() -> typing.Tuple[type, type]:
+    """Lazily import PyYAML and return its ``(Loader, Dumper)`` classes.
+
+    The import is deferred here rather than a module-level ``import yaml``,
+    so ``import pkgforge``, ``--help`` and the ``jsonl`` backend all work on
+    an interpreter that lacks PyYAML; only actually touching the ``yaml``
+    backend pays for the import. A missing module raises one clear
+    :class:`~pkgforge.common.PkgForgeError` instead of a bare ``ImportError``
+    surfacing from wherever this was first called.
+    """
+    try:
+        import yaml
+    except ImportError as exc:
+        raise PkgForgeError(
+            "the yaml DB backend needs PyYAML, which is not installed; "
+            "use --db-format jsonl or sqlite"
+        ) from exc
+    return yaml.SafeLoader, yaml.SafeDumper
+
+
 class YamlDb(DbProvider):
     """Append-only YAML: concatenated single-key documents, last key wins.
 
@@ -185,12 +206,18 @@ class YamlDb(DbProvider):
     def load(self) -> Db:
         if not self.path.exists():
             return {}
-        return yaml.safe_load(self.path.read_text()) or {}
+        loader, _ = _yaml_io()
+        import yaml
+
+        return yaml.load(self.path.read_text(), Loader=loader) or {}
 
     def _append(self, path: str, entry: typing.Optional[FileEntry]) -> None:
+        _, dumper = _yaml_io()
+        import yaml
+
         value = None if entry is None else _fields(entry)
         with self.path.open("a") as fh:
-            fh.write(yaml.safe_dump({path: value}))
+            fh.write(yaml.dump({path: value}, Dumper=dumper))
 
     def add(self, path: str, entry: FileEntry) -> None:
         self._append(path, entry)
@@ -200,8 +227,11 @@ class YamlDb(DbProvider):
 
     def compact(self) -> None:
         db = self.load()
+        _, dumper = _yaml_io()
+        import yaml
+
         live = {p: _fields(e) for p, e in db.items() if e is not None}
-        self.path.write_text(yaml.safe_dump(live) if live else "")
+        self.path.write_text(yaml.dump(live, Dumper=dumper) if live else "")
 
     def init(self) -> None:
         self.path.write_text("")
@@ -230,7 +260,22 @@ class SqliteDb(DbProvider):
         ``sqlite3``'s own context manager commits/rolls back but does NOT close
         the connection -- leaving the file handle open, which blocks deletion on
         Windows. This wrapper guarantees ``close()``.
+
+        ``sqlite3`` is imported here, not at module top, so ``import pkgforge``,
+        ``--help`` and the ``jsonl``/``yaml`` backends all work on an
+        interpreter built without it (``_sqlite3`` missing, e.g. some pyenv or
+        source builds) -- only actually connecting pays for the import, and a
+        missing module raises one clear error instead of an ``ImportError``
+        deep in the stdlib's own ``sqlite3`` package.
         """
+        try:
+            import sqlite3
+        except ImportError as exc:
+            raise PkgForgeError(
+                "the sqlite DB backend needs Python's sqlite3 module "
+                "(_sqlite3), which this interpreter lacks; use "
+                "--db-format jsonl or yaml"
+            ) from exc
         conn = sqlite3.connect(os.fspath(self.path))
         try:
             if ensure_schema:

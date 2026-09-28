@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 import yaml
+
+SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 
 import pkgforge.db as dbmod
 from pkgforge.db import (
@@ -133,6 +138,87 @@ def test_sniff_detects_jsonl(tmp_path, make_entry):
 def test_unknown_format_raises(tmp_path):
     with pytest.raises(ValueError):
         open_db(tmp_path / "x", "toml")
+
+
+# --------------------------------------------------------------------------
+# lazy backend imports: sqlite3/yaml are optional at import time
+# --------------------------------------------------------------------------
+
+
+def test_import_without_sqlite3_or_yaml(tmp_path):
+    # A subprocess is required: sys.modules can't be poisoned in-process
+    # without breaking every other test that needs sqlite3/yaml for real.
+    db_path = tmp_path / "f.jsonl"
+    script = (
+        "import sys\n"
+        "sys.modules['_sqlite3'] = None\n"
+        "sys.modules['yaml'] = None\n"
+        "import pathlib\n"
+        "import pkgforge\n"
+        "from pkgforge.db import JsonlDb\n"
+        f"p = JsonlDb(pathlib.Path({str(db_path)!r}))\n"
+        "p.init()\n"
+        "p.add('/a', {'mode': '644', 'owner': '-', 'group': '-', 'type': 'file', 'meta': {}})\n"
+        "loaded = JsonlDb(p.path).load()\n"
+        "assert loaded['/a']['mode'] == '644'\n"
+        "try:\n"
+        "    rc = pkgforge.main(['--help'])\n"
+        "except SystemExit as exc:\n"
+        "    rc = exc.code or 0\n"
+        "assert rc == 0\n"
+        "print('OK')\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        env={**os.environ, "PYTHONPATH": str(SRC_DIR)},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "OK" in result.stdout.splitlines()
+
+
+@pytest.mark.parametrize(
+    "block, ext, fmt, action",
+    [
+        ("_sqlite3", "db", "sqlite", "p.init()"),
+        (
+            "yaml",
+            "yaml",
+            "yaml",
+            "p.add('/a', {'mode': '644', 'owner': '-', 'group': '-', "
+            "'type': 'file', 'meta': {}})",
+        ),
+    ],
+    ids=["sqlite", "yaml"],
+)
+def test_missing_backend_module_is_one_line_error(tmp_path, block, ext, fmt, action):
+    path = tmp_path / f"f.{ext}"
+    script = (
+        "import sys\n"
+        f"sys.modules[{block!r}] = None\n"
+        "import pathlib\n"
+        "from pkgforge.db import open_db\n"
+        "from pkgforge.common import PkgForgeError\n"
+        f"p = open_db(pathlib.Path({str(path)!r}), {fmt!r})\n"
+        "try:\n"
+        f"    {action}\n"
+        "except PkgForgeError as exc:\n"
+        f"    assert {block!r} in str(exc), str(exc)\n"
+        "    print('caught: ' + str(exc))\n"
+        "else:\n"
+        "    raise SystemExit('did not raise PkgForgeError')\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        env={**os.environ, "PYTHONPATH": str(SRC_DIR)},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    lines = [line for line in result.stdout.splitlines() if line]
+    assert len(lines) == 1
+    assert block in lines[0]
 
 
 def test_open_db_unknown_format_has_no_context(tmp_path):

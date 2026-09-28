@@ -270,6 +270,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `PkgForgeCmd.localpath()` accepts a `str` as well as a `Path`, and a
   relative input is now taken as already build-relative instead of silently
   dropping its first path component.
+- `import pkgforge`, `--help` and the `jsonl` backend no longer require
+  Python's `sqlite3` module; choosing the `sqlite` backend on an
+  interpreter that lacks it fails with one clear line instead of an
+  `ImportError` from inside the stdlib. The `yaml` backend now imports
+  PyYAML lazily too, with the same one-line error if it's ever missing.
 
 ## [0.1.2] - 2026-08-16
 
