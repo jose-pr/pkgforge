@@ -50,8 +50,10 @@ Every command logs under its own logger, `pkgforge.<command>` (`pkgforge.install
 
 ## Design notes for unattended use
 
-- **No prompts.** Commands never wait for input. `install` reading from `-`
-  (stdin) checks `isatty()` and skips cleanly when there is no piped data.
+- **No prompts.** Commands never wait for input. A `-` source reads stdin to
+  EOF (an empty stdin, e.g. `/dev/null` or an empty pipe, stages an empty
+  file); a terminal or closed stdin is a usage error, not a wait, and a `-`
+  source needs `-T`/`-D` (an explicit destination file name).
 - **Resilient defaults.** `--buildroot` defaults to the current directory and
   `--db` to `PKGFORGE_DB`; a missing DB reads as empty rather than erroring.
 - **Ownership is opt-in.** `install` records owner/group but only *applies* them

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
@@ -119,6 +120,64 @@ def _is_tar_source(src: Path | str) -> bool:
     """True if ``src`` is a tar-family archive stdlib :mod:`tarfile` can extract."""
     name = os.fspath(src).lower()
     return name.endswith(TAR_SUFFIXES)
+
+
+def _require_stdin() -> typing.BinaryIO:
+    """Return stdin's binary buffer for a ``-`` source, after checking it is
+    actually readable data (piped, or ``/dev/null``) rather than a terminal
+    or a closed fd. Never closes stdin: the caller reads from the returned
+    buffer without wrapping fd 0 in a new file object.
+    """
+    if sys.stdin is None:
+        raise UsageError("'-' reads stdin, but stdin is closed")
+    if sys.stdin.isatty():
+        raise UsageError(
+            "'-' reads stdin, but stdin is a terminal; pipe or redirect the data"
+        )
+    return sys.stdin.buffer
+
+
+def _detect_source_type(path: Path) -> FileType:
+    """Auto-detect a source's :class:`FileType`.
+
+    A FIFO, or a character device that is not itself a terminal, is typed
+    :attr:`FileType.File` so it is streamed like a regular file -- this is
+    what makes a named pipe, ``/dev/stdin`` and process substitution
+    (``<(cmd)``, which is a magic symlink to an anonymous pipe on Linux)
+    work as install sources, instead of staging a dangling symlink to the
+    pipe's ``pipe:[N]``/``/proc/self/fd/N`` target. This check runs before
+    ``is_symlink()`` so it applies even though such a path often *is* one.
+    A terminal character device, a socket or a block device is refused. An
+    explicit ``-t symlink`` bypasses this entirely (it never calls this
+    function) and always copies the link text.
+    """
+    try:
+        followed = os.stat(path)
+    except OSError:
+        followed = None
+    if followed is not None and stat.S_ISFIFO(followed.st_mode):
+        return FileType.File
+    if followed is not None and stat.S_ISCHR(followed.st_mode):
+        fd = os.open(os.fspath(path), os.O_RDONLY | os.O_NOCTTY)
+        try:
+            is_tty = os.isatty(fd)
+        finally:
+            os.close(fd)
+        if is_tty:
+            raise UsageError(f"{path}: source is a terminal; pipe or redirect the data")
+        return FileType.File
+    if path.is_symlink():
+        return FileType.Symlink
+    if followed is None:
+        raise TypeError(
+            f"{path}: not a regular file, directory or symlink "
+            "(missing or special file)"
+        )
+    if stat.S_ISDIR(followed.st_mode):
+        return FileType.Directory
+    if stat.S_ISREG(followed.st_mode):
+        return FileType.File
+    raise UsageError(f"{path}: unsupported source type (socket or block device)")
 
 
 def _extract_tar(fileobj_or_name, dst: Path) -> None:
@@ -255,25 +314,30 @@ class Install(FileEntryArgs, PkgForgeCmd):
                             os.fspath(src.absolute()) if str(src) != DEFAULT else "-",
                         ],
                         # Only a "-" source reads stdin; for a real file the
-                        # child inherits ours. Taking .fileno() unconditionally
-                        # crashes wherever stdin is not a real fd (a captured
-                        # or redirected pseudofile), as the bsdtar branch below
-                        # already accounts for.
-                        stdin=sys.stdin.fileno() if str(src) == DEFAULT else None,
+                        # child inherits ours. Passing the file object (not
+                        # a bare .fileno()) lets subprocess resolve it even
+                        # when stdin has been replaced with a wrapped file
+                        # object (as the tests do).
+                        stdin=sys.stdin if str(src) == DEFAULT else None,
                         stdout=f,
                         check=True,
                     )
             elif str(src) != DEFAULT:
-                # Copy src -> dst. The staged file is independent of the
-                # source: -m/--chown apply to the copy only, and the source
-                # keeps its own content, mode and ownership.
-                shutil.copy2(os.fspath(src), os.fspath(dst))
+                if stat.S_ISREG(os.stat(src).st_mode):
+                    # Copy src -> dst. The staged file is independent of the
+                    # source: -m/--chown apply to the copy only, and the
+                    # source keeps its own content, mode and ownership.
+                    shutil.copy2(os.fspath(src), os.fspath(dst))
+                else:
+                    # A FIFO or non-terminal character device (a named pipe,
+                    # /dev/stdin, process substitution): stream its bytes.
+                    # copy2/copystat do not apply to a non-regular file.
+                    with open(src, "rb") as input, dst.open("wb") as output:
+                        shutil.copyfileobj(input, output)
             else:
                 self._logger_.info("Obtaining data from stdin")
                 with dst.open("wb") as output:
-                    if not sys.stdin.isatty():
-                        with os.fdopen(sys.stdin.fileno(), "rb") as input:
-                            shutil.copyfileobj(input, output)
+                    shutil.copyfileobj(_require_stdin(), output)
         elif self.type == FileType.Symlink:
             if str(src) == DEFAULT or not src:
                 target = self.meta.get("target")
@@ -313,7 +377,7 @@ class Install(FileEntryArgs, PkgForgeCmd):
                             "-f",
                             os.fspath(src) if src != DEFAULT else "-",
                         ],
-                        stdin=sys.stdin.fileno() if src == DEFAULT else None,
+                        stdin=sys.stdin if src == DEFAULT else None,
                         check=True,
                     )
             elif src.is_dir():
@@ -368,7 +432,7 @@ class Install(FileEntryArgs, PkgForgeCmd):
         if self.type in (DEFAULT, AUTO, FileType._AUTO, []):
             self._logger_.debug("Determining type from source")
             if self.source and self.source != DEFAULT:
-                self.type = FileType.from_path(self.source)
+                self.type = _detect_source_type(self.source)
             else:
                 self.type = FileType.File
         else:
@@ -384,6 +448,15 @@ class Install(FileEntryArgs, PkgForgeCmd):
             # outside the build root) before install() ever runs.
             if not self.meta.get("target"):
                 raise UsageError("a symlink with no source needs -O target=PATH")
+
+        if self.type != FileType.Symlink and str(self.source) == DEFAULT:
+            # A file or directory "-" source actually reads stdin; a
+            # symlink type/source never does (its "-" is just the
+            # positional placeholder -O target=PATH uses). Validated here,
+            # once, before any staging -- both the plain-copy path and the
+            # decompress/bsdtar subprocess paths below rely on this having
+            # already run.
+            _require_stdin()
 
         if self.decompress is True:
             # Bare -x means "infer the compression from the source suffix",
@@ -470,6 +543,8 @@ class Install(FileEntryArgs, PkgForgeCmd):
 
     def __call__(self):
         if isinstance(self.source, list):
+            if sum(1 for s in self.source if str(s) == DEFAULT) > 1:
+                raise UsageError("only one source may read stdin ('-') per invocation")
             for source in self.source:
                 cloned = dict(self._get_kwargs())
                 cloned["source"] = source

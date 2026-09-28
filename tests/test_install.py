@@ -19,6 +19,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 from pathlib import Path
 
 import pytest
@@ -438,3 +439,262 @@ def test_install_decompressor_missing_is_one_line(tmp_path, monkeypatch, cli):
     assert "gzip" in lines[0]
     assert "not found on PATH" in lines[0]
     assert not (root / "out").exists()
+
+
+# --------------------------------------------------------------------------
+# stdin ('-') and stream sources
+# --------------------------------------------------------------------------
+
+
+class _FakeTTY:
+    """A minimal stand-in for a terminal `sys.stdin`: only `isatty()` matters
+    to `_require_stdin`, so nothing else needs to be implemented."""
+
+    def isatty(self):
+        return True
+
+
+@pytest.mark.parametrize("kind", ["file", "directory"])
+def test_install_stdin_tty_refused(tmp_path, monkeypatch, kind):
+    # x-plat (relative DESTINATION), patched sys.stdin: a terminal stdin is
+    # a usage error for both a file and a directory ('-d') '-' source,
+    # raised before anything is staged.
+    root = tmp_path / "root"
+    root.mkdir()
+    monkeypatch.setattr(sys, "stdin", _FakeTTY())
+
+    argv = ["--db", str(tmp_path / "files.jsonl"), "--buildroot", str(root), "-p"]
+    if kind == "directory":
+        argv += ["-d"]
+    argv += ["-T", "-", "out"]
+
+    parser = Install._parser_()
+    inst = parser.parse_args(argv)
+    with pytest.raises(ValueError, match="terminal"):
+        inst()
+    assert not (root / "out").exists()
+
+
+def test_install_stdin_closed_refused(tmp_path, monkeypatch):
+    # x-plat: sys.stdin is None (a process started with stdin closed).
+    root = tmp_path / "root"
+    root.mkdir()
+    monkeypatch.setattr(sys, "stdin", None)
+
+    parser = Install._parser_()
+    inst = parser.parse_args(
+        [
+            "--db",
+            str(tmp_path / "files.jsonl"),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-T",
+            "-",
+            "out",
+        ]
+    )
+    with pytest.raises(ValueError, match="closed"):
+        inst()
+    assert not (root / "out").exists()
+
+
+def test_install_stdin_keeps_fd0_open(tmp_path, monkeypatch):
+    # x-plat: reading '-' must not close the underlying stream (the old
+    # os.fdopen(sys.stdin.fileno()) wrapping did, taking fd 0 with it).
+    root = tmp_path / "root"
+    root.mkdir()
+    wrapped = io.TextIOWrapper(io.BytesIO(b"stdin data"))
+    monkeypatch.setattr(sys, "stdin", wrapped)
+
+    parser = Install._parser_()
+    parser.parse_args(
+        [
+            "--db",
+            str(tmp_path / "files.jsonl"),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-T",
+            "-",
+            "out",
+        ]
+    )()
+
+    assert not wrapped.closed
+    assert (root / "out").read_bytes() == b"stdin data"
+
+
+def test_install_stdin_empty_stages_empty_file(tmp_path, monkeypatch):
+    # x-plat: empty stdin (e.g. /dev/null or an empty pipe) is legitimate
+    # input, not an error -- it stages a real, empty file.
+    root = tmp_path / "root"
+    root.mkdir()
+    monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(io.BytesIO(b"")))
+
+    parser = Install._parser_()
+    parser.parse_args(
+        [
+            "--db",
+            str(tmp_path / "files.jsonl"),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-T",
+            "-",
+            "out",
+        ]
+    )()
+
+    staged = root / "out"
+    assert staged.exists()
+    assert staged.read_bytes() == b""
+
+
+def test_install_stdin_twice_refused(tmp_path):
+    # x-plat: the stream can only be consumed once, so two '-' sources in
+    # one invocation are rejected before any cloning or staging.
+    root = tmp_path / "root"
+    root.mkdir()
+
+    parser = Install._parser_()
+    inst = parser.parse_args(
+        [
+            "--db",
+            str(tmp_path / "files.jsonl"),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-D",
+            "-",
+            "-",
+            "out",
+        ]
+    )
+    with pytest.raises(ValueError, match="only one source"):
+        inst()
+
+
+def test_install_stdin_needs_T(tmp_path):
+    # x-plat: 06's error for a bare '-' without -T/-D must still fire.
+    root = tmp_path / "root"
+    root.mkdir()
+
+    parser = Install._parser_()
+    inst = parser.parse_args(
+        [
+            "--db",
+            str(tmp_path / "files.jsonl"),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-",
+            "out",
+        ]
+    )
+    with pytest.raises(ValueError, match="needs -T"):
+        inst()
+
+
+@pytest.mark.posix
+def test_install_fifo_source_staged_as_file(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    fifo = tmp_path / "pipe"
+    os.mkfifo(fifo)
+    data = b"fifo payload\n"
+
+    def _writer():
+        with open(fifo, "wb") as w:
+            w.write(data)
+
+    writer = threading.Thread(target=_writer, daemon=True)
+    writer.start()
+    try:
+        parser = Install._parser_()
+        inst = parser.parse_args(
+            [
+                "--db",
+                str(tmp_path / "files.jsonl"),
+                "--buildroot",
+                str(root),
+                "-p",
+                str(fifo),
+                "/opt",
+            ]
+        )
+        inst()
+    finally:
+        writer.join(timeout=5)
+
+    staged = root / "opt" / "pipe"
+    assert staged.read_bytes() == data
+    assert inst.loaddb()["/opt/pipe"]["type"] == "file"
+
+
+@pytest.mark.posix
+def test_install_pipe_fd_source_staged_as_file(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    read_fd, write_fd = os.pipe()
+    data = b"pipe payload\n"
+
+    def _writer():
+        os.write(write_fd, data)
+        os.close(write_fd)
+
+    writer = threading.Thread(target=_writer, daemon=True)
+    writer.start()
+    try:
+        src = Path(f"/dev/fd/{read_fd}")
+        parser = Install._parser_()
+        parser.parse_args(
+            [
+                "--db",
+                str(tmp_path / "files.jsonl"),
+                "--buildroot",
+                str(root),
+                "-p",
+                str(src),
+                "/opt",
+            ]
+        )()
+    finally:
+        writer.join(timeout=5)
+        os.close(read_fd)
+
+    staged = root / "opt" / str(read_fd)
+    assert staged.read_bytes() == data
+
+
+@pytest.mark.posix
+def test_install_dev_tty_source_refused(tmp_path):
+    import pty
+
+    master, slave = pty.openpty()
+    try:
+        # Preloaded so a reader that skips the isatty() check gets EOF
+        # instead of hanging on an empty terminal.
+        os.write(master, b"x\n\x04")
+        slave_path = Path(os.ttyname(slave))
+
+        root = tmp_path / "root"
+        root.mkdir()
+        parser = Install._parser_()
+        inst = parser.parse_args(
+            [
+                "--db",
+                str(tmp_path / "files.jsonl"),
+                "--buildroot",
+                str(root),
+                "-p",
+                str(slave_path),
+                "/opt",
+            ]
+        )
+        with pytest.raises(ValueError, match="terminal"):
+            inst()
+        assert not (root / "opt").exists()
+    finally:
+        os.close(master)
+        os.close(slave)

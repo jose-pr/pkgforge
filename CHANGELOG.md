@@ -7,6 +7,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- A `-` source on a terminal or closed stdin, or a terminal character-device
+  path, exits 2 instead of staging an empty file or waiting; `install` keeps
+  stdin open instead of closing fd 0, and only one `-` source is allowed per
+  invocation. `<(cmd)`, `/dev/stdin` and named pipes now stage as files
+  (previously a dangling symlink to the pipe, or a crash for a plain FIFO).
 - `-x`/`--decompress` takes `gz`, `xz`, `bz2`, `zst`, `lzma` or a decompressor
   tool name (`gzip`/`gunzip`, `xz`/`unxz`, `bzip2`/`bunzip2`, `zstd`/`unzstd`,
   `lzma`/`unlzma`), matched case-insensitively; any other kind, or a bare

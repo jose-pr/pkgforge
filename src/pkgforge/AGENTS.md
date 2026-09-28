@@ -249,6 +249,15 @@ above).
   `PkgForgeError` -- both before anything is staged. KIND is optional and
   consumes the next token: write `-x KIND SRC DST`, `--decompress=KIND`, or
   `-x` after the paths.
+  A `-` (stdin) source reads to EOF and never closes the underlying stream;
+  an empty stdin (e.g. `/dev/null` or an empty pipe) stages an empty file,
+  but a terminal or a closed stdin raises `UsageError` before anything is
+  touched, and only one `-` source is allowed per invocation. A FIFO, a
+  named pipe path, `/dev/stdin` or a process-substitution path (`<(cmd)`) is
+  auto-detected as `file` and streamed, not staged as a symlink to its
+  pipe target; a terminal character-device path is rejected the same way a
+  terminal stdin is, and a socket or block-device path raises `UsageError`.
+  An explicit `--type symlink` always copies the link text regardless.
 - **`scan.ScanCmd(FileEntryArgs, PkgForgeCmd)`** (`pkgforge scan`) — walk a
   path under the build root, recording an entry per file; `--missing` only
   fills gaps not already in the DB. `--type/-t` is hidden from `--help` and
