@@ -18,8 +18,9 @@ Emits one RPM `%files` line per entry:
 %config(noreplace) %attr(640,root,adm) "/etc/tool/config"
 ```
 
-Directories get a `%dir` prefix; an entry's `meta.rpmprefix` (e.g.
-`%config(noreplace)`) is prepended.
+Directories get a `%dir` prefix; an entry's `meta.rpmprefix` (set with
+[`-O rpmprefix=VALUE`](commands.md#install), e.g. `%config(noreplace)`) is
+prepended.
 
 Each path is quoted for rpm's `%files -f` parser (targets rpm 4.19+, where
 no spelling of `%` is literal inside or outside quotes): a backslash and a

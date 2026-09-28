@@ -107,7 +107,7 @@ either way).
 | `mode` | octal permission string, e.g. `"644"` |
 | `owner` / `group` | user / group name |
 | `type` | `file`, `directory`, or `symlink` |
-| `meta` | free-form string map (e.g. `rpmprefix`, a symlink `target`) |
+| `meta` | free-form string map (e.g. `rpmprefix`, a symlink `target`), set with [`-O/--meta KEY=VALUE`](commands.md#install) |
 
 A `yaml` DB's scalars load as strings (`mode: 0755` is `"0755"`); a missing
 `meta` loads as `{}`, a missing `mode`/`owner`/`group` as `-`.

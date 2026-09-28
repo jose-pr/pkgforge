@@ -69,6 +69,21 @@ pkgforge install [options] SOURCE... DESTINATION
 | `--chown` | apply the recorded owner/group (off by default); an unknown owner/group name exits 2 before anything is staged (a recorded-only name, without `--chown`, is never resolved) |
 | `--remove-source` | delete the source after staging (files or directories), only once the entry is applied and recorded -- never when the source IS the staged destination, and refused (exit 2) up front when a directory source contains the resolved destination or the `--db` file |
 | `--noentry` | stage but do not record a DB entry |
+| `-O, --meta KEY=VALUE` | record free-form metadata on the entry (repeatable); consumed by a dump format (e.g. `rpmspecfiles`' `meta.rpmprefix`) or by a symlink's `meta.target` |
+
+`-O rpmprefix=VALUE` prepends `VALUE` to the entry's `rpmspecfiles` line (see
+[Dump formats](formats.md)):
+
+```bash
+pkgforge install -p -m 640 -O rpmprefix='%config(noreplace)' tool.conf /etc/tool
+```
+
+A symlink source (or an explicit `--type symlink`) records its `meta.target`
+automatically from `readlink`; only a `-` (no) source needs `-O target=PATH`:
+
+```bash
+pkgforge install -D -t symlink -O target=/usr/lib/tool/bin - /usr/bin/tool
+```
 
 `--mode`, `--chown`'s owner/group names, and the `--db` directory (and,
 without `-p`, the destination's parent directory) are all checked before
@@ -133,7 +148,7 @@ Walk a path under the build root and record a `FileEntry` for every
 directory and file **below** PATH -- never PATH itself.
 
 ```bash
-pkgforge scan [-m MODE] [--dir-mode MODE] [-o OWNER] [-g GROUP] [--missing] [--drop-stale] [-X PATTERN] PATH
+pkgforge scan [-m MODE] [--dir-mode MODE] [-o OWNER] [-g GROUP] [-O KEY=VALUE]... [--missing] [--drop-stale] [-X PATTERN] PATH
 ```
 
 | Option | Meaning |
@@ -141,12 +156,14 @@ pkgforge scan [-m MODE] [--dir-mode MODE] [-o OWNER] [-g GROUP] [--missing] [--d
 | `-m, --mode` | recorded on every **file** entry as given; `-` (default) leaves it unset, `--`/`auto` (write it as `--mode=--` or `-m--` -- a detached `-m --` is read as end of options and exits 2) reads the on-disk mode. Never applies to a directory or a symlink |
 | `--dir-mode` | recorded on every **directory** entry instead of `-m`; same 1-4-octal-digit/`-`/`--`/`auto` grammar. Default: `--` (from disk) when `-m`/`--mode` is itself `--`, else `-` -- an explicit `-m` value is never inherited by directories |
 | `-o, --owner` / `-g, --group` | recorded on every entry (file, directory or symlink) as given; `-` (default) leaves it unset, `--` reads the on-disk owner/group name |
+| `-O, --meta KEY=VALUE` | recorded on every entry (file, directory or symlink), same as `-m`/`-o`/`-g` (repeatable) |
 | `--missing` | only fill in entries absent from the DB, leaving existing ones (e.g. ones `install` already recorded) untouched -- without it, scan replaces them. A path whose entry was previously removed (e.g. by `--drop-stale`) is treated as absent and re-added if the file is still (or again) on disk; use `-X` to keep such a path out for good |
 | `--drop-stale` | after scanning, remove (tombstone) each DB entry below PATH whose file is no longer on disk, so `dbdump` stops listing it. An entry matching `-X` is kept even if its file is gone (protects a deliberately-absent entry, e.g. an RPM `%ghost`). Needs a real `--db` file (exits 2 for an unset or `-` DB); never touches disk, only the DB |
 | `-X, --exclude PATTERN` | skip matching paths and prune an excluded directory's subtree (nothing below it is walked or recorded), the same as `install`; also protects a matching entry from `--drop-stale` |
 
-`scan` always records each entry's type from the file on disk; it has no
-`--type` option of its own. A symlink's mode is always recorded as `-`,
+`scan` always records each entry's type from the file on disk; it accepts
+`-t/--type` for symmetry with `install`, but the option is hidden from
+`--help` and has no effect. A symlink's mode is always recorded as `-`,
 whatever `-m`/`--dir-mode` say -- Linux ignores a symlink's mode, and rpm
 warns about (Debian's `permissions` manifest would misreport) an explicit
 one. `-m`/`--dir-mode`/`-o`/`-g` default to `-` (unset), not the on-disk

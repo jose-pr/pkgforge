@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 README = ROOT / "README.md"
 INDEX = ROOT / "docs" / "index.md"
 UNATTENDED = ROOT / "docs" / "guide" / "unattended.md"
+COMMANDS = ROOT / "docs" / "guide" / "commands.md"
 HEADER = ROOT / "src" / "pkgforge" / "AGENTS.md"
 
 # Pages this plan maintains and keeps parseable; docs/guide/exclude.md is
@@ -169,3 +170,31 @@ def test_doc_sequences_run(page, tmp_path, monkeypatch):
     )
     assert result.returncode == 0, result.stderr
     assert "Traceback" not in result.stderr
+
+
+@pytest.mark.posix
+def test_meta_rpmprefix_example(tmp_path, monkeypatch, cli):
+    text = COMMANDS.read_text(encoding="utf-8")
+    line = next(
+        line
+        for line in _pkgforge_lines(text)
+        if "rpmprefix=" in line and "install" in line
+    )
+    argv = shlex.split(line, comments=True)[1:]  # drop "pkgforge"
+
+    (tmp_path / "tool.conf").write_text("x = 1\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    globalopts = [
+        "--buildroot",
+        str(tmp_path / "root"),
+        "--db",
+        str(tmp_path / "db.jsonl"),
+    ]
+
+    result = cli(*globalopts, *argv)
+    assert result.rc == 0, result.err
+
+    dump = cli(*globalopts, "dbdump", "-f", "rpmspecfiles", "-")
+    assert dump.rc == 0, dump.err
+    lines = dump.out.decode().splitlines()
+    assert any(l.startswith("%config(noreplace) %attr(640,") for l in lines), lines

@@ -9,6 +9,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 - The unattended-build guide shows how to install shell completion
   (`--print-completion`).
+- The command guide documents `-O/--meta KEY=VALUE` (`rpmprefix=%config(noreplace)`,
+  a symlink `target`) and `scan`'s entry options.
 - `dbdump -f` accepts `rpm`/`rpmspec` as aliases for `rpmspecfiles`, and
   `deb` as an alias for `debian`.
 - `pkgforge.db.DbProvider` and `pkgforge.dbdump.DumpFormat` (plus its two
