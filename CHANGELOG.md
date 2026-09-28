@@ -288,6 +288,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (a hand edit, a `printf`/`echo -n` writer, a torn write) starts a new
   line instead of fusing the new record onto the old one and silently
   corrupting the DB.
+- The `yaml` backend reads scalars as written: `mode: 0755` is `"0755"`
+  (previously the int `493`, dumped as `%attr(493,...)` and packaged as
+  mode `004`). A missing `meta` loads as `{}`, a missing
+  `mode`/`owner`/`group` as `-`, and a `jsonl` int mode `755` loads as
+  `"755"`. A `bool` or float mode, a non-octal-digit int mode, a non-string
+  `type`, or a record that is not a mapping now raises `DbError` instead of
+  silently mispackaging or crashing later with a raw `KeyError`.
 
 ## [0.1.2] - 2026-08-16
 

@@ -127,6 +127,24 @@ def test_malformed_db_is_one_line_error(tmp_path, cli):
     assert len(lines) == 1
 
 
+def test_dbdump_hand_edited_yaml_mode(tmp_path, cli):
+    # A hand-edited YAML DB with an UNQUOTED mode must not be
+    # misinterpreted as an int (0755 -> 493) and silently mispackaged.
+    db = tmp_path / "files.yaml"
+    db.write_text(
+        "/usr/bin/tool:\n"
+        "  mode: 0755\n"
+        "  owner: root\n"
+        "  group: root\n"
+        "  type: file\n"
+        "  meta: {}\n",
+        encoding="utf-8",
+    )
+    result = cli("--db", str(db), "dbdump", "-f", "rpmspecfiles", "-")
+    assert result.rc == 0
+    assert b'%attr(0755,root,root) "/usr/bin/tool"' in result.out
+
+
 # --------------------------------------------------------------------------
 # --db-format validation (checked before the command runs)
 # --------------------------------------------------------------------------

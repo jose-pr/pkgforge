@@ -235,7 +235,8 @@ def test_yaml_uses_libyaml_when_available():
     _yaml_io.cache_clear()
     try:
         loader, dumper = _yaml_io()
-        assert loader is yaml.CSafeLoader
+        # A null-only-resolver subclass of CSafeLoader, not the bare class.
+        assert issubclass(loader, yaml.CSafeLoader)
         assert dumper is yaml.CSafeDumper
     finally:
         _yaml_io.cache_clear()
@@ -612,3 +613,127 @@ def test_utf8_db_under_ascii_locale(tmp_path, fmt):
     if out.startswith("LOCALE_STILL_UTF8"):
         pytest.skip(f"could not apply a non-UTF-8 locale ({out})")
     assert out == "OK", result.stdout
+
+
+# --------------------------------------------------------------------------
+# yaml scalars load as strings; missing fields default; bad types raise
+# --------------------------------------------------------------------------
+
+
+def test_yaml_scalars_load_as_strings(tmp_path):
+    path = tmp_path / "f.yaml"
+    path.write_text(
+        "/usr/bin/tool:\n"
+        "  mode: 0755\n"
+        "  owner: 0\n"
+        "  group: root\n"
+        "  type: file\n"
+        "  meta: {enabled: yes}\n"
+        "/gone: null\n",
+        encoding="utf-8",
+    )
+    db = open_db(path, "yaml", for_read=True).load()
+    entry = db["/usr/bin/tool"]
+    assert entry["mode"] == "0755"
+    assert entry["owner"] == "0"
+    assert entry["meta"] == {"enabled": "yes"}
+    assert db["/gone"] is None
+
+
+@pytest.mark.parametrize("fmt", ["jsonl", "yaml"])
+def test_missing_fields_normalized(tmp_path, fmt):
+    path = tmp_path / f"f.{fmt}"
+    if fmt == "jsonl":
+        path.write_text('{"path": "/a"}\n', encoding="utf-8")
+    else:
+        path.write_text("/a: {}\n", encoding="utf-8")
+
+    db = open_db(path, fmt, for_read=True).load()
+    entry = db["/a"]
+    assert entry["meta"] == {}
+    assert entry["mode"] == "-"
+    assert entry["owner"] == "-"
+    assert entry["group"] == "-"
+    assert entry["type"] is None
+
+
+def test_null_type_loads(tmp_path):
+    # Pin: FileEntry.from_args writes an explicit "type": null when unset
+    # (not a missing key) -- _normalize must accept that, not reject it.
+    path = tmp_path / "f.jsonl"
+    path.write_text(
+        '{"path": "/a", "mode": "644", "owner": "-", "group": "-", '
+        '"type": null, "meta": {}}\n',
+        encoding="utf-8",
+    )
+    db = open_db(path, "jsonl", for_read=True).load()
+    assert db["/a"]["type"] is None
+
+
+def test_jsonl_int_mode_is_str(tmp_path):
+    path = tmp_path / "f.jsonl"
+    path.write_text(
+        '{"path": "/a", "mode": 755, "owner": 0, "group": 0, '
+        '"type": "file", "meta": {}}\n',
+        encoding="utf-8",
+    )
+    db = open_db(path, "jsonl", for_read=True).load()
+    entry = db["/a"]
+    assert entry["mode"] == "755"
+    assert entry["owner"] == "0"
+    assert entry["group"] == "0"
+
+
+def _write_bad_field(tmp_path: Path, kind: str) -> Path:
+    base = (
+        '{{"path": "/a", "owner": "-", "group": "-", "type": "file", '
+        '"meta": {{}}, "mode": {mode}}}\n'
+    )
+    if kind == "float_mode":
+        path = tmp_path / "f.jsonl"
+        path.write_text(base.format(mode="7.5"), encoding="utf-8")
+    elif kind == "bool_mode":
+        path = tmp_path / "f.jsonl"
+        path.write_text(base.format(mode="true"), encoding="utf-8")
+    elif kind == "bool_owner":
+        path = tmp_path / "f.jsonl"
+        path.write_text(
+            '{"path": "/a", "mode": "-", "owner": true, "group": "-", '
+            '"type": "file", "meta": {}}\n',
+            encoding="utf-8",
+        )
+    elif kind == "non_octal_int":
+        path = tmp_path / "f.jsonl"
+        path.write_text(base.format(mode="8"), encoding="utf-8")
+    elif kind == "int_type":
+        path = tmp_path / "f.jsonl"
+        path.write_text(
+            '{"path": "/a", "mode": "-", "owner": "-", "group": "-", '
+            '"type": 5, "meta": {}}\n',
+            encoding="utf-8",
+        )
+    else:  # record_list: a per-path YAML record that is a list, not a mapping
+        path = tmp_path / "f.yaml"
+        path.write_text("/a:\n  - 1\n  - 2\n", encoding="utf-8")
+    return path
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "float_mode",
+        "bool_mode",
+        "bool_owner",
+        "non_octal_int",
+        "int_type",
+        "record_list",
+    ],
+)
+def test_bad_field_types_raise(tmp_path, kind):
+    from pkgforge.db import DbError
+
+    path = _write_bad_field(tmp_path, kind)
+    fmt = "yaml" if kind == "record_list" else "jsonl"
+    with pytest.raises(DbError) as excinfo:
+        open_db(path, fmt, for_read=True).load()
+    assert "/a" in str(excinfo.value)

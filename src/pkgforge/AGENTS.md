@@ -176,6 +176,20 @@ tree).
   I/O is always UTF-8, regardless of locale; an append to a DB whose last
   line lacks a trailing newline (e.g. a hand edit) repairs it first instead
   of fusing the new record onto the old one.
+  `JsonlDb.load`/`YamlDb.load` run every live (non-removed) record through a
+  private `_normalize`: a missing `meta` becomes `{}`, a missing
+  `mode`/`owner`/`group` becomes `"-"`, a missing `type` becomes `None`
+  (matching pkgforge's own explicit `null` for an unset `type`); a literal
+  JSONL int `mode`/`owner`/`group` (JSON has no leading-zero int, so this
+  only affects `jsonl`) becomes its string form, and for `mode` only when
+  that string is 1-4 octal digits. A `bool`, a `float`, a non-octal-digit
+  int `mode`, a non-string `type`, or a record that is not a mapping raises
+  `DbError` naming the file and the record's path. This never applies to a
+  third-party `load()`. `YamlDb`'s loader additionally keeps only YAML's
+  `null` implicit resolver (`~`/`null` still load as `None`, for tombstones)
+  and drops int/float/bool/timestamp guessing, so an unquoted scalar loads
+  as the text it was written as (`mode: 0755` is `"0755"`, not the int
+  `493`) instead of PyYAML's YAML-1.1 typing.
 - **`Db`** — type alias `dict[str, FileEntry | None]` (a loaded DB; `None`
   marks a removed path).
 - **`DbProvider(abc.ABC)`** — storage backend bound to a filesystem `path`

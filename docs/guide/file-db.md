@@ -76,6 +76,9 @@ Once registered, the format is selectable with `--db-format toml`, by a `.toml`
 | `type` | `file`, `directory`, or `symlink` |
 | `meta` | free-form string map (e.g. `rpmprefix`, a symlink `target`) |
 
+A `yaml` DB's scalars load as strings (`mode: 0755` is `"0755"`); a missing
+`meta` loads as `{}`, a missing `mode`/`owner`/`group` as `-`.
+
 ## Sentinels
 
 Two sentinel values let a command defer a field to the staged file:
