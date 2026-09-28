@@ -109,15 +109,25 @@ tree).
 - **`mode_to_octal(mode: int) -> str`** — render a raw `st_mode` as a bare
   octal permission string (`"644"`).
 - **`PkgForgeCmd(duho.LoggingArgs, duho.Cmd)`** — common base every
-  subcommand extends. Fields: `--db PATH` (default from `PKGFORGE_DB`),
-  `--db-format FMT` (default from `PKGFORGE_DB_FORMAT`), `--buildroot/-r DIR`
-  (default from `PKGFORGE_ROOT`, else `.`). Helpers: `localpath(buildpath) ->
-  Path` / `buildpath(localpath) -> Path` (build-root ⇄ `/`-rooted path
-  translation), `loaddb() -> dict[str, FileEntry | None]`, `initdb()`,
-  `compactdb()`, `add_entry(buildpath, entry)`, `remove_entry(buildpath)`.
-  When `--db` is unset or `"-"`, DB-writing methods emit one JSON Lines
-  record to stdout instead of touching a file. `_register()` (classmethod)
-  attaches the class to `PkgForge`'s subcommand tree.
+  subcommand extends. Fields: `--db PATH` (from `PKGFORGE_DB`),
+  `--db-format FMT` (from `PKGFORGE_DB_FORMAT`), `--buildroot/-r DIR` (from
+  `PKGFORGE_ROOT`, else `.`). The three env vars are read when
+  `pkgforge.main()`/`duho.parse` runs (precedence CLI > env > the class
+  default), not once at import time; a bare `_parser_().parse_args()` does
+  **not** apply them (duho's env layer lives in `main`/`parse`, not raw
+  argparse); a command constructed directly in Python (not through
+  `main()`/`parse`) uses each var's value **as of import** (its own class
+  default), same as before. An empty value counts as unset for all three.
+  Helpers: `localpath(buildpath: str | os.PathLike) -> Path` (accepts a
+  `/`-rooted OR build-relative path; an absolute input has its leading `/`
+  stripped, a relative one is taken as already build-relative) /
+  `buildpath(localpath: Path) -> Path` (the reverse, `/`-rooted; POSIX only —
+  `Path("/", ...)` resolves against the current drive on Windows),
+  `loaddb() -> dict[str, FileEntry | None]`, `initdb()`, `compactdb()`,
+  `add_entry(buildpath, entry)`, `remove_entry(buildpath)`. When `--db` is
+  unset or `"-"`, DB-writing methods emit one JSON Lines record to stdout
+  instead of touching a file. `_register()` (classmethod) attaches the class
+  to `PkgForge`'s subcommand tree.
 - **`PkgForge(PkgForgeCmd, duho.Cli)`** — the application root (the
   `pkgforge` command). Adds `--version`/completion via `duho.Cli`
   (`_version_ = duho.AUTO`, `_distribution_ = "pkgforge"`,
@@ -226,6 +236,10 @@ you're embedding the CLI layer itself:
   superseded history; no-op for backends without an append log.
 
 ## Environment variables
+
+Read when `pkgforge.main()`/`duho.parse` runs (CLI wins over env, which wins
+over the class default); a command built directly in Python instead uses the
+value as of import. An empty value counts as unset for all three.
 
 - **`PKGFORGE_ROOT`** — default `--buildroot`.
 - **`PKGFORGE_DB`** — default `--db`.

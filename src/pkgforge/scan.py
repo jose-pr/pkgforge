@@ -54,7 +54,7 @@ class ScanCmd(FileEntryArgs, PkgForgeCmd):
             )
         db = self.loaddb() if self.missing else {}
         baseentry = entry_from_args(self, type=AUTO)
-        scanpath = self.buildroot / self.path.lstrip("/")
+        scanpath = self.localpath(self.path)
         filter = PathMatch(self.exclude, scanpath)
         self._logger_.info("Scanning %s", scanpath)
 

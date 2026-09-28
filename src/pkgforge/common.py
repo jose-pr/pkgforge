@@ -39,9 +39,6 @@ except ImportError:  # pragma: no cover - non-Unix
 import duho
 from duho import Cli, Cmd, LoggingArgs
 
-buildroot = os.environ.get("PKGFORGE_ROOT")
-filedb = os.environ.get("PKGFORGE_DB")
-
 #: Sentinel meaning "resolve this field from the file on disk".
 AUTO = "--"
 #: Sentinel meaning "leave this field at the system/OS default (do not set it)".
@@ -382,6 +379,21 @@ setattr(FileEntry, "resolve_for", resolve_entry)
 setattr(FileEntry, "apply", apply_entry)
 
 
+def _env_path(value: str) -> typing.Optional[Path]:
+    """Env-var/CLI value -> Path, or None if empty/unset (see PkgForgeCmd.db)."""
+    return Path(value) if value else None
+
+
+def _env_str(value: str) -> typing.Optional[str]:
+    """Env-var/CLI value -> str, or None if empty/unset (PkgForgeCmd.db_format)."""
+    return value if value else None
+
+
+def _env_root(value: str) -> Path:
+    """Env-var/CLI value -> Path, defaulting to '.' if empty (buildroot)."""
+    return Path(value) if value else Path(".")
+
+
 class PkgForgeCmd(LoggingArgs, Cmd):
     """Common base for every pkgforge subcommand.
 
@@ -391,15 +403,23 @@ class PkgForgeCmd(LoggingArgs, Cmd):
     to the :class:`PkgForge` root's subcommand tree via :meth:`_register`.
     """
 
-    db: typing.Optional[Path] = Path(filedb) if filedb else None
+    db: duho.Arg[typing.Optional[Path], duho.NS(env="PKGFORGE_DB", type=_env_path)] = (
+        _env_path(os.environ.get("PKGFORGE_DB", ""))
+    )
     ("--db",)
-    db_format: typing.Optional[str] = os.environ.get("PKGFORGE_DB_FORMAT")
+    db_format: duho.Arg[
+        typing.Optional[str], duho.NS(env="PKGFORGE_DB_FORMAT", type=_env_str)
+    ] = _env_str(os.environ.get("PKGFORGE_DB_FORMAT", ""))
     ("--db-format",)
-    buildroot: typing.Union[Path, str] = Path(buildroot) if buildroot else Path(".")
+    buildroot: duho.Arg[Path, duho.NS(env="PKGFORGE_ROOT", type=_env_root)] = _env_root(
+        os.environ.get("PKGFORGE_ROOT", "")
+    )
     ("--buildroot", "-r")
 
-    def localpath(self, buildpath: Path) -> Path:
-        return Path(self.buildroot, *buildpath.parts[1:])
+    def localpath(self, buildpath: typing.Union[str, os.PathLike]) -> Path:
+        p = PurePosixPath(os.fspath(buildpath))
+        rel = p.relative_to("/") if p.is_absolute() else p
+        return Path(self.buildroot, rel)
 
     def buildpath(self, localpath: Path) -> Path:
         return Path("/", localpath.relative_to(self.buildroot))
@@ -416,7 +436,11 @@ class PkgForgeCmd(LoggingArgs, Cmd):
         # avoids introducing a cycle then.
         from .db import open_db
 
-        return open_db(self.db, self.db_format, for_read=for_read)
+        # `self.db_format` can be "" from a direct Python-API construction
+        # (e.g. PkgForgeCmd(db_format="")), which bypasses the `type=`
+        # converter above entirely -- normalize it here too, so an empty
+        # value means "auto-detect" everywhere, not only through argv/env.
+        return open_db(self.db, self.db_format or None, for_read=for_read)
 
     def loaddb(self) -> typing.Dict[str, typing.Optional[FileEntry]]:
         if self._no_file_db():

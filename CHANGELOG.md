@@ -72,6 +72,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the source instead of raising `NotImplementedError`. `scan --type` is
   hidden from `--help` (`scan` always records each path's own on-disk type)
   and now warns instead of silently doing nothing when given a value.
+- `PKGFORGE_ROOT`/`PKGFORGE_DB`/`PKGFORGE_DB_FORMAT` are now read when
+  `pkgforge.main()` (or `duho.parse`) runs, instead of once when the package
+  is imported. A build driver or test that sets one of these after importing
+  `pkgforge` (e.g. via `monkeypatch.setenv`, or a long-lived process that
+  changes its own environment) is now honored; a `--db`/`--buildroot`/
+  `--db-format` on the command line still wins over the environment. A
+  command constructed directly in Python, not through `main()`, is
+  unaffected and keeps using the value from import time, as before.
+- An empty `PKGFORGE_DB_FORMAT` (a common CI idiom for "unset") no longer
+  makes every DB command fail with `unknown db format ''`; it is now treated
+  as unset, same as an empty `PKGFORGE_DB`/`PKGFORGE_ROOT` already was.
+- `PkgForgeCmd.localpath()` accepts a `str` as well as a `Path`, and a
+  relative input is now taken as already build-relative instead of silently
+  dropping its first path component.
 
 ## [0.1.2] - 2026-08-16
 

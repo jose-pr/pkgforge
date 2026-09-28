@@ -13,7 +13,9 @@ Global options are read from the command line or the environment:
 | `--buildroot DIR` | `PKGFORGE_ROOT` | staging root that maps to `/` in the DB |
 
 Global flags work either before or after the subcommand
-(`pkgforge --db X install …` or `pkgforge install --db X …`).
+(`pkgforge --db X install …` or `pkgforge install --db X …`). An empty
+environment variable (e.g. `PKGFORGE_DB_FORMAT=""`, as a CI pipeline commonly
+exports an unset input) counts as unset, same as leaving it out.
 
 **Exit status**: `0` success; `2` a usage mistake (a bad or missing argument
 value, e.g. a missing source or an unknown `--chown` owner); `1` any other
