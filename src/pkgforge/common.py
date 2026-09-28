@@ -29,7 +29,7 @@ import posixpath
 import re
 import stat
 import typing
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePath, PurePosixPath
 
 try:  # Unix-only; pkgforge targets Linux, but keep parsing/--help importable elsewhere.
     import grp
@@ -520,9 +520,18 @@ class PkgForgeCmd(LoggingArgs, Cmd):
                 "filesystem"
             )
 
-        rel = posixpath.normpath(
-            PurePosixPath(os.fspath(path)).as_posix().lstrip("/") or "."
-        )
+        # A PurePath (install's DESTINATION, always a Path) converts via its
+        # own .as_posix(): stringifying it first (os.fspath) would render it
+        # with the native separator, which is a backslash on Windows and
+        # breaks PurePosixPath parsing -- self.buildpath() builds exactly
+        # such a "/"-rooted Path for _stage()'s re-check. A plain str (scan's
+        # PATH) is already posix-shaped text from the caller, so it goes
+        # through PurePosixPath directly, as before.
+        if isinstance(path, PurePath):
+            posix_path = path.as_posix()
+        else:
+            posix_path = PurePosixPath(os.fspath(path)).as_posix()
+        rel = posixpath.normpath(posix_path.lstrip("/") or ".")
         if rel == ".." or rel.startswith("../"):
             raise UsageError(f"{path}: resolves outside --buildroot")
         if rel == ".":

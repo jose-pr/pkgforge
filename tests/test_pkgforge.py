@@ -273,7 +273,10 @@ def test_scan_root_path_ok(tmp_path):
     inst = parser.parse_args(["--db", str(db), "--buildroot", str(root), "/"])
     inst()
 
-    assert "/usr/a" in inst.loaddb()
+    # buildpath() is POSIX-only (see PkgForgeCmd's own header note): on
+    # Windows the recorded keys stringify with backslashes.
+    recorded = {k.replace("\\", "/") for k in inst.loaddb()}
+    assert "/usr/a" in recorded
 
 
 @pytest.mark.posix
