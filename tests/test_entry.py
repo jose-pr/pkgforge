@@ -1,4 +1,4 @@
-"""Tests for the typed ``FileEntry`` module functions (``common.py``).
+"""Tests for the typed ``FileEntry`` module functions (``entry.py``).
 
 ``FileEntry`` is a ``TypedDict``: its values are plain dicts, so
 ``FileEntry.from_args``/``from_path``/``resolve_for``/``apply`` only ever
@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 import pkgforge
-from pkgforge.common import (
+from pkgforge.entry import (
     AUTO,
     DEFAULT,
     FileEntry,
@@ -64,7 +64,7 @@ def test_entry_functions_match_class_aliases(tmp_path):
 def test_entry_functions_exported():
     for name in ("entry_from_args", "entry_from_path", "resolve_entry", "apply_entry"):
         assert name in pkgforge.__all__
-        assert getattr(pkgforge, name) is getattr(pkgforge.common, name)
+        assert getattr(pkgforge, name) is getattr(pkgforge.entry, name)
     assert apply_entry is pkgforge.apply_entry
 
 
@@ -106,7 +106,7 @@ def test_apply_entry_chmod_without_nofollow_support(tmp_path, monkeypatch):
             )
         return real_chmod(path, mode)
 
-    monkeypatch.setattr(pkgforge.common.os, "chmod", fake_chmod)
+    monkeypatch.setattr(pkgforge.entry.os, "chmod", fake_chmod)
 
     f = tmp_path / "f"
     f.write_text("hi")

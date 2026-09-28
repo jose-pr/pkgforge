@@ -200,7 +200,7 @@ def test_missing_backend_module_is_one_line_error(tmp_path, block, ext, fmt, act
         f"sys.modules[{block!r}] = None\n"
         "import pathlib\n"
         "from pkgforge.db import open_db\n"
-        "from pkgforge.common import PkgForgeError\n"
+        "from pkgforge.errors import PkgForgeError\n"
         f"p = open_db(pathlib.Path({str(path)!r}), {fmt!r})\n"
         "try:\n"
         f"    {action}\n"
@@ -475,7 +475,7 @@ def test_db_provider_subclass_sniffer_wins(restore_registries, tmp_path):
 
 
 def test_db_provider_subclass_accepted_as_db_format(restore_registries, tmp_path):
-    from pkgforge.common import UsageError
+    from pkgforge.errors import UsageError
     from pkgforge.initdb import InitDb
 
     with pytest.raises(UsageError) as excinfo:

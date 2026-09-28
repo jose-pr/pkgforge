@@ -10,7 +10,7 @@ from . import Db, DbError, _fields
 from ._appendlog import AppendLogDb, _normalize
 
 if typing.TYPE_CHECKING:
-    from ..common import FileEntry
+    from ..entry import FileEntry
 
 
 def _jsonl_line(path: str, entry: typing.Optional["FileEntry"]) -> str:

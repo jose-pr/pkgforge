@@ -28,6 +28,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `DbProvider.format` is renamed to `DbProvider.NAME`.
 
 ### Removed
+- `pkgforge.common`: import `PkgForgeError`/`UsageError` from `pkgforge.errors`;
+  `FileType`, `FileEntry`, `FileEntryArgs`, `AUTO`, `DEFAULT`, `mode_to_octal`,
+  `normalize_mode` and the entry functions from `pkgforge.entry`; `PkgForgeCmd`,
+  `PkgForge`, `parsepath` from `pkgforge.command`. Names in `pkgforge.__all__`
+  still import from `pkgforge`.
 - `pkgforge.db.register_provider()`, `PROVIDERS`, `SUFFIX_FORMATS` and
   `_SNIFFERS`: subclass `DbProvider` with your own `NAME` (and, optionally,
   `ALIASES`/`SUFFIXES`/`sniff`) instead; look one up by name with

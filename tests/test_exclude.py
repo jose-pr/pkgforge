@@ -323,7 +323,7 @@ def test_exclude_skips_fifo(tmp_path, cli, command):
             "--db", str(db), "--buildroot", str(src), "scan", "-X", "*.fifo", "/"
         )
         assert result.rc == 0
-        from pkgforge.common import PkgForgeCmd
+        from pkgforge.command import PkgForgeCmd
 
         recorded = {
             k.replace("\\", "/")
@@ -400,7 +400,7 @@ def test_meta_test_sees_O(tmp_path, cli, command):
             ).rc
             == 0
         )
-        from pkgforge.common import PkgForgeCmd
+        from pkgforge.command import PkgForgeCmd
 
         dropped = set(PkgForgeCmd(db=db_drop, db_format=None, buildroot=src).loaddb())
         assert "/a.conf" not in dropped
@@ -490,7 +490,7 @@ def test_scan_prunes_excluded_dir(tmp_path, cli, pattern):
     )
     assert result.rc == 0
 
-    from pkgforge.common import PkgForgeCmd
+    from pkgforge.command import PkgForgeCmd
 
     recorded = {
         k.replace("\\", "/")
@@ -508,7 +508,7 @@ def test_scan_install_prune_parity(tmp_path, cli):
     (src / "keep").mkdir()
     (src / "keep" / "k").write_text("x")
 
-    from pkgforge.common import PkgForgeCmd
+    from pkgforge.command import PkgForgeCmd
 
     # A: install prunes tmp/ at copy time; an unfiltered scan then only
     # records what actually landed on disk.
@@ -617,7 +617,7 @@ def test_scan_missing_descends_into_recorded_dir(tmp_path, cli, cmd, make_entry)
     )
     assert result.rc == 0
 
-    from pkgforge.common import PkgForgeCmd
+    from pkgforge.command import PkgForgeCmd
 
     recorded = set(PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb())
     assert "/opt/src/keep/k" in recorded

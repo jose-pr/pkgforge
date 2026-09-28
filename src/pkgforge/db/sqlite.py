@@ -7,11 +7,11 @@ import json
 import os
 import typing
 
-from ..common import PkgForgeError
+from ..errors import PkgForgeError
 from . import Db, DbError, DbProvider, _fields
 
 if typing.TYPE_CHECKING:
-    from ..common import FileEntry
+    from ..entry import FileEntry
 
 #: SQLite file magic (first 16 bytes of any SQLite 3 database).
 _SQLITE_MAGIC = b"SQLite format 3\x00"

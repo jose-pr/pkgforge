@@ -8,7 +8,7 @@ import tarfile
 import pytest
 import yaml
 
-from pkgforge.common import UsageError
+from pkgforge.errors import UsageError
 from pkgforge.dbdump import (
     Debian,
     DbDump,

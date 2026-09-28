@@ -5,19 +5,19 @@ and dump helpers are importable.
 
 ## Core types
 
-::: pkgforge.common.FileType
+::: pkgforge.entry.FileType
     options:
       show_root_heading: true
 
-::: pkgforge.common.FileEntry
+::: pkgforge.entry.FileEntry
     options:
       show_root_heading: true
 
-::: pkgforge.common.FileEntryArgs
+::: pkgforge.entry.FileEntryArgs
     options:
       show_root_heading: true
 
-::: pkgforge.common.PkgForgeCmd
+::: pkgforge.command.PkgForgeCmd
     options:
       show_root_heading: true
 

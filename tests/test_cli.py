@@ -781,7 +781,7 @@ def test_install_source_is_destination_keeps_file(tmp_path, cli):
 
 
 def test_help_lists_every_subcommand(cli):
-    from pkgforge.common import PkgForge
+    from pkgforge.command import PkgForge
 
     result = cli("--help")
     assert result.rc == 0
@@ -811,7 +811,7 @@ def test_print_completion_bash(cli):
 
 
 def test_prog_name_is_pkgforge():
-    from pkgforge.common import PkgForge
+    from pkgforge.command import PkgForge
 
     parser = PkgForge._parser_()
     assert parser.prog == "pkgforge"
@@ -852,7 +852,7 @@ def test_verbose_flag_reaches_command_logger(tmp_path, cli):
 
 
 def test_every_option_has_help():
-    from pkgforge.common import PkgForge
+    from pkgforge.command import PkgForge
 
     def _check(parser):
         for action in parser._actions:

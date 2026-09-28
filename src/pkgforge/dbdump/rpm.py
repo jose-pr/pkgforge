@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..common import FileEntry, FileType, _or_default
+from ..entry import FileEntry, FileType, _or_default
 from . import PerEntryFormat, DumpError, _reject_control
 
 

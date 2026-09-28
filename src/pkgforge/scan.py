@@ -9,13 +9,11 @@ from pathlib import Path
 
 import duho
 
-from .common import (
+from .errors import PkgForgeError, UsageError
+from .entry import (
     AUTO,
     DEFAULT,
     FileType,
-    PkgForgeCmd,
-    PkgForgeError,
-    UsageError,
     FileEntryArgs,
     entry_from_args,
     normalize_mode,
@@ -24,6 +22,7 @@ from .common import (
     _file_type,
     _resolve_stat,
 )
+from .command import PkgForgeCmd
 from .exclude import ExcludeArgs, PathMatch
 
 

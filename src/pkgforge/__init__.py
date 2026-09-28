@@ -16,20 +16,18 @@ from importlib.metadata import PackageNotFoundError, version as _version
 import duho
 from duho.logging import traceback_enabled
 
-from .common import (
-    PkgForgeCmd,
-    PkgForge,
-    PkgForgeError,
+from .errors import PkgForgeError, UsageError
+from .entry import (
     FileEntry,
     FileEntryArgs,
     FileType,
-    UsageError,
     apply_entry,
     entry_from_args,
     entry_from_path,
     normalize_mode,
     resolve_entry,
 )
+from .command import PkgForgeCmd, PkgForge
 from .db import DbError, DbProvider, open_db
 from . import compact, dbdump, initdb, install, scan
 
@@ -93,9 +91,9 @@ def main(argv=None) -> int:
 
     This is pkgforge's only error boundary. It prints one
     ``pkgforge: error: <message>`` line to stderr and returns a plain exit
-    code instead of a traceback: 2 for a :class:`~pkgforge.common.UsageError`
+    code instead of a traceback: 2 for a :class:`~pkgforge.errors.UsageError`
     (an argument-shaped mistake), 1 for any other
-    :class:`~pkgforge.common.PkgForgeError`, ``OSError`` or
+    :class:`~pkgforge.errors.PkgForgeError`, ``OSError`` or
     ``subprocess.CalledProcessError``, and 1 silently for a closed output
     pipe (``BrokenPipeError``). Anything else propagates with its traceback,
     so a real bug stays visible. Set ``DUHO_TRACEBACK`` to a true value (duho's boolean tokens, e.g. ``1``;

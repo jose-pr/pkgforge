@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from pkgforge.common import PkgForgeCmd
+from pkgforge.command import PkgForgeCmd
 from pkgforge.dbdump import RpmSpecFiles
 
 # --------------------------------------------------------------------------
@@ -406,7 +406,7 @@ def test_scan_default_makes_no_name_lookups(tmp_path, monkeypatch, cli):
     import grp
     import pwd
 
-    import pkgforge.common as common
+    import pkgforge.entry as common
 
     fake_pwd = _CountingLookup(pwd, "getpwuid")
     fake_grp = _CountingLookup(grp, "getgrgid")
@@ -431,7 +431,7 @@ def test_scan_auto_owner_looks_up_each_id_once(tmp_path, monkeypatch, cli):
     import grp
     import pwd
 
-    import pkgforge.common as common
+    import pkgforge.entry as common
 
     fake_pwd = _CountingLookup(pwd, "getpwuid")
     fake_grp = _CountingLookup(grp, "getgrgid")
@@ -474,7 +474,7 @@ def test_scan_exclude_does_not_repeat_lookups(tmp_path, monkeypatch, cli):
     import grp
     import pwd
 
-    import pkgforge.common as common
+    import pkgforge.entry as common
 
     fake_pwd = _CountingLookup(pwd, "getpwuid")
     fake_grp = _CountingLookup(grp, "getgrgid")

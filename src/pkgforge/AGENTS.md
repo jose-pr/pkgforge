@@ -29,7 +29,7 @@ tree).
   Calling a command directly (not through `main()`) still raises the plain
   exception — the boundary only wraps the CLI entry point.
 
-## Core types (`common.py`)
+## Errors (`errors.py`)
 
 - **`PkgForgeError(Exception)`** — base class for pkgforge's own runtime
   failures; caught by `main()` and mapped to exit 1.
@@ -41,6 +41,9 @@ tree).
   (no `-O target=PATH`), an unresolvable stdin compression kind, a
   `--decompress` value that looks like a path, and an unknown `--chown`
   owner or group.
+
+## File entries (`entry.py`)
+
 - **`FileType(str, enum.Enum)`** — `File`, `Directory`, `Symlink`. Sentinel
   member `_AUTO = "--"` means "determine from the file on disk".
   `FileType.from_path(path) -> FileType` inspects a real path (raises
@@ -108,11 +111,14 @@ tree).
   means "resolve from the file on disk" (used by `resolve_for`); `DEFAULT`
   means "leave at the OS/system default, do not set explicitly" (used by
   `apply`'s `usedefault`).
+- **`mode_to_octal(mode: int) -> str`** — render a raw `st_mode` as a bare
+  octal permission string (`"644"`).
+
+## Command base (`command.py`)
+
 - **`parsepath(path: str) -> str | Path | None`** — CLI path coercion:
   `"-"` stays `"-"` (stdin/stdout), `""` becomes `None`, anything else
   becomes a `Path`.
-- **`mode_to_octal(mode: int) -> str`** — render a raw `st_mode` as a bare
-  octal permission string (`"644"`).
 - **`PkgForgeCmd(duho.LoggingArgs, duho.Cmd)`** — common base every
   subcommand extends. Fields: `--db PATH` (from `PKGFORGE_DB`),
   `--db-format FMT` (from `PKGFORGE_DB_FORMAT`; a built-in or registered

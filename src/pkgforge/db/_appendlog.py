@@ -24,11 +24,11 @@ try:  # POSIX-only; pkgforge's runtime is Linux-only, but this module (and
 except ImportError:  # pragma: no cover - non-POSIX (Windows dev box)
     fcntl = None
 
-from ..common import DEFAULT
+from ..entry import DEFAULT
 from . import Db, DbError, DbProvider
 
 if typing.TYPE_CHECKING:
-    from ..common import FileEntry
+    from ..entry import FileEntry
 
 
 @contextlib.contextmanager
@@ -166,7 +166,7 @@ def _normalize(dbfile: Path, path: str, rec: object) -> dict:
     since a third-party ``load()`` is never routed through this.
 
     * missing ``meta`` -> ``{}``; missing ``mode``/``owner``/``group`` ->
-      :data:`~pkgforge.common.DEFAULT` (``"-"``); missing ``type`` -> ``None``
+      :data:`~pkgforge.entry.DEFAULT` (``"-"``); missing ``type`` -> ``None``
       (pkgforge's own writer records an explicit ``null`` for an unset
       ``type``, so a *missing* key means the same thing here).
     * ``type(v) is int`` (never a ``bool`` -- ``type(True) is bool``, not

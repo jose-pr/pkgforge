@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from pkgforge.common import UsageError
+from pkgforge.errors import UsageError
 from pkgforge.install import Install
 
 
@@ -751,7 +751,7 @@ def test_install_symlink_meta_does_not_leak(tmp_path):
     # Nor the shared class-level default a bare construction with no meta=
     # would otherwise poison for every later Install/parser built in the
     # same process.
-    from pkgforge.common import FileEntryArgs
+    from pkgforge.entry import FileEntryArgs
 
     Install(
         source=link, destination=Path("/opt3"), buildroot=root, parents=True, db=None

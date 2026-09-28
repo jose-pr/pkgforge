@@ -17,7 +17,7 @@ import tempfile
 import typing
 from pathlib import Path
 
-try:  # Unix-only; see common.py's identical guard.
+try:  # Unix-only; see entry.py's identical guard.
     import grp
     import pwd
 except ImportError:  # pragma: no cover - non-Unix
@@ -25,23 +25,21 @@ except ImportError:  # pragma: no cover - non-Unix
 
 import duho
 
-from .common import (
+from .errors import PkgForgeError, UsageError
+from .entry import (
     AUTO,
     DEFAULT,
-    PkgForgeCmd,
-    PkgForgeError,
     FileEntryArgs,
     FileType,
-    UsageError,
     apply_entry,
     entry_from_args,
     normalize_mode,
-    parsepath,
     resolve_entry,
     _filetype,
     _normalize_field,
     _parse_filetype,
 )
+from .command import PkgForgeCmd, parsepath
 from .exclude import ExcludeArgs, PathMatch
 
 #: Kind -> (argv prefix, canonical suffix). ``argv`` always includes ``-d``

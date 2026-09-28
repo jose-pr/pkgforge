@@ -1,6 +1,6 @@
 """Shared pytest fixtures and markers for the pkgforge test suite.
 
-Hermeticity: ``pkgforge.common`` binds ``PKGFORGE_ROOT``/``PKGFORGE_DB``/
+Hermeticity: ``pkgforge.command`` binds ``PKGFORGE_ROOT``/``PKGFORGE_DB``/
 ``PKGFORGE_DB_FORMAT`` into class defaults AT IMPORT TIME, so a developer
 shell that exports the README's env vars -- or a stray ``PKGFORGE_DB_FORMAT``
 -- would otherwise change what the suite does, and duho's MCP/agent-help
@@ -39,7 +39,8 @@ from pathlib import Path
 import pytest
 
 import pkgforge
-from pkgforge.common import FileEntry, PkgForgeCmd
+from pkgforge.entry import FileEntry
+from pkgforge.command import PkgForgeCmd
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -75,12 +76,12 @@ def _isolated_env(monkeypatch: pytest.MonkeyPatch):
 def _clear_name_caches():
     """Clear the per-process uid/gid -> name memoization around every test.
 
-    ``pkgforge.common._user_name``/``_group_name`` cache real lookups for the
-    whole process; without this, a test that fakes ``pkgforge.common.pwd``/
+    ``pkgforge.entry._user_name``/``_group_name`` cache real lookups for the
+    whole process; without this, a test that fakes ``pkgforge.entry.pwd``/
     ``grp`` after an earlier test already cached the real name for the same
     uid/gid would see the stale cached value instead of its fake.
     """
-    from pkgforge.common import _group_name, _user_name
+    from pkgforge.entry import _group_name, _user_name
 
     _user_name.cache_clear()
     _group_name.cache_clear()
@@ -120,7 +121,7 @@ def restore_pkgforge_log_levels():
 
 @pytest.fixture
 def make_entry():
-    """Factory for a :class:`~pkgforge.common.FileEntry` dict with sane defaults."""
+    """Factory for a :class:`~pkgforge.entry.FileEntry` dict with sane defaults."""
 
     def _make(
         mode: str = "644",
@@ -145,7 +146,7 @@ def make_entry():
 
 @pytest.fixture
 def cmd(tmp_path: Path):
-    """Factory for a :class:`~pkgforge.common.PkgForgeCmd` bound to ``tmp_path``.
+    """Factory for a :class:`~pkgforge.command.PkgForgeCmd` bound to ``tmp_path``.
 
     The constructor accepts ``db``/``db_format``/``buildroot`` directly, so no
     ``__new__`` + setattr bypass is needed.

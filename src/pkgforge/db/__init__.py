@@ -1,6 +1,6 @@
 """Provider-agnostic file DB backends.
 
-A file DB maps a build-relative *path* to a :class:`~pkgforge.common.FileEntry`
+A file DB maps a build-relative *path* to a :class:`~pkgforge.entry.FileEntry`
 (or ``None`` for a removed path). pkgforge supports three interchangeable
 storage backends behind one :class:`DbProvider` interface, each in its own
 module: :class:`~pkgforge.db.jsonl.JsonlDb`, :class:`~pkgforge.db.yaml.YamlDb`
@@ -25,10 +25,10 @@ import typing
 from pathlib import Path
 
 from .._registry import Registered
-from ..common import PkgForgeError
+from ..errors import PkgForgeError
 
 if typing.TYPE_CHECKING:
-    from ..common import FileEntry
+    from ..entry import FileEntry
 
 
 class DbError(PkgForgeError, ValueError):
@@ -38,7 +38,7 @@ class DbError(PkgForgeError, ValueError):
     top-level document that is not a mapping (jsonl: or ``null``, its
     tombstone spelling), or a field with a value of the wrong type. Caught by
     :func:`pkgforge.main`'s error boundary like any
-    :class:`~pkgforge.common.PkgForgeError` (one stderr line, exit 1); also a
+    :class:`~pkgforge.errors.PkgForgeError` (one stderr line, exit 1); also a
     :class:`ValueError`, so an existing ``except ValueError`` caller keeps
     working unchanged.
     """
@@ -201,7 +201,7 @@ def open_db(
     still loads); otherwise the suffix decides (defaulting to JSON Lines).
 
     ``for_read=True`` means "sniff an existing file's content", not
-    "this call only reads" -- :meth:`~pkgforge.common.PkgForgeCmd._write_entry`
+    "this call only reads" -- :meth:`~pkgforge.command.PkgForgeCmd._write_entry`
     passes it on *writes* too, on purpose: it keeps an append in the file's
     actual format (e.g. legacy YAML content under a ``.jsonl`` suffix stays
     YAML) instead of appending JSON Lines into a file sniffing would have

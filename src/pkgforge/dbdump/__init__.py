@@ -26,13 +26,9 @@ import typing
 from pathlib import Path
 
 from .._registry import Registered
-from ..common import (
-    DEFAULT,
-    FileEntry,
-    PkgForgeCmd,
-    PkgForgeError,
-    UsageError,
-)
+from ..entry import DEFAULT, FileEntry
+from ..errors import PkgForgeError, UsageError
+from ..command import PkgForgeCmd
 from ..exclude import ExcludeArgs, PathMatch
 
 #: An entry that survived filtering: (db-path, FileEntry).
@@ -45,7 +41,7 @@ class DumpError(PkgForgeError, ValueError):
     Raised for a path (or, for ``debian``, a mode/owner/group) the target
     format's own tooling cannot represent -- a control character, or (rpm
     only) a ``%``. Caught by :func:`pkgforge.main`'s error boundary like any
-    :class:`~pkgforge.common.PkgForgeError`: one stderr line, exit 1. Nothing
+    :class:`~pkgforge.errors.PkgForgeError`: one stderr line, exit 1. Nothing
     is written to OUTPUT first: every entry is rendered before OUTPUT is
     opened, so this leaves no partial file.
     """
@@ -55,7 +51,7 @@ class UnsupportedOutputError(UsageError, DumpError, NotImplementedError):
     """OUTPUT is the wrong shape for the chosen format: a file for a
     multi-artifact format, or an existing directory for a per-entry one.
 
-    Subclasses :class:`~pkgforge.common.UsageError` (exit 2, same as this
+    Subclasses :class:`~pkgforge.errors.UsageError` (exit 2, same as this
     replaces two separate raises with) and :class:`DumpError` (the format
     itself is refusing this OUTPUT, not a bad argument in general) and, on
     top of both, :class:`NotImplementedError` (this format cannot write

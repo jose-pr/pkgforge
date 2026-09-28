@@ -16,7 +16,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from pkgforge.common import AUTO, DEFAULT, PkgForge, FileEntry, FileType, mode_to_octal
+from pkgforge.entry import AUTO, DEFAULT, FileEntry, FileType, mode_to_octal
+from pkgforge.command import PkgForge
 from pkgforge.exclude import PathMatch, PathMatchStmt
 
 # --------------------------------------------------------------------------

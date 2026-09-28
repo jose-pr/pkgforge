@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 import pkgforge
-from pkgforge.common import PkgForgeCmd
+from pkgforge.command import PkgForgeCmd
 
 # conftest.py's autouse `_isolated_env` fixture scrubs every PKGFORGE_* var
 # around each test, so a test that needs one sets it explicitly via

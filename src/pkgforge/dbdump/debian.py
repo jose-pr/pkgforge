@@ -5,7 +5,7 @@ from __future__ import annotations
 import posixpath
 import typing
 
-from ..common import DEFAULT, FileType, _or_default
+from ..entry import DEFAULT, FileType, _or_default
 from . import DumpError, Entries, MultiArtifactFormat, _WHITESPACE_RE, _reject_control
 
 #: Characters dh_install/dh_installdirs read as shell-glob syntax in a

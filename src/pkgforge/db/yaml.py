@@ -10,7 +10,7 @@ from . import Db, DbError, _fields
 from ._appendlog import AppendLogDb, _normalize
 
 if typing.TYPE_CHECKING:
-    from ..common import FileEntry
+    from ..entry import FileEntry
 
 #: The one YAML 1.1 implicit-resolver tag :func:`_yaml_io`'s loader keeps
 #: (every other implicit tag -- int, float, bool, timestamp -- is dropped so
@@ -26,7 +26,7 @@ def _yaml_io() -> typing.Tuple[type, type]:
     so ``import pkgforge``, ``--help`` and the ``jsonl`` backend all work on
     an interpreter that lacks PyYAML; only actually touching the ``yaml``
     backend pays for the import. A missing module raises one clear
-    :class:`~pkgforge.common.PkgForgeError` instead of a bare ``ImportError``
+    :class:`~pkgforge.errors.PkgForgeError` instead of a bare ``ImportError``
     surfacing from wherever this was first called.
 
     Prefers PyYAML's libyaml-backed ``CSafeLoader``/``CSafeDumper`` (several
@@ -49,7 +49,7 @@ def _yaml_io() -> typing.Tuple[type, type]:
     try:
         import yaml
     except ImportError as exc:
-        from ..common import PkgForgeError
+        from ..errors import PkgForgeError
 
         raise PkgForgeError(
             "the yaml DB backend needs PyYAML, which is not installed; "

@@ -10,7 +10,8 @@ import sys
 import pytest
 
 import pkgforge
-from pkgforge.common import PkgForge, PkgForgeError, UsageError
+from pkgforge.command import PkgForge
+from pkgforge.errors import PkgForgeError, UsageError
 
 
 def test_root_command_not_runnable():

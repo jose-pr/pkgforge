@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import typing
 
-from .common import UsageError
+from .errors import UsageError
 
 T = typing.TypeVar("T", bound="Registered")
 
@@ -103,7 +103,7 @@ class Registered:
     def lookup(cls: typing.Type[T], name: str) -> typing.Type[T]:
         """The registered class for ``name`` (its ``NAME`` or an alias).
 
-        Raises :class:`~pkgforge.common.UsageError` naming every registered
+        Raises :class:`~pkgforge.errors.UsageError` naming every registered
         class (with its aliases) for an unrecognized ``name``.
         """
         try:

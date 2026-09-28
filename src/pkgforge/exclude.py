@@ -30,7 +30,8 @@ from pathlib import Path, PurePath
 import duho
 from duho import NS
 
-from .common import FileEntry, FileType, UsageError, entry_from_path
+from .entry import FileEntry, FileType, entry_from_path
+from .errors import UsageError
 
 FilterTestRe = re.compile(r"^\(\?([^:()]+):([^()]+)\)")
 
@@ -40,7 +41,7 @@ class ExcludeSyntaxError(UsageError, argparse.ArgumentTypeError):
     bad ``(?type:...)``/``(?meta:...)`` argument, or an unterminated
     ``(?...`` that never closed.
 
-    Subclasses both :class:`~pkgforge.common.UsageError` (so
+    Subclasses both :class:`~pkgforge.errors.UsageError` (so
     ``pkgforge.main()``'s error boundary maps it to a clean one-line message
     and exit 2, and a Python-API caller catching ``ValueError`` still works)
     and :class:`argparse.ArgumentTypeError` (the only exception type argparse

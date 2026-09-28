@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from pkgforge.common import PkgForgeError
+from pkgforge.errors import PkgForgeError
 from pkgforge.install import BSDTAR_EXTRACT_FLAGS, Install, _extract_bsdtar
 
 #: The tarfile route needs PEP 706's extraction filter (3.9.17+, 3.10.12+,
