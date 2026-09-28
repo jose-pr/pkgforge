@@ -11,14 +11,18 @@ import duho
 
 from .common import (
     AUTO,
+    DEFAULT,
     FileType,
     PkgForgeCmd,
     PkgForgeError,
     UsageError,
     FileEntryArgs,
     entry_from_args,
-    resolve_entry,
+    normalize_mode,
     _parse_filetype,
+    _parse_mode,
+    _file_type,
+    _resolve_stat,
 )
 from .exclude import ExcludeArgs, PathMatch
 
@@ -43,6 +47,13 @@ class ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
     missing: bool = False
     "only record entries absent from the DB, leaving existing ones untouched"
     ("--missing",)
+    dir_mode: duho.Arg[typing.Optional[str], duho.NS(type=_parse_mode)] = None
+    (
+        "mode for directory entries only -- 1-4 octal digits, '-', '--'/'auto' "
+        "(resolve from the on-disk directory); default: '--' when --mode is "
+        "'--', else '-'. -m/--mode never applies to a directory or a symlink"
+    )
+    ("--dir-mode",)
     path: str
     "path under the build root to scan"
     ("path",)
@@ -69,7 +80,29 @@ class ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
         # skipped for it.
         is_root = scanpath == Path(self.buildroot)
         db = self.loaddb() if self.missing else {}
-        baseentry = entry_from_args(self, type=AUTO)
+        base = entry_from_args(self, type=AUTO)
+        # -m/--mode applies to regular files only. A directory takes the
+        # new --dir-mode instead: the explicit value if given; else AUTO
+        # (read from disk) when --mode itself is AUTO, so --mode=-- still
+        # reads directories from disk too; else DEFAULT ('-') -- an
+        # explicit file mode is never inherited by directories. A symlink's
+        # mode is always DEFAULT: Linux ignores it, and rpm/debian consumers
+        # warn about (or reject) an explicit mode on one.
+        if self.dir_mode is not None:
+            # normalize_mode again: a direct Python-API construction (not
+            # through the CLI's --dir-mode type= converter) can hand this a
+            # raw, unnormalized value; normalize_mode is idempotent on an
+            # already-normalized one.
+            dirmode = normalize_mode(self.dir_mode)
+        elif base["mode"] == AUTO:
+            dirmode = AUTO
+        else:
+            dirmode = DEFAULT
+        bases = {
+            FileType.File: base,
+            FileType.Directory: {**base, "mode": dirmode},
+            FileType.Symlink: {**base, "mode": DEFAULT},
+        }
         filter = PathMatch(self.exclude, scanpath)
         self._logger_.info("Scanning %s", scanpath)
 
@@ -124,12 +157,15 @@ class ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
                     return False
                 fspath = os.fspath(self.buildpath(path))
                 if db.get(fspath) is None:
+                    st = path.lstat()
+                    ftype = _file_type(path, st)
+                    entry = _resolve_stat(bases[ftype], path, st, lookupval=AUTO)
                     self._logger_.debug("Updating file entry for: %s", fspath)
-                    self.add_entry(fspath, entry=resolve_entry(baseentry, path))
+                    self.add_entry(fspath, entry=entry)
                     recorded += 1
                 return True
             except TypeError as exc:
-                # FileType.from_path raises TypeError for a fifo/socket. A
+                # _file_type raises TypeError for a fifo/socket. A
                 # glob-only -X (e.g. '*.fifo') already skipped such a path
                 # above without ever reaching here (PathMatch builds the
                 # entry lazily); this is the path scan cannot record at all.

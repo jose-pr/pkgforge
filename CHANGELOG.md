@@ -16,6 +16,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   instead of extracting with no path/symlink/special-file checks at all.
 
 ### Changed
+- `scan -m` applies to regular files only. Directories take the new
+  `--dir-mode` (default: from disk with `--mode=--`, else `-`); symlinks
+  always record mode `-`. If you relied on `-m` for directories, add
+  `--dir-mode`.
 - `scan` and `install` look up user and group names only for fields set to
   `--`, and cache each lookup for the process's life.
 - `install -X` with an archive source exits 2 instead of extracting every

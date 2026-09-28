@@ -382,9 +382,15 @@ above).
   PATH, recording an entry for every directory and file **below** it (never
   PATH itself); `--missing` only fills gaps not already in the DB, else scan
   replaces an existing entry (e.g. one `install` already recorded).
-  `-m`/`-o`/`-g` are recorded on every entry exactly as given: `-` (default)
-  leaves the field unset, `--`/`auto` (mode) or `--` (owner/group) reads the
-  on-disk value instead. `--type/-t` is hidden from `--help` and never
+  `-o`/`-g` are recorded on every entry (file, directory or symlink)
+  exactly as given: `-` (default) leaves the field unset, `--` reads the
+  on-disk owner/group name instead. `-m`/`--mode` applies to **file**
+  entries only; a new `--dir-mode` applies to **directory** entries instead
+  (same 1-4-octal-digit/`-`/`--`/`auto` grammar, defaulting to `--` when
+  `--mode` is itself `--`, else `-` -- an explicit `-m` is never inherited
+  by directories); a **symlink** entry's mode is always `-`, whatever
+  `-m`/`--dir-mode` say (Linux ignores it; rpm/debian consumers warn about
+  or misreport an explicit one). `--type/-t` is hidden from `--help` and never
   applied (scan always records each path's own on-disk type); an explicit
   value logs a warning instead of doing nothing silently. `-X`'s
   `(?meta:k=v)` inline test sees this run's `-O` values, same as `install`;

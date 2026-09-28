@@ -511,3 +511,127 @@ def test_scan_exclude_does_not_repeat_lookups(tmp_path, monkeypatch, cli):
 
     recorded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
     assert len(recorded) == 20
+
+
+# --------------------------------------------------------------------------
+# -m applies to regular files only; directories take --dir-mode; symlinks
+# never record a mode.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.posix
+def test_scan_mode_applies_to_files_only(tmp_path, cli):
+    root = tmp_path / "root"
+    (root / "usr" / "share" / "app" / "sub").mkdir(parents=True)
+    (root / "usr" / "share" / "app" / "sub" / "f").write_text("x")
+    link = root / "usr" / "share" / "app" / "link"
+    link.symlink_to("sub/f")
+    db = tmp_path / "files.jsonl"
+
+    assert (
+        cli(
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "scan",
+            "-m",
+            "644",
+            "-o",
+            "root",
+            "-g",
+            "root",
+            "/usr/share/app",
+        ).rc
+        == 0
+    )
+    recorded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    assert recorded["/usr/share/app/sub"]["mode"] == "-"
+    assert recorded["/usr/share/app/sub"]["type"] == "directory"
+    assert recorded["/usr/share/app/link"]["mode"] == "-"
+    assert recorded["/usr/share/app/link"]["type"] == "symlink"
+    assert recorded["/usr/share/app/sub/f"]["mode"] == "644"
+    assert recorded["/usr/share/app/sub/f"]["type"] == "file"
+    for entry in recorded.values():
+        assert entry["owner"] == "root"
+        assert entry["group"] == "root"
+
+
+@pytest.mark.posix
+def test_scan_dir_mode_sets_directories(tmp_path, cli):
+    root = tmp_path / "root"
+    (root / "usr" / "share" / "app" / "sub").mkdir(parents=True)
+    (root / "usr" / "share" / "app" / "sub" / "f").write_text("x")
+    db = tmp_path / "files.jsonl"
+
+    assert (
+        cli(
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "scan",
+            "-m",
+            "644",
+            "--dir-mode",
+            "755",
+            "/usr/share/app",
+        ).rc
+        == 0
+    )
+    recorded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    assert recorded["/usr/share/app/sub"]["mode"] == "755"
+    assert recorded["/usr/share/app/sub/f"]["mode"] == "644"
+
+
+@pytest.mark.posix
+def test_scan_auto_mode_reads_dirs_skips_links(tmp_path, cli):
+    root = tmp_path / "root"
+    (root / "usr" / "share" / "app" / "sub").mkdir(parents=True)
+    (root / "usr" / "share" / "app" / "sub").chmod(0o750)
+    (root / "usr" / "share" / "app" / "sub" / "f").write_text("x")
+    link = root / "usr" / "share" / "app" / "link"
+    link.symlink_to("sub/f")
+    db = tmp_path / "files.jsonl"
+
+    assert (
+        cli(
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "scan",
+            "--mode=--",
+            "/usr/share/app",
+        ).rc
+        == 0
+    )
+    recorded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    assert recorded["/usr/share/app/sub"]["mode"] == "750"
+    assert recorded["/usr/share/app/link"]["mode"] == "-"
+
+
+@pytest.mark.posix
+def test_scan_dir_mode_auto_sentinel(tmp_path, cli):
+    # --dir-mode=-- must resolve to the on-disk mode, never argparse's
+    # Python-3.9 stripped "[]" artifact for an attached "--" value.
+    root = tmp_path / "root"
+    (root / "usr" / "share" / "app" / "sub").mkdir(parents=True)
+    (root / "usr" / "share" / "app" / "sub").chmod(0o750)
+    (root / "usr" / "share" / "app" / "sub" / "f").write_text("x")
+    db = tmp_path / "files.jsonl"
+
+    assert (
+        cli(
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "scan",
+            "--dir-mode=--",
+            "/usr/share/app",
+        ).rc
+        == 0
+    )
+    recorded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    assert recorded["/usr/share/app/sub"]["mode"] == "750"

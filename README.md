@@ -52,7 +52,7 @@ runnable end-to-end walkthrough.
 | --- | --- |
 | `initdb` | create or reset (truncate) the file DB |
 | `install [opts] SRC… DEST` | stage a source and record its entry |
-| `scan [opts] PATH` | walk PATH, recording every file and directory below it (never PATH itself); fields default to `-` unless `--mode=--`/`--owner=--`/`--group=--` reads them from disk; replaces existing entries unless `--missing` |
+| `scan [opts] PATH` | walk PATH, recording every file and directory below it (never PATH itself); `-m` applies to files only (directories take `--dir-mode`, symlinks never get a mode); fields default to `-` unless `--mode=--`/`--dir-mode=--`/`--owner=--`/`--group=--` reads them from disk; replaces existing entries unless `--missing` |
 | `compact` | collapse an append-log DB to one record per live path |
 | `dbdump -f FORMAT [OUT]` | render the DB into a packaging manifest |
 

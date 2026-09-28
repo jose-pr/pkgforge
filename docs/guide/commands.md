@@ -131,20 +131,24 @@ Walk a path under the build root and record a `FileEntry` for every
 directory and file **below** PATH -- never PATH itself.
 
 ```bash
-pkgforge scan [-m MODE] [-o OWNER] [-g GROUP] [--missing] [-X PATTERN] PATH
+pkgforge scan [-m MODE] [--dir-mode MODE] [-o OWNER] [-g GROUP] [--missing] [-X PATTERN] PATH
 ```
 
 | Option | Meaning |
 | --- | --- |
-| `-m, --mode` | recorded on every entry as given; `-` (default) leaves it unset, `--`/`auto` (write it as `--mode=--` or `-m--` -- a detached `-m --` is read as end of options and exits 2) reads the on-disk mode |
-| `-o, --owner` / `-g, --group` | recorded on every entry as given; `-` (default) leaves it unset, `--` reads the on-disk owner/group name |
+| `-m, --mode` | recorded on every **file** entry as given; `-` (default) leaves it unset, `--`/`auto` (write it as `--mode=--` or `-m--` -- a detached `-m --` is read as end of options and exits 2) reads the on-disk mode. Never applies to a directory or a symlink |
+| `--dir-mode` | recorded on every **directory** entry instead of `-m`; same 1-4-octal-digit/`-`/`--`/`auto` grammar. Default: `--` (from disk) when `-m`/`--mode` is itself `--`, else `-` -- an explicit `-m` value is never inherited by directories |
+| `-o, --owner` / `-g, --group` | recorded on every entry (file, directory or symlink) as given; `-` (default) leaves it unset, `--` reads the on-disk owner/group name |
 | `--missing` | only fill in entries absent from the DB, leaving existing ones (e.g. ones `install` already recorded) untouched -- without it, scan replaces them |
 | `-X, --exclude PATTERN` | skip matching paths and prune an excluded directory's subtree (nothing below it is walked or recorded), the same as `install`; see [Exclude grammar](exclude.md) |
 
 `scan` always records each entry's type from the file on disk; it has no
-`--type` option of its own. `-m`/`-o`/`-g` default to `-` (unset), not the
-on-disk value -- pass `--mode=--`/`--owner=--`/`--group=--` to read them
-from disk instead. **Never scan a directory the distro itself owns** (e.g.
+`--type` option of its own. A symlink's mode is always recorded as `-`,
+whatever `-m`/`--dir-mode` say -- Linux ignores a symlink's mode, and rpm
+warns about (Debian's `permissions` manifest would misreport) an explicit
+one. `-m`/`--dir-mode`/`-o`/`-g` default to `-` (unset), not the on-disk
+value -- pass `--mode=--`/`--dir-mode=--`/`--owner=--`/`--group=--` to read
+them from disk instead. **Never scan a directory the distro itself owns** (e.g.
 `/usr`, `/usr/bin`, `/usr/share`, `/etc`): every directory scan walks
 becomes an RPM `%dir` claim in `rpmspecfiles`, and a shared directory's
 mode/owner/group there can conflict with the one the distro's own package
