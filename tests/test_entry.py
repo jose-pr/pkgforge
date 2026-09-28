@@ -418,9 +418,12 @@ def test_install_mode_normalized_and_resolved(tmp_path):
     assert loaded["/b/src_b"]["mode"] == "750"
     assert loaded["/b/src_b"]["mode"] != []
 
-    from pkgforge.dbdump import rpmspecfile
+    from pkgforge.dbdump import RpmSpecFiles
 
-    assert rpmspecfile("/b/src_b", loaded["/b/src_b"]) == b'%attr(750,-,-) "/b/src_b"\n'
+    assert (
+        RpmSpecFiles().render_entry("/b/src_b", loaded["/b/src_b"])
+        == b'%attr(750,-,-) "/b/src_b"\n'
+    )
 
 
 # --------------------------------------------------------------------------

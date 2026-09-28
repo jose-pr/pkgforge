@@ -162,22 +162,28 @@ def cmd(tmp_path: Path):
 @pytest.fixture
 def restore_registries():
     """Snapshot/restore the pluggable-class registries around a test that
-    registers a throwaway :class:`~pkgforge.db.DbProvider` subclass.
+    registers a throwaway :class:`~pkgforge.db.DbProvider` or
+    :class:`~pkgforge.dbdump.DumpFormat` subclass.
 
-    The registry is a plain ``{name-or-alias: class}`` dict populated by
+    Both registries are plain ``{name-or-alias: class}`` dicts populated by
     :class:`pkgforge._registry.Registered.__init_subclass__`; a test-only
     subclass registered without this fixture would leak into every test that
     runs afterward in the same process.
     """
     from pkgforge.db import DbProvider
+    from pkgforge.dbdump import DumpFormat
 
     db_before = dict(DbProvider._registry)
+    dump_before = dict(DumpFormat._registry)
     try:
         yield
     finally:
         DbProvider._registry.clear()
         DbProvider._registry.update(db_before)
+        DumpFormat._registry.clear()
+        DumpFormat._registry.update(dump_before)
         assert "tsv" not in DbProvider._registry
+        assert "custom" not in DumpFormat._registry
 
 
 class CliResult(typing.NamedTuple):

@@ -8,12 +8,14 @@ import tarfile
 import pytest
 import yaml
 
+from pkgforge.common import UsageError
 from pkgforge.dbdump import (
-    MULTI_ARTIFACT_FORMATS,
-    PER_ENTRY_FORMATS,
+    Debian,
     DbDump,
-    dump_formats,
-    rpmspecfile,
+    DumpError,
+    DumpFormat,
+    RpmSpecFiles,
+    UnsupportedOutputError,
 )
 from pkgforge.install import _extract_tar, _is_tar_source
 
@@ -69,12 +71,55 @@ def test_extract_tar_gz_roundtrip(tmp_path):
 # --------------------------------------------------------------------------
 
 
-def test_dump_formats_lists_rpm_and_debian():
-    fmts = dump_formats()
-    assert "rpmspecfiles" in fmts
-    assert "debian" in fmts
-    assert "rpmspecfiles" in PER_ENTRY_FORMATS
-    assert "debian" in MULTI_ARTIFACT_FORMATS
+def test_dump_format_names_lists_rpm_and_debian():
+    names = DumpFormat.names()
+    assert "rpmspecfiles" in names
+    assert "debian" in names
+    assert DumpFormat.lookup("rpmspecfiles") is RpmSpecFiles
+    assert DumpFormat.lookup("debian") is Debian
+
+
+@pytest.mark.parametrize(
+    "alias,canonical",
+    [("rpm", "rpmspecfiles"), ("rpmspec", "rpmspecfiles"), ("deb", "debian")],
+)
+def test_dump_format_alias_resolves_to_canonical(alias, canonical):
+    assert DumpFormat.lookup(alias) is DumpFormat.lookup(canonical)
+    assert DumpFormat.lookup(alias).NAME == canonical
+
+
+def test_unknown_dump_format_lists_aliases():
+    with pytest.raises(UsageError) as excinfo:
+        DumpFormat.lookup("nope")
+    err = str(excinfo.value)
+    assert "rpm" in err
+    assert "rpmspec" in err
+    assert "deb" in err
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["per_entry_dir", "multi_artifact_file"],
+    ids=["per_entry_dir", "multi_artifact_file"],
+)
+def test_unsupported_output_error(tmp_path, case):
+    if case == "per_entry_dir":
+        target = tmp_path / "outdir"
+        target.mkdir()
+        fmt = RpmSpecFiles()
+    else:
+        target = tmp_path / "out"
+        target.write_text("existing", encoding="utf-8")
+        fmt = Debian()
+
+    before = list(target.iterdir()) if target.is_dir() else target.read_text()
+    with pytest.raises(UnsupportedOutputError) as excinfo:
+        fmt.check_output(target)
+    assert isinstance(excinfo.value, NotImplementedError)
+    assert isinstance(excinfo.value, DumpError)
+    assert isinstance(excinfo.value, UsageError)
+    after = list(target.iterdir()) if target.is_dir() else target.read_text()
+    assert after == before
 
 
 # --------------------------------------------------------------------------
@@ -112,7 +157,7 @@ def _entries():
 
 
 def test_debian_install_artifact():
-    arts = MULTI_ARTIFACT_FORMATS["debian"](_entries())
+    arts = Debian().render(_entries())
     install = arts["install"].decode()
     # Non-directory entries -> "<rel-src> <dest-dir>"
     assert "usr/bin/tool usr/bin" in install
@@ -185,21 +230,17 @@ def _one_entry(path, mode="644", owner="root", group="root"):
     ],
 )
 def test_debian_install_escapes(path, expected):
-    arts = MULTI_ARTIFACT_FORMATS["debian"](_one_entry(path))
+    arts = Debian().render(_one_entry(path))
     install = arts["install"].decode().strip()
     assert install == expected
 
 
 def test_debian_rejects_control_char():
-    from pkgforge.dbdump import DumpError
-
     with pytest.raises(DumpError):
-        MULTI_ARTIFACT_FORMATS["debian"](_one_entry("/usr/share/x\ny"))
+        Debian().render(_one_entry("/usr/share/x\ny"))
 
 
 def test_debian_rejects_space_in_owner():
-    from pkgforge.dbdump import DumpError
-
     entries = [
         (
             "/a",
@@ -213,7 +254,7 @@ def test_debian_rejects_space_in_owner():
         )
     ]
     with pytest.raises(DumpError):
-        MULTI_ARTIFACT_FORMATS["debian"](entries)
+        Debian().render(entries)
 
 
 def test_debian_permissions_rsplit_keeps_path():
@@ -222,7 +263,7 @@ def test_debian_permissions_rsplit_keeps_path():
     entries = _one_entry(
         "/usr/share/t/with space", mode="640", owner="root", group="adm"
     )
-    arts = MULTI_ARTIFACT_FORMATS["debian"](entries)
+    arts = Debian().render(entries)
     line = arts["permissions"].decode().strip()
     path, mode, owner, group = line.rsplit(" ", 3)
     assert path == "/usr/share/t/with space"
@@ -236,7 +277,7 @@ def test_debian_non_utf8_keeps_bytes():
             {"mode": "644", "owner": "-", "group": "-", "type": "file", "meta": {}},
         )
     ]
-    arts = MULTI_ARTIFACT_FORMATS["debian"](entries)
+    arts = Debian().render(entries)
     assert b"opt/app/caf\xe9 opt/app\n" in arts["install"]
 
 
@@ -253,7 +294,7 @@ def test_debian_non_utf8_keeps_bytes():
     ids=["utf8", "plain", "space", "glob", "quote", "backslash"],
 )
 def test_rpmspecfile_quotes(path, expected):
-    from pkgforge.dbdump import _rpm_quote
+    from pkgforge.dbdump.rpm import _rpm_quote
 
     assert _rpm_quote(path).encode("utf-8", "surrogateescape") == expected
 
@@ -264,7 +305,7 @@ def test_rpmspecfile_quotes(path, expected):
     ids=["nl", "tab", "del", "pct", "pct_brace", "pct_paren"],
 )
 def test_rpmspecfile_rejects(path):
-    from pkgforge.dbdump import DumpError, _rpm_quote
+    from pkgforge.dbdump.rpm import _rpm_quote
 
     with pytest.raises(DumpError):
         _rpm_quote(path)
@@ -272,7 +313,7 @@ def test_rpmspecfile_rejects(path):
 
 def test_rpmspecfile_non_utf8_keeps_bytes():
     entry = {"mode": "-", "owner": "-", "group": "-", "type": "file", "meta": {}}
-    line = rpmspecfile("/opt/caf\udce9", entry)
+    line = RpmSpecFiles().render_entry("/opt/caf\udce9", entry)
     assert line == b'%attr(-,-,-) "/opt/caf\xe9"\n'
 
 
@@ -280,7 +321,7 @@ def test_rpmspecfile_empty_fields_render_default():
     # An empty mode/owner/group renders as "-" (DEFAULT), not verbatim
     # (rpmbuild rejects "%attr(,-,-)" with "Bad syntax").
     entry = {"mode": "", "owner": "", "group": "", "type": "file", "meta": {}}
-    assert rpmspecfile("/x", entry) == b'%attr(-,-,-) "/x"\n'
+    assert RpmSpecFiles().render_entry("/x", entry) == b'%attr(-,-,-) "/x"\n'
 
 
 def test_debian_permissions_skip_empty_fields():
@@ -290,12 +331,12 @@ def test_debian_permissions_skip_empty_fields():
             {"mode": "", "owner": "", "group": "", "type": "file", "meta": {}},
         ),
     ]
-    arts = MULTI_ARTIFACT_FORMATS["debian"](entries)
+    arts = Debian().render(entries)
     assert arts["permissions"] == b""
 
 
 def test_debian_permissions_artifact():
-    arts = MULTI_ARTIFACT_FORMATS["debian"](_entries())
+    arts = Debian().render(_entries())
     perms = arts["permissions"].decode()
     assert "/usr/bin/tool 755 root root" in perms
     assert "/etc/tool/conf 640 root adm" in perms
@@ -308,7 +349,7 @@ def test_debian_permissions_partial_pin_placeholder():
     # rejects '-' outright); a real consumer parses this right-to-left, via
     # override_dh_fixperms, and must skip a '-' field.
     entries = [_dir_entry("/usr/share/tool/share", mode="755")]
-    arts = MULTI_ARTIFACT_FORMATS["debian"](entries)
+    arts = Debian().render(entries)
     assert arts["permissions"].decode().strip() == "/usr/share/tool/share 755 - -"
 
 
@@ -325,7 +366,7 @@ def test_debian_dirs_artifact():
         _dir_entry("/var/lib/sp ace"),
         _dir_entry("/#state"),
     ]
-    arts = MULTI_ARTIFACT_FORMATS["debian"](entries)
+    arts = Debian().render(entries)
     dirs = arts["dirs"].decode().splitlines()
     assert dirs == ["var/lib/tool", "var/lib/sp${Space}ace", "./#state"]
     # A directory entry is never an install target.

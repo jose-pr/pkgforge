@@ -201,17 +201,54 @@ def test_dbdump_unknown_format_checked_before_db_load(tmp_path, cli):
     assert "Traceback" not in err
 
 
-def test_dbdump_registered_format_accepted(tmp_path, cli, monkeypatch):
+def test_dbdump_registered_format_accepted(tmp_path, cli, restore_registries):
     # Guard: the format check must stay a runtime registry lookup, not a
     # duho.Choice frozen at import, so a format registered later still works.
-    from pkgforge.dbdump import PER_ENTRY_FORMATS, rpmspecfile
+    from pkgforge.dbdump import PerEntryFormat
+
+    class CustomFormat(PerEntryFormat):
+        NAME = "custom"
+
+        def render_entry(self, path, entry):
+            return f"{path}\n".encode()
 
     db = tmp_path / "files.jsonl"
     _seed_tool_entry(db)
-    monkeypatch.setitem(PER_ENTRY_FORMATS, "custom", rpmspecfile)
     result = cli("--db", str(db), "dbdump", "-f", "custom", "-")
     assert result.rc == 0
     assert b"/usr/bin/tool" in result.out
+
+
+@pytest.mark.parametrize(
+    "alias,canonical",
+    [("rpm", "rpmspecfiles"), ("rpmspec", "rpmspecfiles"), ("deb", "debian")],
+)
+def test_dump_format_alias_matches_canonical_output(tmp_path, cli, alias, canonical):
+    db = tmp_path / "files.jsonl"
+    _seed_tool_entry(db)
+    via_alias = cli("--db", str(db), "dbdump", "-f", alias, "-")
+    via_canonical = cli("--db", str(db), "dbdump", "-f", canonical, "-")
+    assert via_alias.rc == 0
+    assert via_alias.out == via_canonical.out
+
+
+def test_dbdump_help_lists_aliases():
+    from pkgforge.dbdump import DbDump
+
+    help_text = DbDump._parser_().format_help()
+    assert re.search(r"\brpm\b", help_text)
+    assert re.search(r"\brpmspec\b", help_text)
+    assert re.search(r"\bdeb\b", help_text)
+
+
+def test_unknown_format_lists_aliases(tmp_path, cli):
+    db = tmp_path / "files.jsonl"
+    result = cli("--db", str(db), "dbdump", "-f", "nope", "-")
+    assert result.rc == 2
+    err = result.err.decode()
+    assert "rpm" in err
+    assert "rpmspec" in err
+    assert "deb" in err
 
 
 def test_dbdump_debian_onto_file_exits_2(tmp_path, cli):

@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from pkgforge.common import PkgForgeCmd
-from pkgforge.dbdump import rpmspecfile
+from pkgforge.dbdump import RpmSpecFiles
 
 # --------------------------------------------------------------------------
 # What scan records: below PATH, not PATH itself; '-' unless AUTO; replaces
@@ -197,7 +197,7 @@ def test_scan_documented_recipe_owns_no_shared_dirs(tmp_path, cli):
 
     db_entries = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
     lines = {
-        path: rpmspecfile(path, entry).decode()
+        path: RpmSpecFiles().render_entry(path, entry).decode()
         for path, entry in db_entries.items()
         if entry is not None
     }
@@ -690,7 +690,7 @@ def test_scan_drop_stale_tombstones_deleted(tmp_path, cli, fmt, ext):
     assert loaded[a_key] is not None
 
     lines = {
-        path: rpmspecfile(path, entry).decode()
+        path: RpmSpecFiles().render_entry(path, entry).decode()
         for path, entry in loaded.items()
         if entry is not None
     }

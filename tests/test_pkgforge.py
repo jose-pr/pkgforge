@@ -629,9 +629,9 @@ def test_relative_pattern_statement_is_shared_not_copied(tmp_path):
 
 
 def test_rpmspecfile_render():
-    from pkgforge.dbdump import rpmspecfile
+    from pkgforge.dbdump import RpmSpecFiles
 
-    line = rpmspecfile(
+    line = RpmSpecFiles().render_entry(
         "/usr/bin/x",
         {"mode": "755", "owner": "root", "group": "root", "type": "file", "meta": {}},
     )
@@ -639,9 +639,9 @@ def test_rpmspecfile_render():
 
 
 def test_rpmspecfile_dir_prefix():
-    from pkgforge.dbdump import rpmspecfile
+    from pkgforge.dbdump import RpmSpecFiles
 
-    line = rpmspecfile(
+    line = RpmSpecFiles().render_entry(
         "/etc/app",
         {
             "mode": "755",
@@ -655,9 +655,9 @@ def test_rpmspecfile_dir_prefix():
 
 
 def test_rpmspecfile_rpmprefix_meta():
-    from pkgforge.dbdump import rpmspecfile
+    from pkgforge.dbdump import RpmSpecFiles
 
-    line = rpmspecfile(
+    line = RpmSpecFiles().render_entry(
         "/etc/app.conf",
         {
             "mode": "644",

@@ -32,7 +32,7 @@ from pathlib import Path
 
 import pkgforge
 from pkgforge.db import open_db
-from pkgforge.dbdump import MULTI_ARTIFACT_FORMATS, rpmspecfile
+from pkgforge.dbdump import Debian, RpmSpecFiles
 from pkgforge.scan import ScanCmd
 
 # Per-metric inner iteration counts, sized so each metric runs in ~1s regardless
@@ -125,12 +125,15 @@ def measure():
     db = _make_db(DB_SIZE)
     entries = list(db.items())
 
+    rpm_format = RpmSpecFiles()
+    debian_format = Debian()
+
     def _render_rpm():
         for path, entry in entries:
-            rpmspecfile(path, entry)
+            rpm_format.render_entry(path, entry)
 
     def _render_debian():
-        MULTI_ARTIFACT_FORMATS["debian"](entries)
+        debian_format.render(entries)
 
     metrics = {}
 
