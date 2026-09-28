@@ -89,6 +89,7 @@ def test_apply_entry_skips_chmod_on_symlink(tmp_path):
     assert (target.stat().st_mode & 0o777) == 0o600
 
 
+@pytest.mark.posix
 def test_apply_entry_chmod_without_nofollow_support(tmp_path, monkeypatch):
     # Simulates glibc < 2.32: os.chmod raises NotImplementedError whenever
     # asked to not follow symlinks. apply_entry must never ask for that on a
