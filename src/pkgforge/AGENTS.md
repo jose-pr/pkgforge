@@ -258,6 +258,14 @@ above).
   pipe target; a terminal character-device path is rejected the same way a
   terminal stdin is, and a socket or block-device path raises `UsageError`.
   An explicit `--type symlink` always copies the link text regardless.
+  With several SOURCEs, two that resolve to the same non-directory
+  destination raise `UsageError` before anything is staged (every clone is
+  resolved -- type, decompress kind, destination -- up front, before any
+  of them is staged); directory (and archive) sources sharing a
+  destination still merge, and the same source path repeated is a
+  harmless no-op. A symlink source's recorded `meta["target"]` never
+  leaks into a later entry -- the symlink branch rebinds `meta` rather
+  than mutating it in place.
 - **`scan.ScanCmd(FileEntryArgs, PkgForgeCmd)`** (`pkgforge scan`) — walk a
   path under the build root, recording an entry per file; `--missing` only
   fills gaps not already in the DB. `--type/-t` is hidden from `--help` and

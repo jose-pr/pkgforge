@@ -62,6 +62,11 @@ KIND is optional and consumes the next token: write `-x KIND SRC DST`,
 kind and is rejected. An unknown kind, or a bare `-x` whose source suffix
 names none of the kinds above, exits 2 before anything is staged.
 
+With several SOURCEs, two that resolve to the same non-directory destination
+(e.g. sharing a basename, or forced onto one path with `-T`/`-D`) exit 2
+before anything is staged; directory (and archive) sources sharing a
+destination still merge into it, as they always have.
+
 A tar-family archive given as a `directory`-typed source is extracted with
 stdlib `tarfile`; other archive types fall back to `bsdtar`.
 

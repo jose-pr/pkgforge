@@ -698,3 +698,153 @@ def test_install_dev_tty_source_refused(tmp_path):
     finally:
         os.close(master)
         os.close(slave)
+
+
+# --------------------------------------------------------------------------
+# Multi-source install: entries stay apart, collisions are refused
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.posix
+def test_install_symlink_meta_does_not_leak(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    link = tmp_path / "app.link"
+    link.symlink_to("/usr/bin/app")
+    regular = tmp_path / "regular.conf"
+    regular.write_text("hi")
+
+    # Through argv: a real symlink source followed by a regular file must
+    # not carry the link's meta.target into the file's own entry.
+    parser = Install._parser_()
+    inst = parser.parse_args(
+        [
+            "--db",
+            str(tmp_path / "files.jsonl"),
+            "--buildroot",
+            str(root),
+            "-p",
+            str(link),
+            str(regular),
+            "/opt",
+        ]
+    )
+    inst()
+    recorded = inst.loaddb()
+    assert recorded["/opt/app.link"]["meta"]["target"] == "/usr/bin/app"
+    assert "target" not in recorded["/opt/regular.conf"]["meta"]
+
+    # The Python API caller's own meta dict must not be poisoned either.
+    caller_meta = {"k": "v"}
+    Install(
+        source=[link, regular],
+        destination=Path("/opt2"),
+        buildroot=root,
+        parents=True,
+        db=None,
+        meta=caller_meta,
+    )()
+    assert caller_meta == {"k": "v"}
+
+    # Nor the shared class-level default a bare construction with no meta=
+    # would otherwise poison for every later Install/parser built in the
+    # same process.
+    from pkgforge.common import FileEntryArgs
+
+    Install(
+        source=link, destination=Path("/opt3"), buildroot=root, parents=True, db=None
+    )()
+    assert FileEntryArgs.meta == {}
+
+
+@pytest.mark.parametrize("mode", ["-D", "basename"])
+def test_install_colliding_sources_refused(tmp_path, mode):
+    # x-plat (relative DESTINATION): two distinct FILE sources resolving to
+    # one destination exit 2 before anything is staged, whether that is
+    # forced by -D or happens because both share a basename.
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+
+    if mode == "-D":
+        a = tmp_path / "a.txt"
+        a.write_text("A")
+        b = tmp_path / "b.txt"
+        b.write_text("B")
+        argv = [
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "-p",
+            "--remove-source",
+            "-D",
+            str(a),
+            str(b),
+            "out",
+        ]
+        sources = [a, b]
+    else:
+        suba = tmp_path / "suba"
+        suba.mkdir()
+        srca = suba / "x"
+        srca.write_text("A")
+        subb = tmp_path / "subb"
+        subb.mkdir()
+        srcb = subb / "x"
+        srcb.write_text("B")
+        argv = [
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "-p",
+            "--remove-source",
+            str(srca),
+            str(srcb),
+            "out",
+        ]
+        sources = [srca, srcb]
+
+    parser = Install._parser_()
+    inst = parser.parse_args(argv)
+    with pytest.raises(ValueError, match="resolve to"):
+        inst()
+
+    assert not (root / "out").exists()
+    for src in sources:
+        assert src.exists()  # --remove-source never ran: nothing was staged
+
+
+@pytest.mark.posix
+def test_install_directory_sources_still_merge(tmp_path):
+    # Regression guard: several directory (or archive) sources sharing a
+    # destination must keep merging -- only non-directory collisions
+    # are refused.
+    root = tmp_path / "root"
+    root.mkdir()
+    d1 = tmp_path / "d1"
+    d1.mkdir()
+    (d1 / "one").write_text("1")
+    d2 = tmp_path / "d2"
+    d2.mkdir()
+    (d2 / "two").write_text("2")
+
+    parser = Install._parser_()
+    parser.parse_args(
+        [
+            "--db",
+            str(tmp_path / "files.jsonl"),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-d",
+            "-D",
+            str(d1),
+            str(d2),
+            "/opt/app",
+        ]
+    )()
+
+    assert (root / "opt" / "app" / "one").read_text() == "1"
+    assert (root / "opt" / "app" / "two").read_text() == "2"

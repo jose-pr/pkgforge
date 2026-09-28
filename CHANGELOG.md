@@ -7,6 +7,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- Sources resolving to one non-directory destination in a multi-source
+  `install` exit 2 before staging instead of the last one silently
+  overwriting the earlier ones (directory and archive sources sharing a
+  destination still merge, as before). A symlink source's recorded
+  `meta.target` no longer leaks into every entry recorded after it, in the
+  same install, in a later Python-API call, or in a later CLI invocation
+  built from the same process.
 - A `-` source on a terminal or closed stdin, or a terminal character-device
   path, exits 2 instead of staging an empty file or waiting; `install` keeps
   stdin open instead of closing fd 0, and only one `-` source is allowed per

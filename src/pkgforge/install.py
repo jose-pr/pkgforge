@@ -350,7 +350,12 @@ class Install(FileEntryArgs, PkgForgeCmd):
                 dst.symlink_to(target)
             else:
                 target = src.readlink()
-                self.meta["target"] = os.fspath(target)
+                # Rebind, never mutate: self.meta may be the caller's own
+                # dict, a shared class-level default, or a parser -O
+                # action's stored default. Mutating it in place leaked
+                # "target" into every entry recorded after this one, in
+                # the same multi-source install and beyond it.
+                self.meta = {**self.meta, "target": os.fspath(target)}
                 dst.symlink_to(target)
                 shutil.copystat(src, dst, follow_symlinks=False)
 
@@ -545,10 +550,41 @@ class Install(FileEntryArgs, PkgForgeCmd):
         if isinstance(self.source, list):
             if sum(1 for s in self.source if str(s) == DEFAULT) > 1:
                 raise UsageError("only one source may read stdin ('-') per invocation")
+
+            # Resolve every clone (type, decompress kind, destination --
+            # writes no file) before staging any of them, so a collision
+            # between two sources -- or a bad argument on a later source --
+            # is caught with nothing on disk yet.
+            resolved: typing.List[typing.Tuple["Install", Path]] = []
             for source in self.source:
                 cloned = dict(self._get_kwargs())
                 cloned["source"] = source
-                Install(**cloned)()
+                # Each clone owns its meta dict: the symlink branch already
+                # rebinds rather than mutates, but a fresh copy per clone is
+                # cheap defense in depth against any other future writer.
+                cloned["meta"] = dict(cloned.get("meta") or {})
+                inst = Install(**cloned)
+                inst._preflight()
+                resolved.append((inst, inst._resolve()))
+
+            by_dest: typing.Dict[Path, typing.List["Install"]] = {}
+            for inst, dest in resolved:
+                by_dest.setdefault(dest, []).append(inst)
+            for dest, insts in by_dest.items():
+                if len(insts) < 2:
+                    continue
+                names = sorted({os.fspath(i.source) for i in insts})
+                if len(names) == 1:
+                    continue  # the same source path, harmlessly repeated
+                if all(i.type == FileType.Directory for i in insts):
+                    continue  # directory (and archive) sources merge
+                raise UsageError(
+                    f"{', '.join(names)} all resolve to {dest}; only "
+                    "directory sources may share a destination"
+                )
+
+            for inst, dest in resolved:
+                inst._stage(dest)
             return
 
         self._preflight()
