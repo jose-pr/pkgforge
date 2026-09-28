@@ -1165,3 +1165,260 @@ def test_install_file_replaces_stale_host_symlink(tmp_path):
     assert stale.read_text() == "payload"
     recorded = inst.loaddb()["/etc/f.conf"]
     assert recorded["type"] == "file"
+
+
+# --------------------------------------------------------------------------
+# Validate arguments before staging; remove the source last
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.posix
+@pytest.mark.parametrize("bad", ["mode", "owner", "group", "db_dir", "db_format"])
+def test_install_bad_args_touch_nothing(tmp_path, bad):
+    # Constructed directly (bypassing the CLI's own converters) so this
+    # exercises _preflight's own validation, not argparse's.
+    root = tmp_path / "root"
+    root.mkdir()
+    src = tmp_path / "f.conf"
+    src.write_text("data")
+
+    kwargs = dict(
+        source=src,
+        destination=Path("/etc"),
+        buildroot=root,
+        parents=True,
+        db=tmp_path / "files.jsonl",
+        remove_source=True,
+        decompress=False,
+    )
+
+    if bad == "mode":
+        kwargs["mode"] = "zzz"
+    elif bad == "owner":
+        kwargs["chown"] = True
+        kwargs["owner"] = "nosuchuser_pkgforge_xyz"
+    elif bad == "group":
+        kwargs["chown"] = True
+        kwargs["group"] = "nosuchgroup_pkgforge_xyz"
+    elif bad == "db_dir":
+        kwargs["db"] = tmp_path / "missing" / "f.jsonl"
+    else:  # db_format
+        kwargs["db_format"] = "jsonlines"
+
+    with pytest.raises(ValueError):
+        Install(**kwargs)()
+
+    assert src.exists()
+    assert not (root / "etc").exists()
+
+
+@pytest.mark.posix
+def test_install_owner_without_chown_recorded(tmp_path):
+    # Without --chown, an owner/group name is only recorded, never resolved
+    # -- packaging commonly names an account created later by %pre.
+    root = tmp_path / "root"
+    root.mkdir()
+    src = tmp_path / "f.conf"
+    src.write_text("data")
+
+    parser = Install._parser_()
+    inst = parser.parse_args(
+        [
+            "--db",
+            str(tmp_path / "files.jsonl"),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-o",
+            "nosuchuser_pkgforge_xyz",
+            str(src),
+            "/etc",
+        ]
+    )
+    inst()
+    assert inst.loaddb()["/etc/f.conf"]["owner"] == "nosuchuser_pkgforge_xyz"
+
+
+@pytest.mark.posix
+@pytest.mark.parametrize("attached", ["--owner=--", "--group=--"])
+def test_install_chown_attached_auto_owner(tmp_path, attached):
+    import grp
+    import pwd
+
+    root = tmp_path / "root"
+    root.mkdir()
+    src = tmp_path / "f.conf"
+    src.write_text("data")
+
+    parser = Install._parser_()
+    inst = parser.parse_args(
+        [
+            "--db",
+            str(tmp_path / "files.jsonl"),
+            "--buildroot",
+            str(root),
+            "-p",
+            "--chown",
+            attached,
+            str(src),
+            "/etc",
+        ]
+    )
+    inst()  # must not raise: py3.9 strips the attached "--" to []
+
+    staged = root / "etc" / "f.conf"
+    recorded = inst.loaddb()["/etc/f.conf"]
+    st = staged.stat()
+    if attached == "--owner=--":
+        assert recorded["owner"] == pwd.getpwuid(st.st_uid).pw_name
+    else:
+        assert recorded["group"] == grp.getgrgid(st.st_gid).gr_name
+
+
+@pytest.mark.posix
+def test_install_remove_source_same_as_dest_keeps_file(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    etc = root / "etc"
+    etc.mkdir()
+    f = etc / "a.conf"
+    f.write_text("keep")
+    db = tmp_path / "files.jsonl"
+
+    parser = Install._parser_()
+    inst = parser.parse_args(
+        [
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "-T",
+            "--remove-source",
+            "-m",
+            "640",
+            str(f),
+            "/etc/a.conf",
+        ]
+    )
+    inst()
+
+    assert f.exists()
+    assert (f.stat().st_mode & 0o777) == 0o640
+    assert inst.loaddb()["/etc/a.conf"]["mode"] == "640"
+
+
+@pytest.mark.posix
+def test_install_remove_source_kept_on_chown_eperm(tmp_path):
+    if os.geteuid() == 0:
+        pytest.skip("meaningless as root")
+    root = tmp_path / "root"
+    root.mkdir()
+    src = tmp_path / "f.conf"
+    src.write_text("data")
+    db = tmp_path / "files.jsonl"
+
+    parser = Install._parser_()
+    inst = parser.parse_args(
+        [
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "-p",
+            "--chown",
+            "-o",
+            "root",
+            "--remove-source",
+            str(src),
+            "/etc",
+        ]
+    )
+    with pytest.raises(PermissionError):
+        inst()
+
+    assert src.exists()
+
+
+@pytest.mark.posix
+def test_install_remove_source_dest_inside_source_refused(tmp_path):
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    (stage / "sub").mkdir()
+    (stage / "sub" / "f").write_text("x")
+    db = tmp_path / "files.jsonl"
+
+    parser = Install._parser_()
+    inst = parser.parse_args(
+        [
+            "--db",
+            str(db),
+            "--buildroot",
+            str(stage),
+            "-d",
+            "-T",
+            "--remove-source",
+            str(stage),
+            "/inner",
+        ]
+    )
+    with pytest.raises(ValueError, match="inside the source"):
+        inst()
+
+    assert (stage / "sub" / "f").exists()
+
+
+@pytest.mark.posix
+def test_install_remove_source_db_inside_source_refused(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    srcdir = tmp_path / "srcdir"
+    srcdir.mkdir()
+    (srcdir / "a").write_text("A")
+    db = srcdir / "files.jsonl"  # the DB lives INSIDE the source directory
+
+    parser = Install._parser_()
+    inst = parser.parse_args(
+        [
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "-d",
+            "-D",
+            "--remove-source",
+            str(srcdir),
+            "/opt/app",
+        ]
+    )
+    with pytest.raises(ValueError, match="inside the source"):
+        inst()
+
+    assert (srcdir / "a").exists()
+    assert not db.exists()
+
+
+def test_install_missing_parent_without_p_exits_2(tmp_path, cli):
+    # x-plat (relative DESTINATION).
+    root = tmp_path / "root"
+    root.mkdir()
+    src = tmp_path / "f.conf"
+    src.write_text("data")
+    db = tmp_path / "files.jsonl"
+
+    result = cli(
+        "--db",
+        str(db),
+        "--buildroot",
+        str(root),
+        "install",
+        "-T",
+        str(src),
+        "missingdir/f.conf",
+    )
+    assert result.rc == 2
+    lines = [line for line in result.err.decode().splitlines() if line]
+    assert len(lines) == 1
+    assert "missingdir" in lines[0]
+    assert "-p" in lines[0]
+    assert not (root / "missingdir").exists()
+    assert not list(root.glob("**/*.pkgforge-tmp"))

@@ -272,6 +272,15 @@ above).
   Re-running an install always works: it replaces a staged file or symlink
   (never a real directory, which raises `UsageError` instead), and several
   directory/archive sources sharing a destination keep merging as before.
+  `--mode`, `--chown`'s owner/group names (only when `--chown` is set; a
+  recorded-only name is never resolved) and the `--db` directory are
+  validated before anything is staged; without `-p`, a missing destination
+  parent directory raises `UsageError` the same way. `--remove-source`
+  runs only after the entry is applied and recorded (never on a failure
+  above it), is skipped with a warning (not removed) when the source IS the
+  staged destination, and is refused with `UsageError`, before any staging,
+  when a directory source contains the resolved destination or the `--db`
+  file.
 - **`scan.ScanCmd(FileEntryArgs, PkgForgeCmd)`** (`pkgforge scan`) — walk a
   path under the build root, recording an entry per file; `--missing` only
   fills gaps not already in the DB. `--type/-t` is hidden from `--help` and

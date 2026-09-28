@@ -7,6 +7,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- `install` checks `--chown`'s owner/group names, the `--db` directory and
+  (without `-p`) the destination directory before staging (exit 2 with
+  nothing on disk); refuses `--remove-source` up front (exit 2) when a
+  directory source contains the resolved destination or the `--db` file;
+  and removes the source only after the entry is recorded, never when it
+  is itself the staged destination (which is now skipped with a warning
+  instead of deleting the only copy).
 - A failed install leaves no empty or partial file (or extracted directory)
   behind, and keeps an earlier staged copy at that destination exactly as
   it was, instead of truncating or clobbering it. Re-running a symlink

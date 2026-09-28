@@ -53,9 +53,13 @@ pkgforge install [options] SOURCE... DESTINATION
 | `-D` | shortcut for `-Tp` |
 | `-x, --decompress [KIND]` | decompress the source (`gz`, `xz`, `bz2`, `zst`, `lzma`, or a decompressor tool name such as `gunzip`/`unxz`, matched case-insensitively; inferred from the suffix if KIND is omitted) |
 | `-X, --exclude PATTERN` | exclude matches when copying a directory source |
-| `--chown` | apply the recorded owner/group (off by default) |
-| `--remove-source` | delete the source after staging (files or directories) |
+| `--chown` | apply the recorded owner/group (off by default); an unknown owner/group name exits 2 before anything is staged (a recorded-only name, without `--chown`, is never resolved) |
+| `--remove-source` | delete the source after staging (files or directories), only once the entry is applied and recorded -- never when the source IS the staged destination, and refused (exit 2) up front when a directory source contains the resolved destination or the `--db` file |
 | `--noentry` | stage but do not record a DB entry |
+
+`--mode`, `--chown`'s owner/group names, and the `--db` directory (and,
+without `-p`, the destination's parent directory) are all checked before
+anything is staged, so a bad argument exits 2 with nothing on disk.
 
 KIND is optional and consumes the next token: write `-x KIND SRC DST`,
 `--decompress=KIND`, or `-x` after the paths. `-x SRC DST` makes `SRC` the

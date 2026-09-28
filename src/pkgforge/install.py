@@ -17,6 +17,12 @@ import tempfile
 import typing
 from pathlib import Path
 
+try:  # Unix-only; see common.py's identical guard.
+    import grp
+    import pwd
+except ImportError:  # pragma: no cover - non-Unix
+    grp = pwd = None
+
 import duho
 
 from .common import (
@@ -33,6 +39,7 @@ from .common import (
     parsepath,
     resolve_entry,
     _filetype,
+    _normalize_field,
     _parse_filetype,
 )
 from .exclude import PathMatch, PathMatchStmt
@@ -531,8 +538,47 @@ class Install(FileEntryArgs, PkgForgeCmd):
     def _preflight(self) -> None:
         """Validate/normalize this clone's arguments, before resolution or
         any staging. Runs once per clone (a multi-source ``__call__`` fans
-        out into one single-source clone per source first)."""
+        out into one single-source clone per source first).
+
+        Checks only what depends on arguments alone, never on the source
+        (so it also validates a direct Python-API construction, which
+        skips the CLI's own converters entirely): the mode, --chown's
+        owner/group names (only when --chown is set; a recorded-only name
+        is never looked up, since it may be created later by a package's
+        own scriptlets), and the --db directory. It never auto-creates the
+        DB directory or checks euid -- CAP_CHOWN, user namespaces and
+        fakeroot all make a chown that a plain euid check would reject.
+        """
         self.mode = normalize_mode(self.mode)
+
+        if self.chown:
+            if pwd is None or grp is None:
+                raise RuntimeError("chown requires the Unix pwd/grp modules")
+            # Normalize py3.9's stripped `--owner=--` -> [] to AUTO first
+            # (the same conversion entry_from_args does later): checking
+            # the raw list against DEFAULT/AUTO would never match, and
+            # pwd.getpwnam([]) crashes with TypeError instead of a clean
+            # UsageError.
+            owner = _normalize_field(self.owner)
+            group = _normalize_field(self.group)
+            if owner not in (DEFAULT, AUTO):
+                try:
+                    pwd.getpwnam(owner)
+                except KeyError:
+                    raise UsageError(f"--chown: unknown owner {owner!r}") from None
+            if group not in (DEFAULT, AUTO):
+                try:
+                    grp.getgrnam(group)
+                except KeyError:
+                    raise UsageError(f"--chown: unknown group {group!r}") from None
+
+        if not self.noentry and not self._no_file_db():
+            # Side-effect free for a read: this only sniffs/validates the
+            # format (surfacing an unknown --db-format or PKGFORGE_DB_FORMAT
+            # before anything is staged) and never creates the file.
+            self._provider(for_read=True)
+            if not Path(self.db).parent.is_dir():
+                raise UsageError(f"--db {self.db}: directory does not exist")
 
     def _resolve(self) -> Path:
         """Resolve this clone's type, decompress kind and destination.
@@ -641,7 +687,36 @@ class Install(FileEntryArgs, PkgForgeCmd):
                 dest = Path(self.buildroot, *dest.parts[1:])
             else:
                 dest = self.buildroot / dest
+
+        if not self.parents and not dest.parent.is_dir():
+            raise UsageError(
+                f"destination directory {self.buildpath(dest.parent)} does "
+                "not exist (use -p)"
+            )
+
+        if self.remove_source and self.source not in [DEFAULT, None]:
+            if self.source.is_dir() and not self.source.is_symlink():
+                self._refuse_remove_source_containment(dest)
+
         return dest
+
+    def _refuse_remove_source_containment(self, dest: Path) -> None:
+        """Refuse ``--remove-source`` when the resolved destination, or the
+        DB file, sits at or inside a directory source -- removing the
+        source afterwards would delete what was just staged (or the DB
+        itself). Checked before any staging happens.
+        """
+        src_real = os.path.realpath(self.source)
+        targets = [("destination", dest)]
+        if not self.noentry and not self._no_file_db():
+            targets.append(("DB", Path(self.db)))
+        for label, target in targets:
+            target_real = os.path.realpath(target)
+            if target_real == src_real or target_real.startswith(src_real + os.sep):
+                raise UsageError(
+                    f"--remove-source: the {label} is inside the source "
+                    f"directory {self.source}; refusing to remove it"
+                )
 
     def _stage(self, dest: Path) -> None:
         """Stage this clone's source at ``dest`` and record its entry.
@@ -670,16 +745,30 @@ class Install(FileEntryArgs, PkgForgeCmd):
                     staged.unlink(missing_ok=True)
             raise
 
-        if self.remove_source and self.source not in [DEFAULT, None]:
-            # A directory source needs rmtree; unlink only removes files/symlinks.
-            if self.source.is_dir() and not self.source.is_symlink():
-                shutil.rmtree(self.source)
-            else:
-                self.source.unlink()
-
         if not self.noentry:
             fspath = os.fspath(self.buildpath(dest))
             self.add_entry(fspath, fileentry)
+
+        if self.remove_source and self.source not in [DEFAULT, None]:
+            # Runs LAST: after apply/replace/record succeed, so a failure
+            # anywhere above (a bad --chown name past preflight, a disk-full
+            # DB append) leaves the source in place and the command
+            # re-runnable. Skipped, not refused, when the source IS dest
+            # (an in-place build): the containment check in _resolve already
+            # refused the case where removing a directory source would
+            # delete dest or the DB out from under it.
+            if os.path.lexists(dest) and os.path.samestat(
+                os.lstat(self.source), os.lstat(dest)
+            ):
+                self._logger_.warning(
+                    "--remove-source: %s is the staged file; not removing",
+                    self.source,
+                )
+            elif self.source.is_dir() and not self.source.is_symlink():
+                # A directory source needs rmtree; unlink only removes files/symlinks.
+                shutil.rmtree(self.source)
+            else:
+                self.source.unlink()
 
     def __call__(self):
         if isinstance(self.source, list):
