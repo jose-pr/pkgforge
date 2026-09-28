@@ -7,6 +7,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- `**` in `--exclude` matches any number of directories on every Python
+  version: `/**/*.pyc` excludes `.pyc` files at any depth, `/opt/app/**`
+  excludes everything below `/opt/app` but not `/opt/app` itself. Some
+  patterns now exclude more than before; review any `-X` value containing
+  `**`.
 - `install` and `scan` exit 2 when DESTINATION or PATH leaves the build root
   through a `..` that climbs above it, or a symlinked path component leading
   outside it, instead of writing or recording outside `--buildroot`. An
@@ -76,6 +81,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `PkgForge`), so completion binds. Regenerate installed ones.
 
 ### Changed
+- A relative `--exclude`/`-X` pattern now matches only inside the command's
+  root (`install`: the source directory; `scan`: `<buildroot>/PATH`) instead
+  of anywhere in the full path. An absolute pattern stays anchored there even
+  under a relative `--buildroot` (e.g. the default `.`), and glob characters
+  in the root path (e.g. a source directory named `pkg[1]`) are now literal
+  instead of being read as glob syntax.
 - `install`, `scan` and `dbdump` take `--exclude`/`-X` from a shared
   `pkgforge.exclude.ExcludeArgs` base instead of each declaring it separately;
   its position in `install --help` moves earlier (right after

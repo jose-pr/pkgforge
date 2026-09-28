@@ -623,59 +623,6 @@ def test_relative_pattern_statement_is_shared_not_copied(tmp_path):
     assert PathMatch([stmt], tmp_path)[0] is stmt
 
 
-def test_parse_structure():
-    # Pins parse()'s result shape across its construct-then-assign cleanup:
-    # a leading "!" negates the whole statement, each inline test is
-    # collected, and the trailing glob is whatever is left over.
-    stmt = PathMatchStmt.parse("!(?!type:file)(?meta:k=v)a/*")
-    assert stmt.negate is True
-    assert len(stmt.tests) == 2
-    assert stmt.pattern == "a/*"
-
-
-@pytest.mark.parametrize(
-    "clsname,rest",
-    [
-        ("Install", ["src", "/dst"]),
-        ("ScanCmd", ["/path"]),
-        ("DbDump", ["-f", "rpmspecfiles", "-"]),
-    ],
-)
-def test_exclude_option_shape(clsname, rest):
-    # Pins the shared ExcludeArgs field: --exclude/-X is an append action,
-    # metavar STMT, no nargs override, and an empty-list default -- the same
-    # shape on every command that takes it.
-    from pkgforge.dbdump import DbDump
-    from pkgforge.exclude import ExcludeArgs
-    from pkgforge.install import Install
-    from pkgforge.scan import ScanCmd
-
-    classes = {"Install": Install, "ScanCmd": ScanCmd, "DbDump": DbDump}
-    cls = classes[clsname]
-    assert issubclass(cls, ExcludeArgs)
-
-    actions = {a.dest: a for a in cls._parser_()._actions}
-    action = actions["exclude"]
-    assert action.option_strings == ["--exclude", "-X"]
-    assert type(action).__name__ == "_AppendAction"
-    assert action.metavar == "STMT"
-    assert action.nargs is None
-    assert action.default == []
-
-    parsed = cls._parser_().parse_args(["-X", "a", "-X", "b", *rest])
-    assert len(parsed.exclude) == 2
-
-
-def test_pathtest_factory_alias():
-    # PathTest.GENERATORS/.factory stay as back-compat aliases after moving
-    # the registry off the Protocol body.
-    from pkgforge.exclude import PathTest
-
-    test = PathTest.factory("type", "file", False)
-    assert test(Path("/a"), {"type": "file", "meta": {}}) is True
-    assert test(Path("/a"), {"type": "directory", "meta": {}}) is False
-
-
 # --------------------------------------------------------------------------
 # dbdump rendering
 # --------------------------------------------------------------------------

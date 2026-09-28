@@ -210,6 +210,16 @@ tree).
   statements. `.rebased(root) -> PathMatchStmt` returns a copy with an
   absolute pattern re-rooted under `root` (itself if the pattern is
   relative); it never mutates, since parsed statements are shared.
+  `.anchored -> bool` is true when `pattern` is rooted (a leading `/`, or a
+  Windows drive).
+- **Glob engine**: `pattern` is matched with a private, cached
+  `_glob_regex(pattern) -> re.Pattern`, not `PurePath.match` (whose `**` is a
+  single non-recursive segment and disagrees between Python versions on a
+  root-level key). `**` as a whole segment matches zero or more segments; a
+  *trailing* `/**` (or a bare `**`) matches one or more segments — "the
+  contents of this directory", never the directory itself. `*`/`?` never
+  cross `/`; `[...]`/`[!...]` is a character class. A relative pattern gets
+  an implicit "at any depth" prefix, same as before.
 - **`PathMatch(list[PathMatchStmt])`** — an ordered set of statements bound
   to an optional `root` (stores `stmt.rebased(root)` copies, leaving the
   caller's statements untouched — a multi-source `install` constructs one
@@ -217,6 +227,11 @@ tree).
   entry=None, _default=None, **overrides) -> bool | None` — evaluates
   statements in order, first non-`None` result wins; `entry=None` derives one
   via `FileEntry.from_path`; an empty `PathMatch` always matches (`True`).
+  With a root, an anchored statement matches the candidate's own absolute
+  path; a relative statement matches the path taken relative to the root
+  (by name, for the single-file-scan case where the path equals the root;
+  unchanged, for a path outside the root entirely). With no root (`dbdump`),
+  every statement sees the path exactly as given.
 - **`ExcludeArgs(duho.Cmd)`** — the `--exclude`/`-X` field, declared once and
   shared: `Install`, `ScanCmd` and `DbDump` all take `--exclude` from this
   mixin instead of each declaring it separately.
