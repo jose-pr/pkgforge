@@ -24,6 +24,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `PathMatch.match(path, entry, **overrides)` no longer writes the
   `**overrides` into the caller's `entry` dict (reachable only from the
   Python API, e.g. filtering a loaded DB in `dbdump`).
+- `scan -X` does not descend into an excluded directory, so its contents
+  are no longer recorded (as with `install`). To leave only the directory
+  out of a manifest, exclude it in `dbdump` instead:
+  `dbdump -X '(?type:directory)/usr'`.
 - `install` and `scan` exit 2 when DESTINATION or PATH leaves the build root
   through a `..` that climbs above it, or a symlinked path component leading
   outside it, instead of writing or recording outside `--buildroot`. An

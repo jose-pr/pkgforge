@@ -330,7 +330,10 @@ above).
   `(?meta:k=v)` inline test sees this run's `-O` values, same as `install`;
   a FIFO or socket `scan` cannot record raises `PkgForgeError` naming the
   path and the `-X` remedy, unless a glob-only `-X` already excluded it
-  first.
+  first. `-X` prunes an excluded directory's subtree, like `install`
+  (`os.walk`'s `dirs` is filtered in place); it does not descend into it,
+  so nothing below it is recorded either. `--missing`'s "already in the
+  DB" skip still descends into a directory already recorded.
 - **`dbdump.DbDump(ExcludeArgs, PkgForgeCmd)`** (`pkgforge dbdump -f FORMAT [output]`) —
   render surviving (post-`--exclude`) DB entries via the format registry
   above.

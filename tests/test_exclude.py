@@ -466,3 +466,158 @@ def test_meta_test_sees_O(tmp_path, cli, command):
             == 0
         )
         assert (root_keep / "opt" / "app" / "src" / "a.conf").exists()
+
+
+# --------------------------------------------------------------------------
+# scan prunes an excluded directory's subtree
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.posix
+@pytest.mark.parametrize("pattern", ["tmp", "/tmp", "(?type:directory)**/tmp"])
+def test_scan_prunes_excluded_dir(tmp_path, cli, pattern):
+    root = tmp_path / "root"
+    (root / "opt" / "src" / "tmp" / "sub" / "deep").mkdir(parents=True)
+    (root / "opt" / "src" / "tmp" / "f").write_text("x")
+    (root / "opt" / "src" / "tmp" / "sub" / "g").write_text("x")
+    (root / "opt" / "src" / "tmp" / "sub" / "deep" / "h").write_text("x")
+    (root / "opt" / "src" / "keep").mkdir()
+    (root / "opt" / "src" / "keep" / "k").write_text("x")
+    db = tmp_path / "files.jsonl"
+
+    result = cli(
+        "--db", str(db), "--buildroot", str(root), "scan", "-X", pattern, "/opt/src"
+    )
+    assert result.rc == 0
+
+    from pkgforge.common import PkgForgeCmd
+
+    recorded = {
+        k.replace("\\", "/")
+        for k in PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    }
+    assert recorded == {"/opt/src/keep", "/opt/src/keep/k"}
+
+
+@pytest.mark.posix
+def test_scan_install_prune_parity(tmp_path, cli):
+    src = tmp_path / "src"
+    (src / "tmp" / "sub").mkdir(parents=True)
+    (src / "tmp" / "f").write_text("x")
+    (src / "tmp" / "sub" / "g").write_text("x")
+    (src / "keep").mkdir()
+    (src / "keep" / "k").write_text("x")
+
+    from pkgforge.common import PkgForgeCmd
+
+    # A: install prunes tmp/ at copy time; an unfiltered scan then only
+    # records what actually landed on disk.
+    root_a = tmp_path / "a"
+    db_a = tmp_path / "a.jsonl"
+    assert (
+        cli(
+            "--db",
+            str(db_a),
+            "--buildroot",
+            str(root_a),
+            "install",
+            "-p",
+            "-d",
+            "-X",
+            "tmp",
+            str(src),
+            "/opt/app",
+        ).rc
+        == 0
+    )
+    assert (
+        cli("--db", str(db_a), "--buildroot", str(root_a), "scan", "/opt/app").rc == 0
+    )
+
+    # B: install stages everything; scan -X tmp prunes at scan time instead.
+    root_b = tmp_path / "b"
+    db_b = tmp_path / "b.jsonl"
+    assert (
+        cli(
+            "--db",
+            str(db_b),
+            "--buildroot",
+            str(root_b),
+            "install",
+            "-p",
+            "-d",
+            str(src),
+            "/opt/app",
+        ).rc
+        == 0
+    )
+    assert (
+        cli(
+            "--db",
+            str(db_b),
+            "--buildroot",
+            str(root_b),
+            "scan",
+            "-X",
+            "tmp",
+            "/opt/app",
+        ).rc
+        == 0
+    )
+
+    keys_a = set(PkgForgeCmd(db=db_a, db_format=None, buildroot=root_a).loaddb())
+    keys_b = set(PkgForgeCmd(db=db_b, db_format=None, buildroot=root_b).loaddb())
+    assert keys_a == keys_b
+
+
+@pytest.mark.posix
+def test_dbdump_exclude_is_per_entry(tmp_path, cli):
+    # Guards: dbdump decides entry by entry on a flat key list, so it
+    # excludes a directory's own row without dropping what's inside it --
+    # the documented way to avoid owning a shared parent like /usr/lib.
+    root = tmp_path / "root"
+    (root / "usr" / "lib" / "app").mkdir(parents=True)
+    (root / "usr" / "lib" / "app" / "a.so").write_text("x")
+    db = tmp_path / "files.jsonl"
+    assert cli("--db", str(db), "--buildroot", str(root), "scan", "/").rc == 0
+
+    out = tmp_path / "out.txt"
+    result = cli(
+        "--db",
+        str(db),
+        "--buildroot",
+        str(root),
+        "dbdump",
+        "-f",
+        "rpmspecfiles",
+        "-X",
+        "(?type:directory)/usr/lib",
+        str(out),
+    )
+    assert result.rc == 0
+    text = out.read_text()
+    assert "/usr/lib/app/a.so" in text
+    assert '"/usr/lib"' not in text
+
+
+@pytest.mark.posix
+def test_scan_missing_descends_into_recorded_dir(tmp_path, cli, cmd, make_entry):
+    # Guards: --missing's "already in the DB" skip must still return True,
+    # not be mistaken for an exclusion that would prune the walk.
+    root = tmp_path / "root"
+    (root / "opt" / "src" / "keep").mkdir(parents=True)
+    (root / "opt" / "src" / "keep" / "k").write_text("x")
+    db = tmp_path / "files.jsonl"
+
+    seed = cmd(name="files.jsonl", buildroot=root)
+    seed.add_entry("/opt/src/keep", make_entry(type="directory"))
+
+    result = cli(
+        "--db", str(db), "--buildroot", str(root), "scan", "--missing", "/opt/src"
+    )
+    assert result.rc == 0
+
+    from pkgforge.common import PkgForgeCmd
+
+    recorded = set(PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb())
+    assert "/opt/src/keep/k" in recorded

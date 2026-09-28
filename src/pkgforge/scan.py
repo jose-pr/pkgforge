@@ -59,7 +59,13 @@ class ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
 
         recorded = 0
 
-        def _scanfile(path: Path):
+        def _scanfile(path: Path) -> bool:
+            """Record ``path``'s entry (unless already known, under
+            ``--missing``). Returns ``False`` only when ``-X`` excluded
+            ``path`` -- the signal the walk below uses to prune an excluded
+            directory's subtree, so it no longer descends into it and
+            records its contents anyway (matching ``install``).
+            """
             nonlocal recorded
             try:
                 # meta=dict(self.meta): a (?meta:k=v) inline test then sees
@@ -68,12 +74,13 @@ class ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
                 # carries meta on its own).
                 if self.exclude and filter.match(path, meta=dict(self.meta)):
                     self._logger_.debug("Excluding %s", path)
-                    return
+                    return False
                 fspath = os.fspath(self.buildpath(path))
                 if db.get(fspath) is None:
                     self._logger_.debug("Updating file entry for: %s", fspath)
                     self.add_entry(fspath, entry=resolve_entry(baseentry, path))
                     recorded += 1
+                return True
             except TypeError as exc:
                 # FileType.from_path raises TypeError for a fifo/socket. A
                 # glob-only -X (e.g. '*.fifo') already skipped such a path
@@ -88,7 +95,10 @@ class ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
             _scanfile(scanpath)
         else:
             for top, dirs, files in os.walk(scanpath):
-                for file in [*dirs, *files]:
+                # Prune in place: os.walk only descends into names still
+                # left in `dirs` after this line runs.
+                dirs[:] = [d for d in dirs if _scanfile(Path(top, d))]
+                for file in files:
                     _scanfile(Path(top, file))
 
         self._logger_.info("Scanned %s: %d path(s) recorded", scanpath, recorded)
