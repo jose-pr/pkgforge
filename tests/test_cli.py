@@ -109,6 +109,67 @@ def test_dbdump_debian_to_stdout(tmp_path, cli):
     assert b"usr/bin/tool usr/bin" in result.out
 
 
+@pytest.mark.parametrize("fmt", ["rpmspecfiles", "debian"])
+def test_dbdump_stdout_honours_redirect(tmp_path, fmt):
+    # A raw os.fdopen(sys.stdout.fileno(), ...) raises io.UnsupportedOperation
+    # the moment sys.stdout isn't backed by a real fd (redirect_stdout here;
+    # equally pytest capture or an embedding host).
+    import contextlib
+    import io
+
+    db = tmp_path / "files.jsonl"
+    _seed_tool_entry(db)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = pkgforge.main(["--db", str(db), "dbdump", "-f", fmt, "-"])
+    assert rc in (0, None)
+    assert "/usr/bin/tool" in buf.getvalue()
+
+
+def test_dbdump_stdout_keeps_print_order(tmp_path):
+    # A subprocess so stdout is a real (block-buffered, non-tty) pipe: the
+    # old fdopen-on-fd-1 approach wrote the manifest straight to the fd,
+    # bypassing Python's own stdout buffer, so text already print()-ed but
+    # not yet flushed came out AFTER it.
+    db = tmp_path / "files.jsonl"
+    _seed_tool_entry(db)
+    script = (
+        f"print('%files'); import pkgforge; "
+        f"pkgforge.main(['--db', {str(db)!r}, 'dbdump', '-f', 'rpmspecfiles', '-'])"
+    )
+    env = {**os.environ, "PYTHONPATH": str(SRC_DIR)}
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    lines = result.stdout.splitlines()
+    assert lines[0] == "%files"
+    assert any("/usr/bin/tool" in line for line in lines[1:])
+
+
+@pytest.mark.posix
+def test_dbdump_closed_pipe_is_quiet(tmp_path):
+    # Piping a large manifest into `head -1` closes the read end early: a
+    # raw fd write there raised BrokenPipeError from inside dbdump AND again
+    # from the fdopen's own finally-flush, producing a traceback plus an
+    # "Exception ignored" message at interpreter shutdown.
+    db = tmp_path / "files.jsonl"
+    provider = open_db(db, for_read=False)
+    for i in range(20000):
+        provider.add(
+            f"/a/{i:05d}",
+            {"mode": "644", "owner": "-", "group": "-", "type": "file", "meta": {}},
+        )
+    env = {**os.environ, "PYTHONPATH": str(SRC_DIR)}
+    cmd = f"{sys.executable} -m pkgforge --db {db} dbdump -f rpmspecfiles - | head -1"
+    result = subprocess.run(["sh", "-c", cmd], env=env, capture_output=True, text=True)
+    assert "Traceback" not in result.stderr
+    assert "Exception ignored" not in result.stderr
+
+
 def test_dbdump_unknown_format_fails(tmp_path, cli):
     db = tmp_path / "files.jsonl"
     result = cli("--db", str(db), "dbdump", "-f", "toml", "-")

@@ -12,13 +12,14 @@ Two shapes of format are supported:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sys
 import typing
 from pathlib import Path
 
-from .common import DEFAULT, PkgForgeCmd, FileEntry, _or_default
+from .common import DEFAULT, FileType, PkgForgeCmd, FileEntry, _or_default
 from .exclude import ExcludeArgs, PathMatch
 
 #: An entry that survived filtering: (db-path, FileEntry).
@@ -40,7 +41,7 @@ def rpmspecfile(path: str, entry: FileEntry) -> bytes:
     prefix = entry["meta"].get("rpmprefix") or ""
     if prefix:
         prefix += " "
-    if entry["type"] == "directory":
+    if entry["type"] == FileType.Directory:
         prefix += "%dir "
 
     mode = _or_default(entry["mode"])
@@ -71,7 +72,7 @@ def _debian_artifacts(entries: Entries) -> typing.Dict[str, bytes]:
     perm_lines: typing.List[str] = []
     for path, entry in entries:
         rel = path.lstrip("/")
-        if entry["type"] != "directory":
+        if entry["type"] != FileType.Directory:
             dest_dir = os.path.dirname(rel)
             install_lines.append(f"{rel} {dest_dir}".rstrip())
         mode = _or_default(entry["mode"])
@@ -128,10 +129,10 @@ class DbDump(ExcludeArgs, PkgForgeCmd):
                 "DB %s does not exist; dumping an empty manifest", self.db
             )
         db = self.loaddb()
-        filter = PathMatch(self.exclude)
+        matcher = PathMatch(self.exclude)
         entries: Entries = []
         for path, entry in db.items():
-            if entry is None or (self.exclude and filter.match(Path(path), entry)):
+            if entry is None or (self.exclude and matcher.match(Path(path), entry)):
                 continue
             entries.append((path, entry))
         if db and self.exclude and not entries:
@@ -143,37 +144,56 @@ class DbDump(ExcludeArgs, PkgForgeCmd):
             )
         return entries
 
+    @contextlib.contextmanager
+    def _open_output(self):
+        """Open OUTPUT for writing: the real file for a path, or a stream
+        onto the process's actual stdout for ``-``.
+
+        Never opens a raw ``os.fdopen(sys.stdout.fileno(), ...)``: that
+        bypasses Python's own stdout buffer entirely, so it (a) raises
+        ``io.UnsupportedOperation`` whenever ``sys.stdout`` isn't backed by a
+        real file descriptor (``redirect_stdout``, embedding, pytest capture)
+        and (b) writes out of order with text the caller already ``print()``-ed
+        but hasn't flushed. Flushing ``sys.stdout`` first, then writing
+        through its own ``.buffer`` (or, lacking one, decoding back to text
+        with ``surrogateescape`` and writing through ``sys.stdout`` itself),
+        keeps both cases correct. Never closes ``sys.stdout``.
+        """
+        if str(self.output) == DEFAULT:
+            sys.stdout.flush()
+            buf = getattr(sys.stdout, "buffer", None)
+            if buf is None:
+
+                class _TextAdapter:
+                    def write(self, data: bytes) -> None:
+                        sys.stdout.write(data.decode("utf-8", "surrogateescape"))
+
+                buf = _TextAdapter()
+            try:
+                yield buf
+            finally:
+                sys.stdout.flush()
+        else:
+            with self.output.open("wb") as f:
+                yield f
+
     def __call__(self):
         entries = self._surviving_entries()
 
         if self.format in PER_ENTRY_FORMATS:
             dumper = PER_ENTRY_FORMATS[self.format]
-            out = None
-            try:
-                if str(self.output) == "-":
-                    out = os.fdopen(sys.stdout.fileno(), "wb", closefd=False)
-                else:
-                    out = self.output.open("wb")
-                for path, entry in entries:
-                    out.write(dumper(path, entry))
-            finally:
-                if out:
-                    out.flush()
-                    if str(self.output) != "-":
-                        out.close()
+            rendered = b"".join(dumper(path, entry) for path, entry in entries)
+            with self._open_output() as out:
+                out.write(rendered)
             return
 
         if self.format in MULTI_ARTIFACT_FORMATS:
             artifacts = MULTI_ARTIFACT_FORMATS[self.format](entries)
-            if str(self.output) == "-":
-                out = os.fdopen(sys.stdout.fileno(), "wb", closefd=False)
-                try:
+            if str(self.output) == DEFAULT:
+                with self._open_output() as out:
                     for name, data in artifacts.items():
                         out.write(f"# === {name} ===\n".encode())
                         out.write(data)
-                    out.flush()
-                finally:
-                    pass  # do not close the shared stdout fd
             else:
                 self.output.mkdir(parents=True, exist_ok=True)
                 for name, data in artifacts.items():

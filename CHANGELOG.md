@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- `dbdump ... -` writes through `sys.stdout` instead of a raw file
+  descriptor: it now works when `sys.stdout` is redirected (or otherwise not
+  backed by a real file descriptor), and keeps its place after text the
+  caller already printed but had not yet flushed.
+
 ### Security
 - Archives extracted with `bsdtar` (stdin, `.zip`, `.iso`, `.cpio`) no
   longer restore owners, setuid/setgid, group/other write, xattrs, ACLs or
