@@ -8,6 +8,7 @@ staging: chmod, chown, hardlinks, "/"-rooted destinations) are marked
 from __future__ import annotations
 
 import argparse
+import errno
 import importlib.metadata
 import json
 import logging
@@ -547,8 +548,13 @@ def test_scan_non_utf8_name_sqlite_one_line_error(tmp_path, cli):
     tree.mkdir(parents=True)
     (tree / "ok").write_text("x")
     bad_name = os.fsencode(str(tree)) + b"/raw\xe9"
-    with open(bad_name, "wb") as fh:
-        fh.write(b"y")
+    try:
+        with open(bad_name, "wb") as fh:
+            fh.write(b"y")
+    except OSError as exc:
+        if exc.errno == errno.EILSEQ:  # e.g. APFS refuses non-UTF-8 names
+            pytest.skip("filesystem rejects non-UTF-8 names")
+        raise
 
     db = tmp_path / "files.db"
     result = cli("--db", str(db), "--buildroot", str(root), "scan", "/usr/share/tool")
