@@ -935,3 +935,115 @@ def test_db_imports_without_fcntl(tmp_path):
     )
     assert result.returncode == 0, result.stderr
     assert "OK" in result.stdout.splitlines()
+
+
+# --------------------------------------------------------------------------
+# batched writes: one sqlite connection/transaction per command (perf)
+# --------------------------------------------------------------------------
+
+
+def test_batch_commits_every_n_rows(tmp_path, monkeypatch, make_entry):
+    import sqlite3
+
+    monkeypatch.setattr(dbmod, "_BATCH_ROWS", 2)
+    db_path = tmp_path / "f.db"
+    p = open_db(db_path, "sqlite")
+    p.init()
+
+    def _count_via_second_connection() -> int:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            (count,) = conn.execute("SELECT COUNT(*) FROM entries").fetchone()
+        finally:
+            conn.close()
+        return count
+
+    with p.batch() as batch:
+        batch.add("/a", make_entry())
+        assert _count_via_second_connection() == 0  # 1 row: not yet due
+
+        batch.add("/b", make_entry())
+        assert _count_via_second_connection() == 2  # 2 rows: committed
+
+    assert len(open_db(db_path, "sqlite", for_read=True).load()) == 2
+
+
+def test_batch_keeps_rows_on_error(tmp_path, make_entry):
+    db_path = tmp_path / "f.db"
+    p = open_db(db_path, "sqlite")
+    p.init()
+
+    class Boom(Exception):
+        pass
+
+    with pytest.raises(Boom):
+        with p.batch() as batch:
+            batch.add("/a", make_entry())
+            raise Boom()
+
+    # Partial work is kept (append logs keep it too) and the connection is
+    # closed even on the exception path -- an open handle would keep this
+    # unlink() from succeeding on Windows.
+    loaded = open_db(db_path, "sqlite", for_read=True).load()
+    assert "/a" in loaded
+    db_path.unlink()
+
+
+@pytest.mark.posix
+def test_scan_with_provider_without_batch(tmp_path, cli, restore_registries):
+    # A third-party provider that never overrides batch() (inherits the
+    # DbProvider default, a no-op) still works under scan.
+    register_provider("tsv", _TsvDb, suffixes=(".tsv",))
+
+    root = tmp_path / "root"
+    tree = root / "usr" / "share" / "tool"
+    tree.mkdir(parents=True)
+    (tree / "a").write_text("x")
+    (tree / "b").write_text("y")
+
+    # --db-format is explicit so open_db's for_read=True sniffing (which
+    # would otherwise re-sniff and silently fall back to yaml once the file
+    # exists, since _TsvDb registered no sniff=) never kicks in.
+    db = tmp_path / "files.tsv"
+    result = cli(
+        "--db",
+        str(db),
+        "--db-format",
+        "tsv",
+        "--buildroot",
+        str(root),
+        "scan",
+        "/usr/share/tool",
+    )
+    assert result.rc == 0
+
+    loaded = _TsvDb(db).load()
+    assert "/usr/share/tool/a" in loaded
+    assert "/usr/share/tool/b" in loaded
+
+
+def test_scan_sqlite_one_connection(tmp_path, cli, monkeypatch):
+    import sqlite3
+
+    root = tmp_path / "root"
+    tree = root / "usr" / "share" / "tool"
+    tree.mkdir(parents=True)
+    for i in range(200):
+        (tree / f"f{i:03d}").write_text("x")
+
+    calls = []
+    real_connect = sqlite3.connect
+
+    def counting_connect(*a, **k):
+        calls.append(1)
+        return real_connect(*a, **k)
+
+    monkeypatch.setattr(sqlite3, "connect", counting_connect)
+
+    db = tmp_path / "files.db"
+    result = cli("--db", str(db), "--buildroot", str(root), "scan", "/usr/share/tool")
+    assert result.rc == 0
+    assert len(calls) == 1
+
+    loaded = open_db(db, "sqlite", for_read=True).load()
+    assert len(loaded) == 200

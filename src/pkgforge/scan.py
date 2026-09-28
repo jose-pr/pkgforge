@@ -184,22 +184,27 @@ class ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
                     "or symlink); exclude it with -X"
                 ) from exc
 
-        if not is_root and scanpath.is_symlink():
-            # A symlink PATH (a link to a directory included) is recorded as
-            # a single symlink entry, never followed -- otherwise its
-            # target's contents would be recorded under the link's own
-            # path, and an absolute target would walk the build HOST's
-            # filesystem instead of the build root.
-            _scanfile(scanpath)
-        elif not scanpath.is_dir():
-            _scanfile(scanpath)
-        else:
-            for top, dirs, files in os.walk(scanpath):
-                # Prune in place: os.walk only descends into names still
-                # left in `dirs` after this line runs.
-                dirs[:] = [d for d in dirs if _scanfile(Path(top, d))]
-                for file in files:
-                    _scanfile(Path(top, file))
+        # Batches the walk's own writes (a no-op except for sqlite, where it
+        # holds one connection and commits periodically instead of once per
+        # file); committed before --drop-stale's own reload below, which
+        # needs a fresh load() to see what this walk just wrote.
+        with self._db_batch():
+            if not is_root and scanpath.is_symlink():
+                # A symlink PATH (a link to a directory included) is
+                # recorded as a single symlink entry, never followed --
+                # otherwise its target's contents would be recorded under
+                # the link's own path, and an absolute target would walk
+                # the build HOST's filesystem instead of the build root.
+                _scanfile(scanpath)
+            elif not scanpath.is_dir():
+                _scanfile(scanpath)
+            else:
+                for top, dirs, files in os.walk(scanpath):
+                    # Prune in place: os.walk only descends into names
+                    # still left in `dirs` after this line runs.
+                    dirs[:] = [d for d in dirs if _scanfile(Path(top, d))]
+                    for file in files:
+                        _scanfile(Path(top, file))
 
         self._logger_.info("Scanned %s: %d path(s) recorded", scanpath, recorded)
 

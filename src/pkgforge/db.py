@@ -74,6 +74,10 @@ DEFAULT_FORMAT = "jsonl"
 #: SQLite file magic (first 16 bytes of any SQLite 3 database).
 _SQLITE_MAGIC = b"SQLite format 3\x00"
 
+#: Rows per commit inside :meth:`SqliteDb.batch` -- bounds how much work a
+#: killed batch loses, without paying a durable (fsync-backed) commit per row.
+_BATCH_ROWS = 1000
+
 #: The one YAML 1.1 implicit-resolver tag :func:`_yaml_io`'s loader keeps
 #: (every other implicit tag -- int, float, bool, timestamp -- is dropped so
 #: an unquoted scalar loads as the text it was written as).
@@ -369,6 +373,22 @@ class DbProvider(abc.ABC):
     def init(self) -> None:
         """Create or reset an empty DB."""
 
+    @contextlib.contextmanager
+    def batch(self) -> typing.Iterator[DbProvider]:
+        """Optionally batch a run of ``add``/``remove`` calls for efficiency.
+
+        A context manager yielding ``self``. The default implementation
+        (this one) does nothing extra -- every ``add``/``remove`` inside it
+        still writes (and, for the append-log backends, still locks)
+        exactly as it would outside one -- so an existing or third-party
+        provider that doesn't override this keeps working unchanged.
+        :class:`SqliteDb` overrides it to hold one connection open across
+        the whole batch and commit periodically instead of connecting,
+        creating the schema and committing once per call (see
+        :data:`_BATCH_ROWS`).
+        """
+        yield self
+
 
 # --------------------------------------------------------------------------
 # Append-log text backends (jsonl, yaml)
@@ -570,6 +590,45 @@ class SqliteDb(DbProvider):
         '"group" TEXT, type TEXT, meta_json TEXT, removed INTEGER DEFAULT 0)'
     )
 
+    #: Set only while a :meth:`batch` is active; ``add``/``remove`` use it
+    #: instead of opening (and committing/closing) their own connection.
+    _batch_conn = None
+    _batch_count = 0
+
+    @contextlib.contextmanager
+    def batch(self) -> typing.Iterator["SqliteDb"]:
+        """Hold one connection open across many ``add``/``remove`` calls,
+        committing every :data:`_BATCH_ROWS` rows and once more on exit
+        (exception included, so a killed batch keeps whatever it already
+        committed -- the same partial-progress behavior the append-log
+        backends have always had) instead of connecting, creating the
+        schema and committing once per call.
+
+        Not reentrant (a nested ``with provider.batch():`` reuses the same
+        connection and row counter, which is harmless but pointless);
+        callers only ever open one at a time (see ``PkgForgeCmd._db_batch``).
+        """
+        try:
+            import sqlite3
+        except ImportError as exc:
+            raise PkgForgeError(
+                "the sqlite DB backend needs Python's sqlite3 module "
+                "(_sqlite3), which this interpreter lacks; use "
+                "--db-format jsonl or yaml"
+            ) from exc
+        conn = sqlite3.connect(os.fspath(self.path))
+        conn.execute(self._SCHEMA)
+        self._batch_conn = conn
+        self._batch_count = 0
+        try:
+            yield self
+        finally:
+            try:
+                conn.commit()
+            finally:
+                self._batch_conn = None
+                conn.close()
+
     @contextlib.contextmanager
     def _connect(self, *, ensure_schema: bool = True):
         """Yield a connection that is committed on success and always closed.
@@ -623,32 +682,51 @@ class SqliteDb(DbProvider):
                     }
         return db
 
-    def add(self, path: str, entry: FileEntry) -> None:
+    def _insert_add(self, conn, path: str, entry: FileEntry) -> None:
         rec = _fields(entry)
+        conn.execute(
+            'INSERT INTO entries (path, mode, owner, "group", type, meta_json, removed) '
+            "VALUES (?, ?, ?, ?, ?, ?, 0) "
+            "ON CONFLICT(path) DO UPDATE SET "
+            'mode=excluded.mode, owner=excluded.owner, "group"=excluded."group", '
+            "type=excluded.type, meta_json=excluded.meta_json, removed=0",
+            (
+                path,
+                rec.get("mode"),
+                rec.get("owner"),
+                rec.get("group"),
+                rec.get("type"),
+                json.dumps(rec.get("meta") or {}, sort_keys=True),
+            ),
+        )
+
+    def _insert_remove(self, conn, path: str) -> None:
+        conn.execute(
+            "INSERT INTO entries (path, removed) VALUES (?, 1) "
+            "ON CONFLICT(path) DO UPDATE SET removed=1",
+            (path,),
+        )
+
+    def _batch_commit_if_due(self) -> None:
+        self._batch_count += 1
+        if self._batch_count % _BATCH_ROWS == 0:
+            self._batch_conn.commit()
+
+    def add(self, path: str, entry: FileEntry) -> None:
+        if self._batch_conn is not None:
+            self._insert_add(self._batch_conn, path, entry)
+            self._batch_commit_if_due()
+            return
         with self._connect() as conn:
-            conn.execute(
-                'INSERT INTO entries (path, mode, owner, "group", type, meta_json, removed) '
-                "VALUES (?, ?, ?, ?, ?, ?, 0) "
-                "ON CONFLICT(path) DO UPDATE SET "
-                'mode=excluded.mode, owner=excluded.owner, "group"=excluded."group", '
-                "type=excluded.type, meta_json=excluded.meta_json, removed=0",
-                (
-                    path,
-                    rec.get("mode"),
-                    rec.get("owner"),
-                    rec.get("group"),
-                    rec.get("type"),
-                    json.dumps(rec.get("meta") or {}, sort_keys=True),
-                ),
-            )
+            self._insert_add(conn, path, entry)
 
     def remove(self, path: str) -> None:
+        if self._batch_conn is not None:
+            self._insert_remove(self._batch_conn, path)
+            self._batch_commit_if_due()
+            return
         with self._connect() as conn:
-            conn.execute(
-                "INSERT INTO entries (path, removed) VALUES (?, 1) "
-                "ON CONFLICT(path) DO UPDATE SET removed=1",
-                (path,),
-            )
+            self._insert_remove(conn, path)
 
     def compact(self) -> None:
         if not self.path.exists():

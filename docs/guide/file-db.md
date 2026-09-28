@@ -77,6 +77,14 @@ Once registered, the format is selectable with `--db-format toml`, by a `.toml`
 `provider_cls(path)` and must implement `load`/`add`/`remove`/`compact`/`init`;
 `load()` returns `{path: entry-or-None}` like the built-ins.
 
+`batch()` is optional: a context manager yielding the provider around a run
+of many writes (e.g. `scan`'s walk); the default does nothing. `sqlite`
+overrides it to hold one connection open and commit every 1000 rows instead
+of connecting and committing once per write, which is what makes `scan`
+into a `sqlite` DB fast; the default is fine for a backend that doesn't need
+this (an append-log provider's own `add`/`remove` already write immediately
+either way).
+
 ## Entry fields
 
 | Field | Meaning |

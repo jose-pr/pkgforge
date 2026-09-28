@@ -317,6 +317,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   another pkgforge process is appending to the same DB no longer silently
   drops the concurrent append.
 
+### Added
+- `pkgforge.DbProvider.batch()`: an optional context manager a backend can
+  override to batch many writes; the default does nothing, so existing and
+  third-party providers are unaffected. `scan` into a `sqlite` DB now uses
+  it: one connection, committed every 1000 rows (and once more at the end),
+  instead of connecting, creating the schema and committing once per file.
+
 ## [0.1.2] - 2026-08-16
 
 ### Changed

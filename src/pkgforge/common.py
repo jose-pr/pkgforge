@@ -622,6 +622,33 @@ class PkgForgeCmd(LoggingArgs, Cmd):
         # value means "auto-detect" everywhere, not only through argv/env.
         return open_db(self.db, self.db_format or None, for_read=for_read)
 
+    @contextlib.contextmanager
+    def _db_batch(self):
+        """Batch a run of writes through :meth:`DbProvider.batch` where the
+        backend supports it (currently only ``sqlite``; every other backend
+        inherits the no-op default), instead of resolving the provider fresh
+        for each ``add_entry``/``remove_entry`` call.
+
+        Resolves the provider once (``for_read=True``, same as
+        :meth:`loaddb`/:meth:`_write_entry` outside a batch -- it keeps a
+        write in the file's sniffed format) and stores it so
+        :meth:`_write_entry` uses it directly; a no-op (nothing to batch)
+        for an unset/stdout DB. Exits -- committing -- before the caller does
+        anything that needs to see those writes through a *fresh* ``load()``
+        (e.g. ``scan --drop-stale``'s reload): a second connection can't see
+        rows a first one hasn't committed yet.
+        """
+        if self._no_file_db():
+            yield
+            return
+        provider = self._provider(for_read=True)
+        with provider.batch() as batch_provider:
+            self._batch_provider = batch_provider
+            try:
+                yield
+            finally:
+                self._batch_provider = None
+
     def loaddb(self) -> typing.Dict[str, typing.Optional[FileEntry]]:
         if self._no_file_db():
             return {}
@@ -648,7 +675,9 @@ class PkgForgeCmd(LoggingArgs, Cmd):
 
             print(_jsonl_line(path, entry), end="")
             return
-        provider = self._provider(for_read=True)
+        provider = getattr(self, "_batch_provider", None) or self._provider(
+            for_read=True
+        )
         if entry is None:
             provider.remove(path)
         else:

@@ -195,6 +195,17 @@ tree).
 - **`DbProvider(abc.ABC)`** — storage backend bound to a filesystem `path`
   (`provider_cls(path)`). Abstract methods: `load() -> Db`, `add(path,
   entry)`, `remove(path)`, `compact()`, `init()`. Class attr `format: str`.
+  **`batch(self) -> ContextManager[DbProvider]`** — non-abstract; a
+  `contextlib.contextmanager` yielding `self`. The default does nothing
+  extra (every `add`/`remove` inside it still writes exactly as it would
+  outside one), so an existing or third-party provider that doesn't
+  override it keeps working unchanged. `SqliteDb` overrides it to hold one
+  connection open across the whole batch, committing every 1000 rows and
+  once more on exit (exception included, so a killed batch keeps whatever
+  it already committed) instead of connecting, creating the schema and
+  committing once per call. `scan` wraps its walk in one (`PkgForgeCmd`'s
+  private `_db_batch()`); a direct `add()`/`remove()` outside a batch, and
+  every other command, are unaffected.
 - **`open_db(path, fmt=None, *, for_read=False) -> DbProvider`** — resolve
   and construct the provider. Precedence: explicit `fmt` wins; else, when
   `for_read` and `path` already exists, its content is sniffed (so a

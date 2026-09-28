@@ -445,6 +445,41 @@ def test_scan_missing_keeps_existing_entries(tmp_path, cli):
 
 
 @pytest.mark.posix
+def test_scan_drop_stale_sqlite_sees_walk(tmp_path, cli):
+    # Pin: the walk's batch() must commit before --drop-stale's own reload,
+    # or a second sqlite connection wouldn't see the rows this walk just
+    # wrote and would wrongly tombstone them too.
+    root = tmp_path / "root"
+    db = tmp_path / "files.db"
+    tree = root / "usr" / "share" / "tool"
+    tree.mkdir(parents=True)
+    (tree / "keep").write_text("x")
+    stale = tree / "gone"
+    stale.write_text("y")
+
+    assert (
+        cli("--db", str(db), "--buildroot", str(root), "scan", "/usr/share/tool").rc
+        == 0
+    )
+
+    stale.unlink()
+    result = cli(
+        "--db",
+        str(db),
+        "--buildroot",
+        str(root),
+        "scan",
+        "--drop-stale",
+        "/usr/share/tool",
+    )
+    assert result.rc == 0
+
+    loaded = open_db(db, for_read=True).load()
+    assert loaded["/usr/share/tool/keep"] is not None
+    assert loaded["/usr/share/tool/gone"] is None
+
+
+@pytest.mark.posix
 def test_install_source_is_destination_keeps_file(tmp_path, cli):
     root = tmp_path / "root"
     db = tmp_path / "files.jsonl"
