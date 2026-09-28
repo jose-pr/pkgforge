@@ -36,6 +36,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   say how to apply it from an `override_dh_fixperms` target, and that
   `dh_install`'s sources need `PKGFORGE_ROOT=debian/tmp` or
   `--sourcedir=$(PKGFORGE_ROOT)`.
+- `debian`'s `install` destination is split with POSIX path rules on every
+  platform: on Windows, a source name containing a literal backslash (a
+  valid POSIX filename character) was previously split in the wrong place,
+  since the native path module there also treats a backslash as a
+  separator.
 
 ### Added
 - `pkgforge.dbdump.DumpError`, raised for a DB entry a dump format's own

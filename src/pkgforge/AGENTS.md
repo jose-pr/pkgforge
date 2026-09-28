@@ -384,7 +384,11 @@ tree).
   control character in the path, or whitespace in mode/owner/group, raises
   `DumpError` before any artifact is built), and every artifact is written
   as UTF-8 with `surrogateescape` (a non-UTF-8 name round-trips its
-  original bytes).
+  original bytes). The install destination is split with `posixpath`, not
+  `os.path` -- DB paths are always POSIX-style ("/"-separated), and
+  `ntpath` also treats a literal backslash as a separator, which split a
+  path containing one (e.g. a source named `back\slash`) in the wrong
+  place on Windows.
 - **`Entries`** — type alias `list[tuple[str, FileEntry]]` (surviving DB
   entries after `--exclude` filtering), the shared input shape for both
   registries above.

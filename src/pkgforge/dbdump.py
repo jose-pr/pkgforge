@@ -13,7 +13,7 @@ Two shapes of format are supported:
 from __future__ import annotations
 
 import contextlib
-import os
+import posixpath
 import sys
 import typing
 from pathlib import Path
@@ -206,7 +206,7 @@ def _debian_artifacts(entries: Entries) -> typing.Dict[str, bytes]:
                 dline = "./" + dline
             dir_lines.append(dline)
         else:
-            dest_dir = _dh_dest(os.path.dirname(rel))
+            dest_dir = _dh_dest(posixpath.dirname(rel))
             install_lines.append(f"{_dh_src(rel)} {dest_dir}".rstrip())
         if mode != DEFAULT or owner != DEFAULT or group != DEFAULT:
             perm_lines.append(f"{path} {mode} {owner} {group}")
