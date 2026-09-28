@@ -2,22 +2,20 @@
 
 Cross-platform tests cover the DB record format, the exclude/match grammar, DB
 read/write, and dbdump rendering. Tests that need POSIX facilities (chmod via
-``FileEntry.apply``, real owner/group lookup) are guarded with ``os.name``.
+``FileEntry.apply``, real owner/group lookup) are marked ``@pytest.mark.posix``
+(registered and skipped off POSIX in ``conftest.py``).
 """
 
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
 import yaml
 
-import pkgforge
 from pkgforge.common import AUTO, DEFAULT, PkgForge, FileEntry, FileType, mode_to_octal
 from pkgforge.exclude import PathMatch, PathMatchStmt
-
-POSIX = pytest.mark.skipif(os.name != "posix", reason="requires POSIX facilities")
-
 
 # --------------------------------------------------------------------------
 # CLI wiring
@@ -32,15 +30,19 @@ def test_all_commands_registered():
 def test_root_parser_builds_and_help_renders():
     parser = PkgForge._parser_()
     text = parser.format_help()
-    for name in ("install", "scan", "dbdump", "initdb"):
+    for name in {c._parsername_ for c in PkgForge._subcommands_}:
         assert name in text
 
 
-def test_subcommand_parser_builds():
-    # Building the whole tree exercises each subcommand's _parser_ (incl.
-    # install's -D/-d override).
-    parser = PkgForge._parser_()
-    assert parser is not None
+def test_install_shortcuts_translate():
+    # -D -> -Tp (no-target-directory + parents); -d -> --type directory.
+    from pkgforge.install import Install
+
+    parser = Install._parser_()
+    inst = parser.parse_args(["-D", "-d", "src", "/dst"])
+    assert inst.no_target_directory is True
+    assert inst.parents is True
+    assert inst.type == "directory"
 
 
 # --------------------------------------------------------------------------
@@ -64,19 +66,37 @@ def test_from_path_mode_is_octal_string(tmp_path):
     assert entry["type"] == FileType.File
 
 
-def test_from_path_dir_and_symlink_type(tmp_path):
+def test_from_path_dir_type(tmp_path):
     d = tmp_path / "d"
     d.mkdir()
     assert FileEntry.from_path(d)["type"] == FileType.Directory
 
 
-@POSIX
+@pytest.mark.posix
 def test_from_path_symlink_type(tmp_path):
     target = tmp_path / "t"
     target.write_text("x")
     link = tmp_path / "l"
     link.symlink_to(target)
     assert FileEntry.from_path(link)["type"] == FileType.Symlink
+
+
+@pytest.mark.posix
+def test_from_path_unknown_ids_fall_back_to_default(tmp_path, monkeypatch):
+    import grp
+    import pwd
+
+    def _raise(*_a, **_kw):
+        raise KeyError
+
+    monkeypatch.setattr(pwd, "getpwuid", _raise)
+    monkeypatch.setattr(grp, "getgrgid", _raise)
+
+    f = tmp_path / "f"
+    f.write_text("hi")
+    entry = FileEntry.from_path(f)
+    assert entry["owner"] == DEFAULT
+    assert entry["group"] == DEFAULT
 
 
 def test_resolve_for_fills_auto_from_disk(tmp_path):
@@ -96,7 +116,7 @@ def test_resolve_for_fills_auto_from_disk(tmp_path):
     assert resolved["type"] == FileType.File
 
 
-@POSIX
+@pytest.mark.posix
 def test_apply_sets_mode(tmp_path):
     f = tmp_path / "f"
     f.write_text("hi")
@@ -130,13 +150,11 @@ def test_scan_default_buildroot_does_not_crash(tmp_path, monkeypatch):
     parser = ScanCmd._parser_()
     inst = parser.parse_args(["--db", str(db), "sub"])
     inst()  # must not raise (the regression: str "." / str -> TypeError)
-    # Read back via loaddb (format-agnostic) rather than assuming a raw format.
     recorded = inst.loaddb()
-    # Key form uses os separators; assert the file was recorded by basename.
-    assert any(os.path.basename(k.replace("\\", "/")) == "f" for k in recorded)
+    assert {k.replace("\\", "/") for k in recorded} == {"/sub/f"}
 
 
-@POSIX
+@pytest.mark.posix
 def test_install_remove_source_directory(tmp_path):
     # Regression: --remove-source on a directory must rmtree, not unlink.
     from pkgforge.install import Install
@@ -167,7 +185,7 @@ def test_install_remove_source_directory(tmp_path):
     assert (root / "opt" / "tree" / "tree" / "sub" / "a").exists()
 
 
-@POSIX
+@pytest.mark.posix
 def test_install_file_hardlinks_and_records(tmp_path):
     from pkgforge.install import Install
 
@@ -205,9 +223,9 @@ def test_install_file_hardlinks_and_records(tmp_path):
 
 
 def test_install_multi_source_absolute_exclude(tmp_path):
-    # Regression: PathMatch used to rewrite the shared parsed --exclude
-    # statements in place, so the SECOND source got a double-prefixed pattern
-    # (<src2>/<src1>/... ) that matched nothing and silently excluded nothing.
+    # Guards: PathMatch must not rewrite the shared parsed --exclude
+    # statements in place -- a second source must not get a double-prefixed
+    # pattern (<src2>/<src1>/...) that matches nothing.
     from pkgforge.install import Install
 
     root = tmp_path / "root"
@@ -254,7 +272,7 @@ def test_install_multi_source_absolute_exclude(tmp_path):
 
 
 def test_install_decompress_from_stdin_raises_clear_error():
-    # Regression: bare -x with a stdin source used to die with
+    # Guards: bare -x with a stdin source must raise a clear ValueError, not
     # AttributeError: 'str' object has no attribute 'suffix'.
     from pkgforge.install import Install
 
@@ -264,7 +282,7 @@ def test_install_decompress_from_stdin_raises_clear_error():
         inst()
 
 
-@POSIX
+@pytest.mark.posix
 def test_install_symlink_source_records_target(tmp_path):
     # A symlink source is copied as a symlink and its target recorded in meta.
     from pkgforge.install import Install
@@ -289,7 +307,7 @@ def test_install_symlink_source_records_target(tmp_path):
     assert recorded["meta"]["target"] == "/usr/bin/app"
 
 
-@POSIX
+@pytest.mark.posix
 def test_install_symlink_type_with_meta_target(tmp_path):
     # --type symlink with no real source: the target comes from -O target=.
     from pkgforge.install import Install
@@ -322,7 +340,7 @@ def test_install_symlink_type_with_meta_target(tmp_path):
     assert os.readlink(staged) == "/usr/bin/app"
 
 
-@POSIX
+@pytest.mark.posix
 @pytest.mark.parametrize("form", ["explicit", "inferred"])
 def test_install_decompress_gz(tmp_path, form):
     # -x runs the real gunzip, both with an explicit kind and inferring it.
@@ -359,8 +377,8 @@ def test_install_decompress_gz(tmp_path, form):
 
 
 def test_install_decompress_kind_that_is_a_path_raises_clear_error():
-    # Regression: `install -x SRC DST EXTRA` makes SRC the *kind* (argparse
-    # gives -x the next token). It used to be run as a decompressor command.
+    # Guards: `install -x SRC DST EXTRA` makes SRC the *kind* (argparse gives
+    # -x the next token); it must raise, not run SRC as a decompressor command.
     from pkgforge.install import Install
 
     parser = Install._parser_()
@@ -375,73 +393,44 @@ def test_install_decompress_kind_that_is_a_path_raises_clear_error():
 # --------------------------------------------------------------------------
 
 
-def _cmd(tmp_path, **over):
-    inst = PkgForge.__new__(PkgForge)
-    inst.db = tmp_path / "files.yaml"
-    inst.buildroot = tmp_path
-    for k, v in over.items():
-        setattr(inst, k, v)
-    return inst
-
-
-def test_add_and_load_db_roundtrip(tmp_path):
-    cmd = _cmd(tmp_path)
-    entry: FileEntry = {
-        "mode": "644",
-        "owner": "root",
-        "group": "root",
-        "type": FileType.File,
-        "meta": {"k": "v"},
-    }
-    cmd.add_entry("/usr/bin/x", entry)
-    db = cmd.loaddb()
+def test_add_and_load_db_roundtrip(cmd, make_entry):
+    inst = cmd()
+    inst.add_entry("/usr/bin/x", make_entry(mode="644", meta={"k": "v"}))
+    db = inst.loaddb()
     assert "/usr/bin/x" in db
     assert db["/usr/bin/x"]["mode"] == "644"
     assert db["/usr/bin/x"]["type"] == "file"
 
 
-def test_remove_entry_marks_none(tmp_path):
-    cmd = _cmd(tmp_path)
-    cmd.add_entry(
-        "/a",
-        {"mode": "644", "owner": "-", "group": "-", "type": FileType.File, "meta": {}},
-    )
-    cmd.remove_entry("/a")
-    db = cmd.loaddb()
+def test_remove_entry_marks_none(cmd, make_entry):
+    inst = cmd()
+    inst.add_entry("/a", make_entry(owner=DEFAULT, group=DEFAULT))
+    inst.remove_entry("/a")
+    db = inst.loaddb()
     # Last write for /a is the removal marker.
     assert db["/a"] is None
 
 
-def test_loaddb_missing_returns_empty(tmp_path):
-    cmd = _cmd(tmp_path)
-    assert cmd.loaddb() == {}
+def test_loaddb_missing_returns_empty(cmd):
+    assert cmd().loaddb() == {}
 
 
-def test_compact_command(tmp_path):
+def test_compact_command(tmp_path, cmd, make_entry):
     from pkgforge.compact import Compact
 
     db = tmp_path / "files.jsonl"
     parser = Compact._parser_()
     # Populate an append log with a superseded entry and a removal.
-    seed = PkgForge.__new__(PkgForge)
-    seed.db = db
-    seed.db_format = None
-    seed.buildroot = tmp_path
-    seed.add_entry(
-        "/x", {"mode": "644", "owner": "-", "group": "-", "type": "file", "meta": {}}
-    )
-    seed.add_entry(
-        "/x", {"mode": "600", "owner": "-", "group": "-", "type": "file", "meta": {}}
-    )
-    seed.add_entry(
-        "/y", {"mode": "644", "owner": "-", "group": "-", "type": "file", "meta": {}}
-    )
+    seed = cmd(name="files.jsonl")
+    seed.add_entry("/x", make_entry(mode="644", owner=DEFAULT, group=DEFAULT))
+    seed.add_entry("/x", make_entry(mode="600", owner=DEFAULT, group=DEFAULT))
+    seed.add_entry("/y", make_entry(mode="644", owner=DEFAULT, group=DEFAULT))
     seed.remove_entry("/y")
-    assert len([l for l in db.read_text().splitlines() if l.strip()]) == 4
+    assert len([line for line in db.read_text().splitlines() if line.strip()]) == 4
 
     inst = parser.parse_args(["--db", str(db), "--buildroot", str(tmp_path)])
     inst()
-    lines = [l for l in db.read_text().splitlines() if l.strip()]
+    lines = [line for line in db.read_text().splitlines() if line.strip()]
     assert len(lines) == 1  # only live /x remains
     assert inst.loaddb()["/x"]["mode"] == "600"
 
@@ -451,97 +440,72 @@ def test_compact_command(tmp_path):
 # --------------------------------------------------------------------------
 
 
-def _entry(type=FileType.File, meta=None):
-    return {
-        "mode": "644",
-        "owner": "-",
-        "group": "-",
-        "type": type,
-        "meta": meta or {},
-    }
-
-
-def test_glob_match():
+def test_glob_match(make_entry):
     m = PathMatch([PathMatchStmt.parse("**/*.pyc")])
-    from pathlib import Path
-
-    assert m.match(Path("/a/b/x.pyc"), _entry()) is True
-    assert m.match(Path("/a/b/x.py"), _entry()) is None
+    assert m.match(Path("/a/b/x.pyc"), make_entry()) is True
+    assert m.match(Path("/a/b/x.py"), make_entry()) is None
 
 
-def test_type_test():
-    from pathlib import Path
-
+def test_type_test(make_entry):
     m = PathMatch([PathMatchStmt.parse("(?type:directory)**")])
-    assert m.match(Path("/a"), _entry(type=FileType.Directory)) is True
-    assert m.match(Path("/a"), _entry(type=FileType.File)) in (None, False)
+    assert m.match(Path("/a"), make_entry(type=FileType.Directory)) is True
+    assert m.match(Path("/a"), make_entry(type=FileType.File)) in (None, False)
 
 
-def test_meta_test():
-    from pathlib import Path
-
+def test_meta_test(make_entry):
     m = PathMatch([PathMatchStmt.parse("(?meta:keep=1)**")])
-    assert m.match(Path("/a"), _entry(meta={"keep": "1"})) is True
-    assert m.match(Path("/a"), _entry(meta={"keep": "0"})) in (None, False)
+    assert m.match(Path("/a"), make_entry(meta={"keep": "1"})) is True
+    assert m.match(Path("/a"), make_entry(meta={"keep": "0"})) in (None, False)
 
 
-def test_inverted_type_test():
-    # Regression: (?!type:...) must actually invert (helper used to drop its return).
-    from pathlib import Path
-
+def test_inverted_type_test(make_entry):
+    # Guards: (?!type:...) must actually invert; the helper must not drop its
+    # return.
     m = PathMatch([PathMatchStmt.parse("(?!type:file)**")])
     # A directory is NOT a file -> inverted test passes -> match True.
-    assert m.match(Path("/a"), _entry(type=FileType.Directory)) is True
+    assert m.match(Path("/a"), make_entry(type=FileType.Directory)) is True
     # A file IS a file -> inverted test fails.
-    assert m.match(Path("/a"), _entry(type=FileType.File)) in (None, False)
+    assert m.match(Path("/a"), make_entry(type=FileType.File)) in (None, False)
 
 
-def test_negated_statement():
-    from pathlib import Path
-
+def test_negated_statement(make_entry):
     m = PathMatch([PathMatchStmt.parse("!**/*.pyc")])
-    assert m.match(Path("/a/x.pyc"), _entry()) is False
+    assert m.match(Path("/a/x.pyc"), make_entry()) is False
 
 
-def test_empty_matcher_matches_all():
-    from pathlib import Path
-
-    assert PathMatch([]).match(Path("/anything"), _entry()) is True
+def test_empty_matcher_matches_all(make_entry):
+    assert PathMatch([]).match(Path("/anything"), make_entry()) is True
 
 
-def test_nonmatching_recursive_dir_statement_falls_through():
-    # Regression: a directory failing a recursive (**) pattern used to return
-    # False, which short-circuited PathMatch.match and vetoed every later
-    # statement. It must fall through (None) so statement 2 gets to decide.
-    from pathlib import Path
-
+def test_nonmatching_recursive_dir_statement_falls_through(make_entry):
+    # Guards: a directory failing a recursive (**) pattern must fall through
+    # (None), not return False -- False would short-circuit PathMatch.match
+    # and veto every later statement.
     stmts = [
         PathMatchStmt.parse("**/*.pyc"),
         PathMatchStmt.parse("(?type:directory)**/tmp"),
     ]
     m = PathMatch(stmts)
-    assert m.match(Path("/a/tmp"), _entry(type=FileType.Directory)) is True
+    assert m.match(Path("/a/tmp"), make_entry(type=FileType.Directory)) is True
     # Order must not matter for these non-overlapping statements.
     assert (
         PathMatch(list(reversed(stmts))).match(
-            Path("/a/tmp"), _entry(type=FileType.Directory)
+            Path("/a/tmp"), make_entry(type=FileType.Directory)
         )
         is True
     )
 
 
-def test_single_nonmatching_recursive_dir_still_keeps():
+def test_single_nonmatching_recursive_dir_still_keeps(make_entry):
     # The fix must not change single-statement behavior: no decision -> _default.
-    from pathlib import Path
-
     m = PathMatch([PathMatchStmt.parse("**/*.pyc")])
-    assert m.match(Path("/a/tmp"), _entry(type=FileType.Directory)) is None
+    assert m.match(Path("/a/tmp"), make_entry(type=FileType.Directory)) is None
 
 
-def test_root_rebase_does_not_mutate_shared_statements(tmp_path):
-    # Regression: PathMatch.__init__ rewrote stmt.pattern IN PLACE, so a
-    # second construction over the same parsed statements re-prefixed the
-    # already-rebased pattern (/a/** -> /src1/a/** -> /src2/src1/a/**).
+def test_root_rebase_does_not_mutate_shared_statements(tmp_path, make_entry):
+    # Guards: PathMatch.__init__ must not rewrite stmt.pattern in place -- a
+    # second construction over the same parsed statements must not re-prefix
+    # an already-rebased pattern (/a/** -> /src1/a/** -> /src2/src1/a/**).
     # This is exactly what a multi-source install does: one PathMatch per
     # source over one shared parsed statement list.
     src1 = tmp_path / "src1"
@@ -559,8 +523,8 @@ def test_root_rebase_does_not_mutate_shared_statements(tmp_path):
     # The bug: this used to be <src2>/<src1>/a/**.
     assert second[0].pattern == os.fspath(src2 / "a" / "**")
     # Each matcher still excludes under its own root.
-    assert first.match(src1 / "a" / "x", _entry()) is True
-    assert second.match(src2 / "a" / "x", _entry()) is True
+    assert first.match(src1 / "a" / "x", make_entry()) is True
+    assert second.match(src2 / "a" / "x", make_entry()) is True
 
 
 def test_relative_pattern_statement_is_shared_not_copied(tmp_path):
@@ -616,7 +580,7 @@ def test_rpmspecfile_rpmprefix_meta():
     assert line.startswith(b"%config(noreplace) %attr(")
 
 
-def test_dbdump_writes_manifest(tmp_path, capsysbinary):
+def test_dbdump_writes_manifest(tmp_path):
     from pkgforge.dbdump import DbDump
 
     db = tmp_path / "files.yaml"
@@ -635,12 +599,10 @@ def test_dbdump_writes_manifest(tmp_path, capsysbinary):
         )
     )
     out = tmp_path / "out.txt"
-    cmd = DbDump.__new__(DbDump)
-    cmd.db = db
-    cmd.buildroot = tmp_path
-    cmd.exclude = []
-    cmd.format = "rpmspecfiles"
-    cmd.output = out
+    parser = DbDump._parser_()
+    cmd = parser.parse_args(
+        ["--db", str(db), "--buildroot", str(tmp_path), "-f", "rpmspecfiles", str(out)]
+    )
     cmd()
     text = out.read_bytes()
     assert b'%attr(755,root,root) "/usr/bin/x"' in text

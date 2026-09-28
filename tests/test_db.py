@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 import yaml
 
 import pkgforge.db as dbmod
-from pkgforge.common import PkgForge, FileType
 from pkgforge.db import (
     DbProvider,
     JsonlDb,
@@ -21,12 +21,6 @@ from pkgforge.db import (
 )
 
 ALL_FORMATS = ["jsonl", "yaml", "sqlite"]
-
-
-def _entry(mode="644", type="file", **over):
-    e = {"mode": mode, "owner": "root", "group": "root", "type": type, "meta": {}}
-    e.update(over)
-    return e
 
 
 # --------------------------------------------------------------------------
@@ -47,36 +41,36 @@ def _reload(provider):
     return open_db(provider.path, provider.format, for_read=True).load()
 
 
-def test_roundtrip(provider):
-    provider.add("/usr/bin/x", _entry(mode="755"))
+def test_roundtrip(provider, make_entry):
+    provider.add("/usr/bin/x", make_entry(mode="755"))
     assert _reload(provider)["/usr/bin/x"]["mode"] == "755"
 
 
-def test_last_write_wins(provider):
-    provider.add("/x", _entry(mode="644"))
-    provider.add("/x", _entry(mode="600"))
+def test_last_write_wins(provider, make_entry):
+    provider.add("/x", make_entry(mode="644"))
+    provider.add("/x", make_entry(mode="600"))
     assert _reload(provider)["/x"]["mode"] == "600"
 
 
-def test_removal_marks_none(provider):
-    provider.add("/x", _entry())
+def test_removal_marks_none(provider, make_entry):
+    provider.add("/x", make_entry())
     provider.remove("/x")
     assert _reload(provider)["/x"] is None
 
 
-def test_meta_preserved(provider):
-    provider.add("/x", _entry(meta={"rpmprefix": "%config"}))
+def test_meta_preserved(provider, make_entry):
+    provider.add("/x", make_entry(meta={"rpmprefix": "%config"}))
     assert _reload(provider)["/x"]["meta"] == {"rpmprefix": "%config"}
 
 
-def test_filetype_enum_stored_as_str(provider):
-    provider.add("/d", _entry(type=FileType.Directory))
+def test_filetype_enum_stored_as_str(provider, make_entry):
+    provider.add("/d", make_entry(type="directory"))
     assert _reload(provider)["/d"]["type"] == "directory"
 
 
-def test_compact_drops_removed(provider):
-    provider.add("/keep", _entry())
-    provider.add("/gone", _entry())
+def test_compact_drops_removed(provider, make_entry):
+    provider.add("/keep", make_entry())
+    provider.add("/gone", make_entry())
     provider.remove("/gone")
     provider.compact()
     db = _reload(provider)
@@ -95,8 +89,6 @@ def test_load_missing_is_empty(tmp_path):
 
 
 def test_format_for_suffix():
-    from pathlib import Path
-
     assert format_for_suffix(Path("f.jsonl")) == "jsonl"
     assert format_for_suffix(Path("f.ndjson")) == "jsonl"
     assert format_for_suffix(Path("f.yaml")) == "yaml"
@@ -117,10 +109,10 @@ def test_explicit_format_overrides_suffix(tmp_path):
     assert isinstance(open_db(tmp_path / "a.yaml", "sqlite"), SqliteDb)
 
 
-def test_sniff_detects_content_over_suffix(tmp_path):
+def test_sniff_detects_content_over_suffix(tmp_path, make_entry):
     # Write YAML content into a suffix-less file; a read auto-detects it as yaml.
     path = tmp_path / "noext"
-    open_db(path, "yaml").add("/a", _entry())
+    open_db(path, "yaml").add("/a", make_entry())
     assert sniff_format(path) == "yaml"
     assert open_db(path, for_read=True).format == "yaml"
 
@@ -132,9 +124,9 @@ def test_sniff_detects_sqlite(tmp_path):
     assert open_db(path, for_read=True).format == "sqlite"
 
 
-def test_sniff_detects_jsonl(tmp_path):
+def test_sniff_detects_jsonl(tmp_path, make_entry):
     path = tmp_path / "log"
-    open_db(path, "jsonl").add("/a", _entry())
+    open_db(path, "jsonl").add("/a", make_entry())
     assert sniff_format(path) == "jsonl"
 
 
@@ -148,22 +140,22 @@ def test_unknown_format_raises(tmp_path):
 # --------------------------------------------------------------------------
 
 
-def test_jsonl_is_one_line_per_record(tmp_path):
+def test_jsonl_is_one_line_per_record(tmp_path, make_entry):
     p = open_db(tmp_path / "f.jsonl")
-    p.add("/a", _entry())
-    p.add("/b", _entry(mode="755"))
-    lines = [l for l in p.path.read_text().splitlines() if l.strip()]
+    p.add("/a", make_entry())
+    p.add("/b", make_entry(mode="755"))
+    lines = [line for line in p.path.read_text().splitlines() if line.strip()]
     assert len(lines) == 2
     assert json.loads(lines[0])["path"] == "/a"
 
 
-def test_sqlite_upserts_in_place_no_duplicate_rows(tmp_path):
+def test_sqlite_upserts_in_place_no_duplicate_rows(tmp_path, make_entry):
     import sqlite3
 
     p = open_db(tmp_path / "f.db")
     p.init()
-    p.add("/x", _entry(mode="644"))
-    p.add("/x", _entry(mode="600"))
+    p.add("/x", make_entry(mode="644"))
+    p.add("/x", make_entry(mode="600"))
     conn = sqlite3.connect(str(p.path))
     try:
         (count,) = conn.execute("SELECT COUNT(*) FROM entries").fetchone()
@@ -172,10 +164,12 @@ def test_sqlite_upserts_in_place_no_duplicate_rows(tmp_path):
     assert count == 1  # upserted, not appended
 
 
-def test_yaml_reads_legacy_written_db(tmp_path):
+def test_yaml_reads_legacy_written_db(tmp_path, make_entry):
     # A hand-written legacy YAML mapping still loads via the yaml provider.
     path = tmp_path / "legacy.yaml"
-    path.write_text(yaml.safe_dump({"/usr/bin/x": _entry(mode="755"), "/gone": None}))
+    path.write_text(
+        yaml.safe_dump({"/usr/bin/x": make_entry(mode="755"), "/gone": None})
+    )
     db = open_db(path, for_read=True).load()
     assert db["/usr/bin/x"]["mode"] == "755"
     assert db["/gone"] is None
@@ -186,33 +180,24 @@ def test_yaml_reads_legacy_written_db(tmp_path):
 # --------------------------------------------------------------------------
 
 
-def _cmd(tmp_path, name):
-    inst = PkgForge.__new__(PkgForge)
-    inst.db = tmp_path / name
-    inst.db_format = None
-    inst.buildroot = tmp_path
-    return inst
-
-
 @pytest.mark.parametrize("ext", ["jsonl", "yaml", "db"])
-def test_buildutil_delegates_to_provider(tmp_path, ext):
-    cmd = _cmd(tmp_path, f"files.{ext}")
-    cmd.initdb()
-    cmd.add_entry("/usr/bin/x", _entry(mode="755"))
-    cmd.add_entry("/usr/bin/x", _entry(mode="700"))
-    cmd.remove_entry("/tmp/y")
-    db = cmd.loaddb()
+def test_cmd_delegates_to_provider(cmd, make_entry, ext):
+    inst = cmd(name=f"files.{ext}")
+    inst.initdb()
+    inst.add_entry("/usr/bin/x", make_entry(mode="755"))
+    inst.add_entry("/usr/bin/x", make_entry(mode="700"))
+    inst.remove_entry("/tmp/y")
+    db = inst.loaddb()
     assert db["/usr/bin/x"]["mode"] == "700"
     assert db["/tmp/y"] is None
 
 
-def test_buildutil_db_format_override(tmp_path):
+def test_cmd_db_format_override(cmd, make_entry):
     # Suffix says yaml, --db-format forces sqlite.
-    cmd = _cmd(tmp_path, "files.yaml")
-    cmd.db_format = "sqlite"
-    cmd.initdb()
-    cmd.add_entry("/a", _entry())
-    assert sniff_format(cmd.db) == "sqlite"
+    inst = cmd(name="files.yaml", db_format="sqlite")
+    inst.initdb()
+    inst.add_entry("/a", make_entry())
+    assert sniff_format(inst.db) == "sqlite"
 
 
 # --------------------------------------------------------------------------
@@ -234,6 +219,7 @@ def restore_registries():
         dbmod.SUFFIX_FORMATS.clear()
         dbmod.SUFFIX_FORMATS.update(suffixes)
         dbmod._SNIFFERS[:] = sniffers
+        assert "tsv" not in dbmod.PROVIDERS
 
 
 class _TsvDb(DbProvider):
@@ -282,19 +268,19 @@ class _TsvDb(DbProvider):
         self.path.write_text(self._MARK)
 
 
-def test_register_provider_selectable_by_name(restore_registries, tmp_path):
+def test_register_provider_selectable_by_name(restore_registries, tmp_path, make_entry):
     register_provider("tsv", _TsvDb, suffixes=(".tsv",))
     p = open_db(tmp_path / "f.out", "tsv")
     assert isinstance(p, _TsvDb)
     p.init()
-    p.add("/a", _entry(mode="644"))
+    p.add("/a", make_entry(mode="644"))
     assert open_db(tmp_path / "f.out", "tsv").load()["/a"]["mode"] == "644"
 
 
 def test_register_provider_selectable_by_suffix(restore_registries, tmp_path):
     register_provider("tsv", _TsvDb, suffixes=(".tsv",))
     assert isinstance(open_db(tmp_path / "f.tsv"), _TsvDb)
-    assert format_for_suffix((tmp_path / "f.tsv")) == "tsv"
+    assert format_for_suffix(tmp_path / "f.tsv") == "tsv"
 
 
 def test_register_provider_sniffer_wins(restore_registries, tmp_path):
@@ -313,8 +299,3 @@ def test_register_provider_sniffer_wins(restore_registries, tmp_path):
 
 def test_register_provider_returns_class_for_decorator(restore_registries):
     assert register_provider("tsv", _TsvDb) is _TsvDb
-
-
-def test_provider_registration_does_not_leak(tmp_path):
-    # After the restore fixture, "tsv" must be gone from the global registry.
-    assert "tsv" not in dbmod.PROVIDERS

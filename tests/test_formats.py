@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import tarfile
 
 import pytest
@@ -12,14 +11,9 @@ from pkgforge.dbdump import (
     MULTI_ARTIFACT_FORMATS,
     PER_ENTRY_FORMATS,
     DbDump,
-    _debian_artifacts,
     dump_formats,
-    rpmspecfile,
 )
 from pkgforge.install import _extract_tar, _is_tar_source
-
-POSIX = pytest.mark.skipif(os.name != "posix", reason="requires POSIX facilities")
-
 
 # --------------------------------------------------------------------------
 # tar detection + extraction
@@ -73,19 +67,6 @@ def test_dump_formats_lists_rpm_and_debian():
 
 
 # --------------------------------------------------------------------------
-# rpm (unchanged behavior)
-# --------------------------------------------------------------------------
-
-
-def test_rpmspecfile_still_renders():
-    line = rpmspecfile(
-        "/usr/bin/x",
-        {"mode": "755", "owner": "root", "group": "root", "type": "file", "meta": {}},
-    )
-    assert line == b'%attr(755,root,root) "/usr/bin/x"\n'
-
-
-# --------------------------------------------------------------------------
 # debian artifacts
 # --------------------------------------------------------------------------
 
@@ -120,7 +101,7 @@ def _entries():
 
 
 def test_debian_install_artifact():
-    arts = _debian_artifacts(_entries())
+    arts = MULTI_ARTIFACT_FORMATS["debian"](_entries())
     install = arts["install"].decode()
     # Non-directory entries -> "<rel-src> <dest-dir>"
     assert "usr/bin/tool usr/bin" in install
@@ -130,7 +111,7 @@ def test_debian_install_artifact():
 
 
 def test_debian_permissions_artifact():
-    arts = _debian_artifacts(_entries())
+    arts = MULTI_ARTIFACT_FORMATS["debian"](_entries())
     perms = arts["permissions"].decode()
     assert "/usr/bin/tool 755 root root" in perms
     assert "/etc/tool/conf 640 root adm" in perms
@@ -155,12 +136,10 @@ def test_dbdump_debian_writes_directory(tmp_path):
         )
     )
     outdir = tmp_path / "debian"
-    cmd = DbDump.__new__(DbDump)
-    cmd.db = db
-    cmd.buildroot = tmp_path
-    cmd.exclude = []
-    cmd.format = "debian"
-    cmd.output = outdir
+    parser = DbDump._parser_()
+    cmd = parser.parse_args(
+        ["--db", str(db), "--buildroot", str(tmp_path), "-f", "debian", str(outdir)]
+    )
     cmd()
     assert (outdir / "install").read_text().strip() == "usr/bin/tool usr/bin"
     perms = (outdir / "permissions").read_text()
