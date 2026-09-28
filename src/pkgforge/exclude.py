@@ -15,6 +15,7 @@ import re
 import typing
 from pathlib import Path
 
+import duho
 from duho import NS
 
 from .common import FileEntry, FileType, entry_from_path
@@ -162,3 +163,27 @@ class PathMatch(typing.List[PathMatchStmt]):
             if result is not None:
                 return result
         return _default
+
+
+class ExcludeArgs(duho.Cmd):
+    """Mixin supplying ``--exclude``/``-X`` -- shared by every command that
+    filters paths against a :class:`PathMatch` (``install``, ``scan``,
+    ``dbdump``), so the load-bearing ``duho.Append`` shape (see
+    ``.agents/AGENTS.md``) is declared exactly once.
+    """
+
+    # A collection field must use `duho.Append`, not a bare `List[...]`
+    # collection: duho would otherwise gather one *occurrence* worth of
+    # tokens per `-X`, rather than one statement per occurrence. `metavar`
+    # goes through `duho.Append`'s own `**kw` (its raw add_argument
+    # escape-hatch), and `duho.Meta(help=...)` is a separate metadata entry
+    # because passing `help=` to `duho.Append` itself fails at parser build.
+    exclude: duho.Arg[
+        typing.List[PathMatchStmt],
+        duho.Append(PathMatchStmt.parse, metavar="STMT"),
+        duho.Meta(
+            help="exclude paths matching STMT (repeatable); see the "
+            "exclude-pattern guide for the grammar"
+        ),
+    ] = []
+    ("--exclude", "-X")

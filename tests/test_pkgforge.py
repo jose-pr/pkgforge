@@ -633,6 +633,39 @@ def test_parse_structure():
     assert stmt.pattern == "a/*"
 
 
+@pytest.mark.parametrize(
+    "clsname,rest",
+    [
+        ("Install", ["src", "/dst"]),
+        ("ScanCmd", ["/path"]),
+        ("DbDump", ["-f", "rpmspecfiles", "-"]),
+    ],
+)
+def test_exclude_option_shape(clsname, rest):
+    # Pins the shared ExcludeArgs field: --exclude/-X is an append action,
+    # metavar STMT, no nargs override, and an empty-list default -- the same
+    # shape on every command that takes it.
+    from pkgforge.dbdump import DbDump
+    from pkgforge.exclude import ExcludeArgs
+    from pkgforge.install import Install
+    from pkgforge.scan import ScanCmd
+
+    classes = {"Install": Install, "ScanCmd": ScanCmd, "DbDump": DbDump}
+    cls = classes[clsname]
+    assert issubclass(cls, ExcludeArgs)
+
+    actions = {a.dest: a for a in cls._parser_()._actions}
+    action = actions["exclude"]
+    assert action.option_strings == ["--exclude", "-X"]
+    assert type(action).__name__ == "_AppendAction"
+    assert action.metavar == "STMT"
+    assert action.nargs is None
+    assert action.default == []
+
+    parsed = cls._parser_().parse_args(["-X", "a", "-X", "b", *rest])
+    assert len(parsed.exclude) == 2
+
+
 def test_pathtest_factory_alias():
     # PathTest.GENERATORS/.factory stay as back-compat aliases after moving
     # the registry off the Protocol body.

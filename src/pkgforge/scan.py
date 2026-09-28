@@ -18,10 +18,10 @@ from .common import (
     resolve_entry,
     _parse_filetype,
 )
-from .exclude import PathMatch, PathMatchStmt
+from .exclude import ExcludeArgs, PathMatch
 
 
-class ScanCmd(FileEntryArgs, PkgForgeCmd):
+class ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
     """Scan a path under the build root and record each file's entry in the DB.
 
     ``--type/-t`` is hidden from ``--help`` and, unlike ``install``, never
@@ -38,12 +38,6 @@ class ScanCmd(FileEntryArgs, PkgForgeCmd):
         duho.NS(type=_parse_filetype, help=argparse.SUPPRESS),
     ] = None
     ("--type", "-t")
-    exclude: duho.Arg[
-        typing.List[PathMatchStmt],
-        duho.Append(PathMatchStmt.parse, metavar="STMT"),
-    ] = []
-    "exclude paths matching STMT (repeatable); see the exclude-pattern guide for the grammar"
-    ("--exclude", "-X")
     missing: bool = False
     "only record entries absent from the DB, leaving existing ones untouched"
     ("--missing",)

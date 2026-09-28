@@ -76,6 +76,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `PkgForge`), so completion binds. Regenerate installed ones.
 
 ### Changed
+- `install`, `scan` and `dbdump` take `--exclude`/`-X` from a shared
+  `pkgforge.exclude.ExcludeArgs` base instead of each declaring it separately;
+  its position in `install --help` moves earlier (right after
+  `--buildroot`), with no other visible change.
 - `scan` logs one INFO summary; per-path `Updating file entry for:` lines need
   `-v`.
 - Commands log as `pkgforge.<command>` (was `<command>`, e.g. `scan`). Use the

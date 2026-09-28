@@ -217,6 +217,9 @@ tree).
   entry=None, _default=None, **overrides) -> bool | None` — evaluates
   statements in order, first non-`None` result wins; `entry=None` derives one
   via `FileEntry.from_path`; an empty `PathMatch` always matches (`True`).
+- **`ExcludeArgs(duho.Cmd)`** — the `--exclude`/`-X` field, declared once and
+  shared: `Install`, `ScanCmd` and `DbDump` all take `--exclude` from this
+  mixin instead of each declaring it separately.
 
 ## `dbdump` format registry (`dbdump.py`)
 
@@ -245,7 +248,7 @@ or all of them with `logging.getLogger("pkgforge")` (a bare `--loglevel
 pkgforge:LEVEL` has no effect on a CLI-dispatched command; see `PkgForgeCmd`
 above).
 
-- **`install.Install(FileEntryArgs, PkgForgeCmd)`** (`pkgforge install`) —
+- **`install.Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd)`** (`pkgforge install`) —
   stage a source (file / directory / symlink / tar-family archive /
   decompress-on-copy) into the build root, apply mode/ownership, and record
   the entry. `-D` = `-Tp` shortcut, `-d` = `--type directory` shortcut.
@@ -294,12 +297,12 @@ above).
   `-d` cannot be combined with `-t`/`--type` (a declared `conflicts=`
   group; exit 2, enforced by argparse itself before `Install` is
   constructed).
-- **`scan.ScanCmd(FileEntryArgs, PkgForgeCmd)`** (`pkgforge scan`) — walk a
+- **`scan.ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd)`** (`pkgforge scan`) — walk a
   path under the build root, recording an entry per file; `--missing` only
   fills gaps not already in the DB. `--type/-t` is hidden from `--help` and
   never applied (scan always records each path's own on-disk type); an
   explicit value logs a warning instead of doing nothing silently.
-- **`dbdump.DbDump(PkgForgeCmd)`** (`pkgforge dbdump -f FORMAT [output]`) —
+- **`dbdump.DbDump(ExcludeArgs, PkgForgeCmd)`** (`pkgforge dbdump -f FORMAT [output]`) —
   render surviving (post-`--exclude`) DB entries via the format registry
   above.
 - **`initdb.InitDb(PkgForgeCmd)`** (`pkgforge initdb`) — create or truncate

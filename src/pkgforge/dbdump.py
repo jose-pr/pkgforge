@@ -18,10 +18,8 @@ import sys
 import typing
 from pathlib import Path
 
-import duho
-
 from .common import DEFAULT, PkgForgeCmd, FileEntry, _or_default
-from .exclude import PathMatch, PathMatchStmt
+from .exclude import ExcludeArgs, PathMatch
 
 #: An entry that survived filtering: (db-path, FileEntry).
 Entries = typing.List[typing.Tuple[str, FileEntry]]
@@ -108,18 +106,12 @@ def dump_formats() -> typing.List[str]:
     return sorted([*PER_ENTRY_FORMATS, *MULTI_ARTIFACT_FORMATS])
 
 
-class DbDump(PkgForgeCmd):
+class DbDump(ExcludeArgs, PkgForgeCmd):
     """Dump the file DB into a packaging manifest (rpm or debian)."""
 
     _parsername_ = "dbdump"
     _logger_name_ = "pkgforge.dbdump"
 
-    exclude: duho.Arg[
-        typing.List[PathMatchStmt],
-        duho.Append(PathMatchStmt.parse, metavar="STMT"),
-    ] = []
-    "exclude paths matching STMT (repeatable); see the exclude-pattern guide for the grammar"
-    ("--exclude", "-X")
     format: str
     "output format: rpmspecfiles, debian"
     ("--format", "-f")

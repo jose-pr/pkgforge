@@ -42,7 +42,7 @@ from .common import (
     _normalize_field,
     _parse_filetype,
 )
-from .exclude import PathMatch, PathMatchStmt
+from .exclude import ExcludeArgs, PathMatch
 
 #: Kind -> (argv prefix, canonical suffix). ``argv`` always includes ``-d``
 #: (or the tool's own always-decompressing form), so a compressor's name
@@ -221,7 +221,7 @@ def _extract_tar(path: typing.Union[str, os.PathLike], dst: Path) -> None:
         tar.extractall(os.fspath(dst), **kwargs)
 
 
-class Install(FileEntryArgs, PkgForgeCmd):
+class Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
     """Install a source into the build root and record its file entry."""
 
     _parsername_ = "install"
@@ -243,12 +243,6 @@ class Install(FileEntryArgs, PkgForgeCmd):
     ] = DEFAULT
     "file, directory or symlink, in any case (auto-detected from the source if unset, or given as '--')"
     ("--type", "-t")
-    exclude: duho.Arg[
-        typing.List[PathMatchStmt],
-        duho.Append(PathMatchStmt.parse, metavar="STMT"),
-    ] = []
-    "exclude paths matching STMT when copying a directory source (repeatable); see the exclude-pattern guide for the grammar"
-    ("--exclude", "-X")
     parents: bool
     "create missing parent directories of the destination"
     ("--parents", "-p")
