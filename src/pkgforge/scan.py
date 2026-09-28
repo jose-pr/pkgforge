@@ -73,6 +73,24 @@ class ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
         filter = PathMatch(self.exclude, scanpath)
         self._logger_.info("Scanning %s", scanpath)
 
+        # Precomputed ONCE (never per walked path, so the walk stays cheap):
+        # the file DB's own directory (realpath) and the four basenames that
+        # matter -- the DB file itself, and a sqlite backend's -journal/-wal/
+        # -shm sidecars, which exist only transiently during a write but cost
+        # nothing to also name here. `_scanfile` below only pays for a second
+        # `realpath` call (to confirm it's the SAME directory, not merely a
+        # same-named file elsewhere in the tree) on an actual basename hit.
+        # `dbdump` OUTPUT files (rpm-files.txt, debian/) are not recognizable
+        # here and are documented instead -- keep them outside --buildroot too.
+        db_skip_dir = db_skip_names = None
+        if not self._no_file_db():
+            db_path = Path(self.db)
+            db_skip_dir = os.path.realpath(db_path.parent)
+            db_skip_names = {
+                db_path.name + suffix for suffix in ("", "-journal", "-wal", "-shm")
+            }
+        warned_db_skip = False
+
         recorded = 0
 
         def _scanfile(path: Path) -> bool:
@@ -82,8 +100,21 @@ class ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
             directory's subtree, so it no longer descends into it and
             records its contents anyway (matching ``install``).
             """
-            nonlocal recorded
+            nonlocal recorded, warned_db_skip
             try:
+                if db_skip_names is not None and path.name in db_skip_names:
+                    if os.path.realpath(path.parent) == db_skip_dir:
+                        if warned_db_skip:
+                            self._logger_.debug("Skipping the file DB %s", path)
+                        else:
+                            self._logger_.warning(
+                                "Skipping the file DB %s found inside the "
+                                "scanned tree; keep --db (and dbdump output) "
+                                "outside --buildroot",
+                                path,
+                            )
+                            warned_db_skip = True
+                        return True
                 # meta=dict(self.meta): a (?meta:k=v) inline test then sees
                 # this run's -O values, the same as it always has in dbdump
                 # (scan/install build the entry from disk, which never

@@ -399,7 +399,12 @@ above).
   including a dangling one, and an absolute target that would otherwise
   walk the build host's own filesystem -- except when PATH normalizes to
   the build root itself (`/`), which is always walked even when
-  `--buildroot` resolves through a symlink.
+  `--buildroot` resolves through a symlink. `scan` never records its own
+  configured `--db` file (or, for `sqlite`, its `-journal`/`-wal`/`-shm`
+  sidecars) if found inside the scanned tree -- it logs one WARNING (DEBUG
+  for any further match in the same run) and moves on; it cannot recognize
+  a `dbdump` OUTPUT file written there earlier, so keep both outside
+  `--buildroot`.
 - **`dbdump.DbDump(ExcludeArgs, PkgForgeCmd)`** (`pkgforge dbdump -f FORMAT [output]`) —
   render surviving (post-`--exclude`) DB entries via the format registry
   above.

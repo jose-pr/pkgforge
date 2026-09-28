@@ -31,8 +31,13 @@ On failure, one `pkgforge: error: ...` line goes to stderr; set
 Create or reset (truncate) an empty file DB.
 
 ```bash
-pkgforge --db files.jsonl initdb
+pkgforge -r stage --db stage.files.jsonl initdb
 ```
+
+Keep the DB (and any `dbdump` output) outside `--buildroot`: `scan` skips its
+own configured DB file (and, for `sqlite`, its `-journal`/`-wal`/`-shm`
+sidecars) if it finds them inside the scanned tree, logging a warning, but
+it cannot recognize an output file `dbdump` wrote there earlier.
 
 ## `install`
 
@@ -151,7 +156,10 @@ PATH must resolve inside `--buildroot`, the same as `install`'s DESTINATION.
 A PATH that does not exist under the build root exits 2 with one message,
 before anything is touched. A symlink PATH is recorded as one `symlink`
 entry, never followed -- including a symlinked `--buildroot` itself for
-`PATH /`, which is always walked.
+`PATH /`, which is always walked. `scan` never records its own configured
+DB file (or, for `sqlite`, its `-journal`/`-wal`/`-shm` sidecars) if it
+finds it inside the scanned tree -- it logs one warning and continues.
+Keep the DB, and any `dbdump` output, outside `--buildroot`.
 
 ## `compact`
 
@@ -159,7 +167,7 @@ Collapse an append-log DB (`jsonl`/`yaml`) to one record per live path,
 dropping superseded records and removal tombstones.
 
 ```bash
-pkgforge --db files.jsonl compact
+pkgforge -r stage --db stage.files.jsonl compact
 ```
 
 A no-op for a `sqlite` DB (it upserts in place) or a stdout/unset DB.

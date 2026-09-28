@@ -33,6 +33,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   with one message, not a traceback.
 
 ### Fixed
+- `scan` no longer records the file DB (or a SQLite DB's
+  `-journal`/`-wal`/`-shm` sidecars) found inside the scanned tree, and
+  warns once instead; other files there, such as an earlier `dbdump`
+  output, are still recorded -- keep the DB and any dump output outside
+  `--buildroot`.
 - `scan` of a PATH that does not exist under the build root exits 2 with
   one message, instead of a raw `FileNotFoundError` traceback.
 - `scan` records a symlink PATH as one `symlink` entry instead of walking

@@ -9,6 +9,7 @@ facilities (chmod, real owner/group names, symlinks) are marked
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -302,3 +303,72 @@ def test_scan_symlinked_buildroot_still_walked(tmp_path, cli):
     assert cli("--db", str(db), "--buildroot", str(root), "scan", "/").rc == 0
     recorded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
     assert "/usr/a" in {k.replace("\\", "/") for k in recorded}
+
+
+# --------------------------------------------------------------------------
+# scan never records its own file DB (cross-platform: no chmod/owner
+# involved, only path comparison).
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("fmt,ext", [("jsonl", "jsonl"), ("sqlite", "db")])
+def test_scan_skips_file_db_inside_buildroot(tmp_path, monkeypatch, caplog, fmt, ext):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "usr" / "bin").mkdir(parents=True)
+    (tmp_path / "usr" / "bin" / "tool").write_text("x")
+    db_name = f"files.{ext}"
+
+    from pkgforge.scan import ScanCmd
+
+    PkgForgeCmd(db=Path(db_name), db_format=fmt, buildroot=Path(".")).initdb()
+
+    caplog.set_level(logging.WARNING, logger="pkgforge")
+    parser = ScanCmd._parser_()
+    inst = parser.parse_args(["--db", db_name, "--db-format", fmt, "--missing", "/"])
+    inst()
+
+    recorded = {k.replace("\\", "/") for k in inst.loaddb()}
+    assert f"/{db_name}" not in recorded
+    assert "/usr/bin/tool" in recorded
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+
+
+def test_scan_skips_sqlite_sidecars(tmp_path, monkeypatch, caplog):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "usr").mkdir()
+    (tmp_path / "usr" / "a").write_text("x")
+    db_name = "files.db"
+
+    from pkgforge.scan import ScanCmd
+
+    PkgForgeCmd(db=Path(db_name), db_format="sqlite", buildroot=Path(".")).initdb()
+    # A stale sidecar (e.g. left behind by a crashed run) must be skipped too.
+    (tmp_path / (db_name + "-journal")).write_text("stale")
+
+    caplog.set_level(logging.WARNING, logger="pkgforge")
+    parser = ScanCmd._parser_()
+    inst = parser.parse_args(["--db", db_name, "--db-format", "sqlite", "/"])
+    inst()
+
+    recorded = {k.replace("\\", "/") for k in inst.loaddb()}
+    assert f"/{db_name}" not in recorded
+    assert f"/{db_name}-journal" not in recorded
+    assert "/usr/a" in recorded
+
+
+def test_scan_db_outside_root_changes_nothing(tmp_path):
+    # Regression guard: a DB outside --buildroot still records everything.
+    root = tmp_path / "root"
+    (root / "usr").mkdir(parents=True)
+    (root / "usr" / "a").write_text("x")
+    db = tmp_path / "db.jsonl"
+
+    from pkgforge.scan import ScanCmd
+
+    parser = ScanCmd._parser_()
+    inst = parser.parse_args(["--db", str(db), "--buildroot", str(root), "/"])
+    inst()
+
+    recorded = {k.replace("\\", "/") for k in inst.loaddb()}
+    assert recorded == {"/usr", "/usr/a"}
