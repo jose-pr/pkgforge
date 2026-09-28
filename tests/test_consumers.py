@@ -178,9 +178,10 @@ def test_rpmbuild_accepts_manifest(tmp_path, cli):
 @requires_rpmbuild
 @xfail_rpm_below_419
 def test_rpmbuild_quoted_glob_is_literal(tmp_path, cli):
-    # Guard (F30): rpm's own quoted-string globbing matches a glob character
+    # Guard: rpm's own quoted-string globbing matches a glob character
     # literally, so _rpm_quote never needs to escape one -- this passed
-    # before the fix too (json.dumps left glob characters alone).
+    # even before rpmspecfiles was rpm-quoted at all (json.dumps also left
+    # glob characters alone).
     root = tmp_path / "root"
     db = tmp_path / "files.jsonl"
     src = tmp_path / "src"
@@ -336,7 +337,8 @@ def test_dh_install_ships_exact_files(tmp_path, cli):
     )
     assert result.rc == 0, result.err
 
-    # An empty directory recorded with install -d (F33's dirs artifact).
+    # An empty directory recorded with install -d, which only the debian
+    # format's dirs artifact (not install) covers.
     emptysrc = tmp_path / "emptysrc"
     emptysrc.mkdir()
     result = cli(
