@@ -25,9 +25,6 @@ import pytest
 from pkgforge.common import PkgForgeError
 from pkgforge.install import BSDTAR_EXTRACT_FLAGS, Install, _extract_bsdtar
 
-pytestmark = pytest.mark.posix
-
-
 # --------------------------------------------------------------------------
 # Re-running a directory install whose source holds symlinks
 # --------------------------------------------------------------------------
@@ -45,6 +42,7 @@ def _make_symlink_tree(base: Path) -> Path:
     return tree
 
 
+@pytest.mark.posix
 def test_install_dir_rerun_with_symlinks(tmp_path):
     root = tmp_path / "root"
     root.mkdir()
@@ -70,6 +68,7 @@ def test_install_dir_rerun_with_symlinks(tmp_path):
     assert len(lines) == 2
 
 
+@pytest.mark.posix
 def test_install_dir_rerun_retargets_link(tmp_path):
     root = tmp_path / "root"
     root.mkdir()
@@ -92,6 +91,7 @@ def test_install_dir_rerun_retargets_link(tmp_path):
     assert os.readlink(staged / "link") == "sub/g"
 
 
+@pytest.mark.posix
 def test_install_dir_does_not_write_through_stale_dst_symlink(tmp_path):
     root = tmp_path / "root"
     root.mkdir()
@@ -125,6 +125,7 @@ def test_install_dir_does_not_write_through_stale_dst_symlink(tmp_path):
     assert (staged_dir / "f").read_text() == "new-content"
 
 
+@pytest.mark.posix
 def test_install_dir_rerun_leaves_excluded_dst_entry(tmp_path):
     # Guard: an excluded name's destination entry (here, a leftover
     # symlink) must never be touched by _copy_ignore's stale-link cleanup.
@@ -177,6 +178,7 @@ def _tar_bytes(build) -> bytes:
     return buf.getvalue()
 
 
+@pytest.mark.posix
 def test_bsdtar_argv_carries_policy_flags(tmp_path, monkeypatch):
     calls = []
 
@@ -201,6 +203,7 @@ def test_bsdtar_argv_carries_policy_flags(tmp_path, monkeypatch):
     assert argv[argv.index("-f") + 1] == "archive.bin"
 
 
+@pytest.mark.posix
 @pytest.mark.skipif(shutil.which("bsdtar") is None, reason="bsdtar not available")
 def test_bsdtar_rejects_fifo_member(tmp_path):
     root = tmp_path / "root"
@@ -235,7 +238,8 @@ def test_bsdtar_rejects_fifo_member(tmp_path):
     assert not (root / "opt" / "app").exists()
 
 
-@pytest.mark.skipif(os.geteuid() != 0, reason="root-only")
+@pytest.mark.posix
+@pytest.mark.skipif(getattr(os, "geteuid", lambda: 1)() != 0, reason="root-only")
 @pytest.mark.skipif(shutil.which("bsdtar") is None, reason="bsdtar not available")
 def test_bsdtar_as_root_drops_owner_and_special_bits(tmp_path):
     root = tmp_path / "root"
@@ -280,7 +284,8 @@ def test_bsdtar_as_root_drops_owner_and_special_bits(tmp_path):
     assert not (world_st.st_mode & stat.S_IWOTH)
 
 
-@pytest.mark.skipif(os.geteuid() != 0, reason="root-only")
+@pytest.mark.posix
+@pytest.mark.skipif(getattr(os, "geteuid", lambda: 1)() != 0, reason="root-only")
 @pytest.mark.skipif(shutil.which("bsdtar") is None, reason="bsdtar not available")
 def test_bsdtar_as_root_rejects_char_device(tmp_path):
     root = tmp_path / "root"
@@ -350,6 +355,7 @@ def _add_hardlink(tf, name, target):
     tf.addfile(ti)
 
 
+@pytest.mark.posix
 def test_tar_keeps_absolute_and_climbing_symlinks(tmp_path):
     root = tmp_path / "root"
     root.mkdir()
@@ -382,6 +388,7 @@ def test_tar_keeps_absolute_and_climbing_symlinks(tmp_path):
         "absolute_hardlink",
     ],
 )
+@pytest.mark.posix
 def test_tar_rejects_member_escape(tmp_path, kind):
     root = tmp_path / "root"
     root.mkdir()
@@ -442,6 +449,7 @@ def test_tar_rejects_member_escape(tmp_path, kind):
     assert outside.read_text() == "original"
 
 
+@pytest.mark.posix
 def test_tar_absolute_hardlink_to_member(tmp_path):
     root = tmp_path / "root"
     root.mkdir()
@@ -476,6 +484,7 @@ def test_tar_absolute_hardlink_to_member(tmp_path):
     assert os.stat(staged / "h").st_ino == os.stat(staged / "a").st_ino
 
 
+@pytest.mark.posix
 def test_tar_special_file_rejected(tmp_path):
     root = tmp_path / "root"
     root.mkdir()
@@ -507,6 +516,7 @@ def test_tar_special_file_rejected(tmp_path):
     assert not (root / "opt" / "app").exists()
 
 
+@pytest.mark.posix
 def test_extract_tar_refuses_without_filter(tmp_path, monkeypatch):
     import pkgforge.install as install_mod
 
@@ -521,6 +531,7 @@ def test_extract_tar_refuses_without_filter(tmp_path, monkeypatch):
     assert not (dst / "a").exists()
 
 
+@pytest.mark.posix
 def test_tar_routes_to_bsdtar_without_filter(tmp_path, monkeypatch):
     import pkgforge.install as install_mod
 
@@ -554,6 +565,7 @@ def test_tar_routes_to_bsdtar_without_filter(tmp_path, monkeypatch):
     assert calls[0][0] == archive
 
 
+@pytest.mark.posix
 def test_tar_refused_without_filter_or_bsdtar(tmp_path, monkeypatch):
     import pkgforge.install as install_mod
 
@@ -584,7 +596,8 @@ def test_tar_refused_without_filter_or_bsdtar(tmp_path, monkeypatch):
     assert not (root / "opt" / "app").exists()
 
 
-@pytest.mark.skipif(os.geteuid() != 0, reason="root-only")
+@pytest.mark.posix
+@pytest.mark.skipif(getattr(os, "geteuid", lambda: 1)() != 0, reason="root-only")
 def test_tar_as_root_drops_owner(tmp_path):
     root = tmp_path / "root"
     root.mkdir()
@@ -655,6 +668,7 @@ def test_archive_dir_name_bare_suffix_unchanged():
     assert _archive_dir_name(".tgz") == ".tgz"
 
 
+@pytest.mark.posix
 @pytest.mark.parametrize("suffix", [".tgz", ".tbz2", ".tbz", ".txz", ".TAR.GZ", ".Tgz"])
 def test_install_archive_strips_suffix(tmp_path, suffix):
     root = tmp_path / "root"
@@ -676,6 +690,7 @@ def test_install_archive_strips_suffix(tmp_path, suffix):
     assert "/opt/foo-1.0" in inst.loaddb()
 
 
+@pytest.mark.posix
 @pytest.mark.parametrize("suffix", [".tar", ".tar.gz", ".tar.bz2", ".tar.xz"])
 def test_install_archive_strips_suffix_guard(tmp_path, suffix):
     # Guard: the old loop already stripped a literal .tar/.tar.gz/.tar.bz2/
@@ -697,6 +712,7 @@ def test_install_archive_strips_suffix_guard(tmp_path, suffix):
     assert (root / "opt" / "foo-1.0" / "x").read_bytes() == b"data"
 
 
+@pytest.mark.posix
 def test_install_directory_source_keeps_dotted_name(tmp_path):
     root = tmp_path / "root"
     root.mkdir()
@@ -712,6 +728,7 @@ def test_install_directory_source_keeps_dotted_name(tmp_path):
     assert (root / "etc" / "conf.tar.d" / "a").read_text() == "x"
 
 
+@pytest.mark.posix
 def test_install_tar_routes_through_tarfile_guard(tmp_path, monkeypatch):
     # Guard: a plain .tar.gz source still goes through the stdlib tarfile
     # path, not bsdtar, after the naming rework.
@@ -738,6 +755,7 @@ def test_install_tar_routes_through_tarfile_guard(tmp_path, monkeypatch):
     assert calls == [archive]
 
 
+@pytest.mark.posix
 @pytest.mark.skipif(shutil.which("bsdtar") is None, reason="bsdtar not available")
 def test_install_zip_via_bsdtar(tmp_path):
     root = tmp_path / "root"
@@ -761,6 +779,7 @@ def test_install_zip_via_bsdtar(tmp_path):
     assert "/opt/bundle" in inst.loaddb()
 
 
+@pytest.mark.posix
 @pytest.mark.skipif(shutil.which("bsdtar") is None, reason="bsdtar not available")
 def test_install_archive_from_stdin_via_bsdtar_guard(tmp_path):
     # Guard: -x/-T stdin archive install already worked through bsdtar
@@ -806,6 +825,7 @@ def test_install_archive_from_stdin_via_bsdtar_guard(tmp_path):
 # --------------------------------------------------------------------------
 
 
+@pytest.mark.posix
 def test_install_dir_containing_buildroot_skips_it(tmp_path, monkeypatch):
     proj = tmp_path / "proj"
     (proj / "src").mkdir(parents=True)
@@ -842,6 +862,7 @@ def test_install_dir_containing_buildroot_skips_it(tmp_path, monkeypatch):
     assert "/opt/app" in inst.loaddb()
 
 
+@pytest.mark.posix
 def test_install_dir_containing_buildroot_with_exclude(tmp_path, monkeypatch):
     proj = tmp_path / "proj"
     (proj / "src").mkdir(parents=True)
@@ -878,6 +899,7 @@ def test_install_dir_containing_buildroot_with_exclude(tmp_path, monkeypatch):
 # --------------------------------------------------------------------------
 
 
+@pytest.mark.posix
 def test_install_exclude_with_archive_source_refused(tmp_path, cli):
     root = tmp_path / "root"
     db = tmp_path / "files.jsonl"
@@ -903,6 +925,7 @@ def test_install_exclude_with_archive_source_refused(tmp_path, cli):
     assert archive.exists()
 
 
+@pytest.mark.posix
 def test_install_exclude_only_file_sources_warns(tmp_path, caplog):
     import logging
 
@@ -931,6 +954,7 @@ def test_install_exclude_only_file_sources_warns(tmp_path, caplog):
     assert any("has no effect" in r.message for r in caplog.records)
 
 
+@pytest.mark.posix
 def test_install_exclude_directory_source_still_excludes_guard(tmp_path, caplog):
     import logging
 
@@ -970,6 +994,7 @@ def test_install_exclude_directory_source_still_excludes_guard(tmp_path, caplog)
 # --------------------------------------------------------------------------
 
 
+@pytest.mark.posix
 def test_install_directory_records_one_entry_guard(tmp_path):
     # Guard: a bare directory (or archive) install records exactly one
     # entry for the destination -- the whole point the example, and its
@@ -1003,6 +1028,7 @@ def test_install_directory_records_one_entry_guard(tmp_path):
     assert list(inst.loaddb().keys()) == ["/usr/share/tool"]
 
 
+@pytest.mark.posix
 @pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
 def test_example_records_tree_contents():
     repo_root = Path(__file__).resolve().parents[1]
