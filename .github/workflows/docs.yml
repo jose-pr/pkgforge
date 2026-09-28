@@ -1,17 +1,51 @@
 name: Docs
 
-# Manual docs build + deploy to GitHub Pages, independent of the release
-# pipeline (so the site can be (re)published without cutting a release).
+# Builds the docs site and deploys it to GitHub Pages, independent of the
+# release pipeline (three workflow files: test, release, docs) so the site
+# can be (re)published without cutting a release, and a release is not the
+# first time the docs build is exercised. This workflow owns ALL Pages
+# deploys (main = latest, a release = the version just shipped); release.yml
+# only gates on a strict docs build, then dispatches this one at its tag.
+#
+# Triggers:
+#   - push to the default branch touching docs sources (keeps Pages current);
+#     CHANGELOG.md counts, since the docs embed it.
+#   - workflow_dispatch, for a manual redeploy of any ref, and the one a
+#     release uses. (A release made with GITHUB_TOKEN fires no `release`
+#     event for other workflows, which is why this does not listen for one.)
+#
+# It self-enables Pages on every run (configure-pages with enablement). Two
+# repo settings a workflow cannot set for itself: default workflow
+# permissions must be read and write (Settings -> Actions -> General), or
+# `pages: write` cannot be granted; and the `github-pages` environment's
+# deployment policy must allow `v*` tags, or a release's deploy is rejected
+# after a successful build.
 on:
+  push:
+    branches: ["main"]
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "src/**"
+      - "CHANGELOG.md"
+      - ".github/workflows/docs.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# Serialize deploys; never cancel an in-flight Pages deploy mid-publish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
 jobs:
-  build:
+  docs-build:
     name: Build documentation site
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write # configure-pages' enablement turns Pages on when it is off
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -29,9 +63,9 @@ jobs:
         with:
           path: site/
 
-  deploy:
+  docs-deploy:
     name: Deploy documentation to GitHub Pages
-    needs: build
+    needs: docs-build
     runs-on: ubuntu-latest
     permissions:
       pages: write

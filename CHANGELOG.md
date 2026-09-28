@@ -7,6 +7,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
+- The documentation site is now rebuilt from `main` whenever the docs change,
+  and from the release tag after each final release. A pre-release tag leaves
+  it unchanged.
 - The `dev` extra installs `black` on Python 3.10 and later.
 - The sdist no longer includes `benchmarks/`.
 - `pyyaml` is declared as `>=6.0,<7`; it was unbounded.

@@ -107,8 +107,8 @@ jobs:
           path: benchmarks/results/*.json
 
   docs:
-    # The release workflow gates its Pages deploy on `mkdocs build --strict`.
-    # Run the same check here so a docs break is caught before a tag is cut.
+    # release.yml's docs-gate blocks a release on `mkdocs build --strict`, and
+    # this job runs the same check before a tag is cut.
     name: Build documentation
     runs-on: ubuntu-latest
     steps:
