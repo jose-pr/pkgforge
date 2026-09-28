@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import tarfile
 
 import pytest
@@ -145,6 +146,42 @@ def test_debian_permissions_artifact():
     assert "/etc/tool/conf 640 root adm" in perms
     # The all-default directory entry contributes no permission override.
     assert "/etc/tool -" not in perms
+
+
+def _jsonl_row(path: str) -> str:
+    return json.dumps(
+        {
+            "path": path,
+            "mode": "644",
+            "owner": "-",
+            "group": "-",
+            "type": "file",
+            "meta": {},
+        }
+    )
+
+
+@pytest.mark.parametrize("fmt", ["rpmspecfiles", "debian"])
+def test_dbdump_sorts_by_path(tmp_path, fmt):
+    # Insertion order (/z, /a, /m) must never reach the manifest: rendering
+    # sorts by DB path so a staged tree gives byte-identical manifests
+    # regardless of backend or filesystem readdir order.
+    db = tmp_path / "files.jsonl"
+    db.write_text(
+        "\n".join(_jsonl_row(p) for p in ("/z", "/a", "/m")) + "\n",
+        encoding="utf-8",
+    )
+    parser = DbDump._parser_()
+    if fmt == "rpmspecfiles":
+        out = tmp_path / "out.txt"
+        parser.parse_args(["--db", str(db), "-f", fmt, str(out)])()
+        order = [line.split('"')[1] for line in out.read_text().splitlines()]
+    else:
+        outdir = tmp_path / "debian"
+        parser.parse_args(["--db", str(db), "-f", fmt, str(outdir)])()
+        lines = [line for line in (outdir / "install").read_text().splitlines() if line]
+        order = ["/" + line.split()[0] for line in lines]
+    assert order == ["/a", "/m", "/z"]
 
 
 def test_dbdump_debian_writes_directory(tmp_path):

@@ -16,6 +16,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   exits 2 with one line naming the problem (was exit 1 or a raw traceback,
   possibly after loading the whole DB).
 
+### Changed
+- `dbdump` writes entries sorted by path, so a staged tree gives
+  byte-identical manifests on any filesystem and backend (was insertion
+  order).
+
 ### Security
 - Archives extracted with `bsdtar` (stdin, `.zip`, `.iso`, `.cpio`) no
   longer restore owners, setuid/setgid, group/other write, xattrs, ACLs or

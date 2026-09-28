@@ -511,6 +511,9 @@ above).
   raise `UsageError`, exit 2), so a format typo never surfaces as whatever
   the DB load happens to raise first; the check is a runtime registry lookup
   (never `duho.Choice`), so a format registered after import still works.
+  Entries are emitted sorted by DB path (code-point order), never backend or
+  filesystem order, so the same staged tree gives byte-identical manifests
+  on any filesystem or DB backend.
 - **`initdb.InitDb(PkgForgeCmd)`** (`pkgforge initdb`) — create or truncate
   an empty DB; a no-op, now with a WARNING, for an unset/stdout DB. A `--db`
   naming a file that doesn't exist yet is not this case -- creating it is

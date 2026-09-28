@@ -178,6 +178,11 @@ class DbDump(ExcludeArgs, PkgForgeCmd):
                 "empty manifest",
                 live,
             )
+        # Sorted by DB path (code-point order), not backend/insertion/readdir
+        # order: neither rpm nor dh_install give the output order any
+        # meaning, so this is what makes a staged tree give byte-identical
+        # manifests on any filesystem and any backend.
+        entries.sort(key=lambda pathentry: pathentry[0])
         return entries
 
     @contextlib.contextmanager
