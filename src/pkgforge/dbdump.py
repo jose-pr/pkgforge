@@ -325,7 +325,7 @@ class DbDump(ExcludeArgs, PkgForgeCmd):
         """Open OUTPUT for writing: the real file for a path, or a stream
         onto the process's actual stdout for ``-``.
 
-        Never opens a raw ``os.fdopen(sys.stdout.fileno(), ...)``: that
+        Never wraps ``sys.stdout``'s raw file descriptor directly: that
         bypasses Python's own stdout buffer entirely, so it (a) raises
         ``io.UnsupportedOperation`` whenever ``sys.stdout`` isn't backed by a
         real file descriptor (``redirect_stdout``, embedding, pytest capture)
