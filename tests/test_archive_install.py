@@ -871,3 +871,95 @@ def test_install_dir_containing_buildroot_with_exclude(tmp_path, monkeypatch):
     assert not (staged / "src" / "b.pyc").exists()
     assert (staged / "build").is_dir()
     assert list((staged / "build").iterdir()) == []
+
+
+# --------------------------------------------------------------------------
+# install -X with an archive source is an error
+# --------------------------------------------------------------------------
+
+
+def test_install_exclude_with_archive_source_refused(tmp_path, cli):
+    root = tmp_path / "root"
+    db = tmp_path / "files.jsonl"
+    archive = tmp_path / "pkg.tar"
+    _write_tar(archive, lambda tf: _add_file(tf, "x", b"data"))
+
+    result = cli(
+        "--db",
+        str(db),
+        "--buildroot",
+        str(root),
+        "install",
+        "-p",
+        "-d",
+        "-D",
+        "-X",
+        "**/*.la",
+        str(archive),
+        "/opt/app",
+    )
+    assert result.rc == 2
+    assert not root.exists() or not (root / "opt").exists()
+    assert archive.exists()
+
+
+def test_install_exclude_only_file_sources_warns(tmp_path, caplog):
+    import logging
+
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+    src = tmp_path / "a.conf"
+    src.write_text("x")
+
+    caplog.set_level(logging.WARNING, logger="pkgforge.install")
+    Install._parser_().parse_args(
+        [
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-X",
+            "*.la",
+            str(src),
+            "/etc",
+        ]
+    )()
+
+    assert (root / "etc" / "a.conf").exists()
+    assert any("has no effect" in r.message for r in caplog.records)
+
+
+def test_install_exclude_directory_source_still_excludes_guard(tmp_path, caplog):
+    import logging
+
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "keep.txt").write_text("x")
+    (src / "drop.la").write_text("x")
+
+    caplog.set_level(logging.WARNING, logger="pkgforge.install")
+    Install._parser_().parse_args(
+        [
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-d",
+            "-D",
+            "-X",
+            "*.la",
+            str(src),
+            "/opt/app",
+        ]
+    )()
+
+    staged = root / "opt" / "app"
+    assert (staged / "keep.txt").exists()
+    assert not (staged / "drop.la").exists()
+    assert not any("has no effect" in r.message for r in caplog.records)

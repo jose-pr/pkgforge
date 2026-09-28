@@ -370,7 +370,10 @@ above).
   constructed). `-X`'s `(?meta:k=v)` inline test sees this run's `-O`
   values; a FIFO or socket the copy itself would otherwise reach raises
   `PkgForgeError` naming the path and the `-X` remedy, unless a glob-only
-  `-X` already excluded it first.
+  `-X` already excluded it first. `-X` only ever filters a real directory
+  source: with an archive source it raises `UsageError` (exit 2) instead
+  of extracting every member unfiltered; with only file or symlink
+  sources it logs a warning, since there is nothing to filter.
 - **`scan.ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd)`** (`pkgforge scan`) — walk a
   path under the build root, recording an entry per file; `--missing` only
   fills gaps not already in the DB. `--type/-t` is hidden from `--help` and

@@ -16,6 +16,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   instead of extracting with no path/symlink/special-file checks at all.
 
 ### Changed
+- `install -X` with an archive source exits 2 instead of extracting every
+  member: extract it and install the directory with `-X`. `-X` with only
+  file or symlink sources logs a warning.
 - `app-1.0.tgz`, `.tbz2`, `.tbz`, `.txz`, `.zip`, `.iso` and upper-case
   suffixes installed without `-T` now land at `DESTINATION/app-1.0`
   (previously only a literal `.tar`/`.tar.gz`/`.tar.bz2`/`.tar.xz`

@@ -868,14 +868,19 @@ class Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
         any staging. Runs once per clone (a multi-source ``__call__`` fans
         out into one single-source clone per source first).
 
-        Checks only what depends on arguments alone, never on the source
-        (so it also validates a direct Python-API construction, which
-        skips the CLI's own converters entirely): the mode, --chown's
-        owner/group names (only when --chown is set; a recorded-only name
-        is never looked up, since it may be created later by a package's
-        own scriptlets), and the --db directory. It never auto-creates the
-        DB directory or checks euid -- CAP_CHOWN, user namespaces and
-        fakeroot all make a chown that a plain euid check would reject.
+        Checks mostly what depends on arguments alone, never requiring the
+        source to exist (so it also validates a direct Python-API
+        construction, which skips the CLI's own converters entirely): the
+        mode, --chown's owner/group names (only when --chown is set; a
+        recorded-only name is never looked up, since it may be created
+        later by a package's own scriptlets), and the --db directory. It
+        never auto-creates the DB directory or checks euid -- CAP_CHOWN,
+        user namespaces and fakeroot all make a chown that a plain euid
+        check would reject. The one exception: with ``--exclude`` set, it
+        classifies the source via :meth:`_source_kind` (a non-raising
+        ``Path.is_dir``/``is_symlink`` stat, never :func:`_detect_source_type`,
+        which raises for a missing/special path) to refuse an archive
+        source outright, or warn once for a source ``-X`` never filters.
         """
         self.mode = normalize_mode(self.mode)
 
@@ -907,6 +912,55 @@ class Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
             self._provider(for_read=True)
             if not Path(self.db).parent.is_dir():
                 raise UsageError(f"--db {self.db}: directory does not exist")
+
+        if self.exclude:
+            kind = self._source_kind()
+            if kind == "archive":
+                raise UsageError(
+                    f"{self.source}: -X/--exclude has no effect on an "
+                    "archive source; extract it and install the "
+                    "resulting directory with -X instead"
+                )
+            if kind != "copy":
+                self._logger_.warning(
+                    "-X/--exclude has no effect on a %s source %s; it "
+                    "only filters a directory copy",
+                    kind,
+                    self.source,
+                )
+
+    def _source_kind(self) -> str:
+        """Classify this clone's source the way :meth:`_resolve` ultimately
+        will -- ``"archive"``, ``"copy"`` (a real directory), ``"file"`` or
+        ``"symlink"`` -- without ever raising for a missing source (that is
+        :meth:`_resolve`'s own ``UsageError`` to give, not this one's).
+
+        Auto-detection (an unset/``-``/``--`` ``--type``) never yields
+        :attr:`FileType.Directory` for anything but a real on-disk
+        directory (:func:`_detect_source_type`), so only an explicit
+        ``-d``/``--type directory`` can put a non-directory source (an
+        archive) in a directory-typed install at all -- checking
+        ``self.type`` first, before ever stat-ing the source, is what lets
+        this skip :func:`_detect_source_type` and its stricter, raising
+        checks entirely.
+        """
+        source = self.source
+        if self.type not in (DEFAULT, AUTO, FileType._AUTO, []):
+            type_ = _filetype(self.type)
+        elif source and source != DEFAULT and Path(source).is_symlink():
+            type_ = FileType.Symlink
+        elif source and source != DEFAULT and Path(source).is_dir():
+            type_ = FileType.Directory
+        else:
+            type_ = FileType.File
+
+        if type_ == FileType.Symlink:
+            return "symlink"
+        if type_ != FileType.Directory:
+            return "file"
+        if source not in (DEFAULT, None) and Path(source).is_dir():
+            return "copy"
+        return "archive"
 
     def _resolve(self) -> Path:
         """Resolve this clone's type, decompress kind and destination.

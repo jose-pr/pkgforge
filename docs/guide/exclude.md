@@ -64,12 +64,17 @@ they prune differently:
 
 | Command | An absolute pattern anchors at | An excluded directory |
 | --- | --- | --- |
-| `install` | the SOURCE directory | pruned: nothing under it is copied |
+| `install` | the SOURCE directory (a real directory source only) | pruned: nothing under it is copied |
 | `scan` | `<buildroot>/PATH` (the scanned path) | pruned: nothing under it is walked or recorded |
 | `dbdump` | `/` (the DB key) | dropped as its own row only — the DB is a flat key list, not a tree. Add a trailing `/**` (e.g. `-X '/usr/lib/debug/**'`) to also drop everything below it |
 
 A relative pattern (no leading `/`) sidesteps the anchor question entirely —
 it matches by name at any depth within whichever root applies.
+
+`install -X` only ever filters a real directory source. With an archive
+source it exits 2 instead of extracting every member unfiltered (extract
+it and install the resulting directory with `-X` instead); with only file
+or symlink sources it logs a warning, since there is nothing to filter.
 
 Examples, run with the same statement to show the difference:
 

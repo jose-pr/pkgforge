@@ -52,7 +52,7 @@ pkgforge install [options] SOURCE... DESTINATION
 | `-T, --no-target-directory` | treat DESTINATION as the final path, not a directory (else, for an extracted archive, its archive suffix -- `.tar`, `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz2`/`.tbz`, `.tar.xz`/`.txz`, `.iso`, `.zip`, matched case-insensitively -- is dropped from the destination name; a directory source keeps its own name unchanged) |
 | `-D` | shortcut for `-Tp` |
 | `-x, --decompress [KIND]` | decompress the source (`gz`, `xz`, `bz2`, `zst`, `lzma`, or a decompressor tool name such as `gunzip`/`unxz`, matched case-insensitively; inferred from the suffix if KIND is omitted) |
-| `-X, --exclude PATTERN` | exclude matches when copying a directory source |
+| `-X, --exclude PATTERN` | exclude matches when copying a directory source; with an archive source, exits 2 instead of extracting every member (extract it and install the directory with `-X` instead); with only file or symlink sources, logs a warning (nothing to filter) |
 | `--chown` | apply the recorded owner/group (off by default); an unknown owner/group name exits 2 before anything is staged (a recorded-only name, without `--chown`, is never resolved) |
 | `--remove-source` | delete the source after staging (files or directories), only once the entry is applied and recorded -- never when the source IS the staged destination, and refused (exit 2) up front when a directory source contains the resolved destination or the `--db` file |
 | `--noentry` | stage but do not record a DB entry |
