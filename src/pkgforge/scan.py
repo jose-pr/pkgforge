@@ -59,14 +59,18 @@ class ScanCmd(FileEntryArgs, PkgForgeCmd):
         filter = PathMatch(self.exclude, scanpath)
         self._logger_.info("Scanning %s", scanpath)
 
+        recorded = 0
+
         def _scanfile(path: Path):
+            nonlocal recorded
             if self.exclude and filter.match(path):
                 self._logger_.debug("Excluding %s", path)
                 return
             fspath = os.fspath(self.buildpath(path))
             if db.get(fspath) is None:
-                self._logger_.info("Updating file entry for: %s", fspath)
+                self._logger_.debug("Updating file entry for: %s", fspath)
                 self.add_entry(fspath, entry=resolve_entry(baseentry, path))
+                recorded += 1
 
         if not scanpath.is_dir():
             _scanfile(scanpath)
@@ -74,6 +78,8 @@ class ScanCmd(FileEntryArgs, PkgForgeCmd):
             for top, dirs, files in os.walk(scanpath):
                 for file in [*dirs, *files]:
                     _scanfile(Path(top, file))
+
+        self._logger_.info("Scanned %s: %d path(s) recorded", scanpath, recorded)
 
 
 ScanCmd._register()

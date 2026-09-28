@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -154,6 +155,37 @@ def test_apply_sets_mode(tmp_path):
 # --------------------------------------------------------------------------
 # install (end-to-end, POSIX)
 # --------------------------------------------------------------------------
+
+
+def test_scan_logs_one_info_summary(tmp_path, caplog):
+    from pkgforge.scan import ScanCmd
+
+    root = tmp_path / "root"
+    usr = root / "usr"
+    usr.mkdir(parents=True)
+    for name in ("a", "b", "c"):
+        (usr / name).write_text(name)
+    db = tmp_path / "f.jsonl"
+
+    caplog.set_level(logging.DEBUG, logger="pkgforge")
+    parser = ScanCmd._parser_()
+    inst = parser.parse_args(["--db", str(db), "--buildroot", str(root), "/usr"])
+    inst()
+
+    info_records = [r for r in caplog.records if r.levelno == logging.INFO]
+    assert [r.getMessage() for r in info_records if "Scanning" in r.getMessage()]
+    summaries = [
+        r.getMessage() for r in info_records if r.getMessage().startswith("Scanned")
+    ]
+    assert len(summaries) == 1
+    assert re.search(r"Scanned .*: 3 path\(s\) recorded", summaries[0])
+
+    debug_records = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.DEBUG and "Updating file entry for" in r.getMessage()
+    ]
+    assert len(debug_records) == 3
 
 
 def test_scan_default_buildroot_does_not_crash(tmp_path, monkeypatch):
