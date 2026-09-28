@@ -324,6 +324,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   it: one connection, committed every 1000 rows (and once more at the end),
   instead of connecting, creating the schema and committing once per file.
 
+### Fixed
+- Reading a `sqlite` DB never writes to it any more: pointing `dbdump` (or
+  any read) at an empty or foreign SQLite file no longer adds an `entries`
+  table to it. A SQLite file without an `entries` table now raises
+  `DbError` naming the file, unless it has no tables at all, in which case
+  it loads as an empty DB. A path, or a mode/owner/group/type field, that
+  is not valid UTF-8 (e.g. an undecodable file name, or a `pwd`/`grp` entry
+  containing one) now raises `DbError` naming it, instead of an
+  interpreter-level `UnicodeEncodeError` traceback partway through a scan.
+
 ## [0.1.2] - 2026-08-16
 
 ### Changed

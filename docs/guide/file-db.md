@@ -18,7 +18,12 @@ actual content is sniffed, so a legacy or mislabeled file still loads. A
 flow-style YAML file (`{...}`) must be compacted
 (`pkgforge --db FILE compact`) before appending.
 `jsonl` and `yaml` files are UTF-8; a malformed one raises `DbError` naming
-the file (and line).
+the file (and line). Reading a `sqlite` DB never writes to it: an empty or
+schema-less file loads as an empty DB, and one with other tables but no
+`entries` table (not a pkgforge DB) raises `DbError` instead of getting a
+table added to it. A path or a field value that is not valid UTF-8 (an
+undecodable file name, or a `pwd`/`grp` entry with one) is rejected with
+`DbError`; `jsonl`/`yaml` store such a name as an escaped string instead.
 
 ```jsonl
 # jsonl

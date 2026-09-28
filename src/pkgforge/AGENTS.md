@@ -166,11 +166,16 @@ tree).
 
 ## DB backends (`db.py`)
 
-- **`DbError(PkgForgeError, ValueError)`** — the `jsonl`/`yaml` backends'
-  on-disk content could not be read as one: a JSON/YAML parse error, non-UTF-8
-  bytes, a JSON Lines line or YAML top-level document that is not a mapping,
-  or (once loaded) a field of the wrong type. The message names the DB file
-  (and, for `jsonl`, the line number). Caught by `main()`'s error boundary
+- **`DbError(PkgForgeError, ValueError)`** — a backend's on-disk content
+  could not be read as one, or a value it was given could not be stored:
+  for `jsonl`/`yaml`, a JSON/YAML parse error, non-UTF-8 bytes, a JSON Lines
+  line or YAML top-level document that is not a mapping, or (once loaded) a
+  field of the wrong type; for `sqlite`, a `.db` path that holds tables but
+  no `entries` table (some other program's database, not one of pkgforge's
+  own), or a path/mode/owner/group/type value that is not valid UTF-8 (an
+  undecodable file name, or a `pwd`/`grp` entry containing one — `sqlite3`
+  encodes `str` parameters strictly). The message names the DB file (and,
+  for `jsonl`, the line number). Caught by `main()`'s error boundary
   like any `PkgForgeError` (one stderr line, exit 1); also a `ValueError`, so
   an existing `except ValueError` caller is unaffected. `jsonl`/`yaml` text
   I/O is always UTF-8, regardless of locale; an append to a DB whose last
@@ -234,7 +239,13 @@ tree).
   block style, unblocking further appends; **`SqliteDb`**
   (`format="sqlite"`, suffixes `.db`/`.sqlite`/`.sqlite3`, sniffed by the
   SQLite file magic) — a real upserted-in-place table, no append log
-  (`compact()` drops removed rows + `VACUUM`s).
+  (`compact()` drops removed rows + `VACUUM`s). `load()`/`compact()` never
+  write: an empty or schema-less file loads as (or compacts as a no-op on)
+  an empty DB, and a SQLite file that holds other tables but no `entries`
+  table raises `DbError` (some other program's database) instead of
+  getting one added to it. `add`/`remove` reject a `path` or a
+  `mode`/`owner`/`group`/`type` value that is not valid UTF-8 with
+  `DbError`, before any SQL runs for that record.
   `JsonlDb`/`YamlDb` writes (`add`/`remove`/`init`) and `compact` serialize
   on an advisory `flock` of the DB file (a no-op off POSIX), so running
   `compact` alongside another pkgforge process appending to the same DB no

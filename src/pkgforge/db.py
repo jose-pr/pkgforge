@@ -579,6 +579,33 @@ class YamlDb(DbProvider):
 # --------------------------------------------------------------------------
 
 
+def _ensure_utf8(path: str, rec: dict) -> None:
+    """Raise :class:`DbError` if ``path`` or any text field in ``rec`` is
+    not valid UTF-8.
+
+    ``sqlite3`` encodes ``str`` parameters strictly as UTF-8 and raises a
+    raw ``UnicodeEncodeError`` for a lone surrogate (an undecodable byte in
+    a path name, or a ``pwd``/``grp`` entry containing one) -- checked here,
+    before any SQL runs, so a batch that hits one partway through a scan
+    doesn't leave rows from before it committed and the rest silently gone.
+    ``jsonl``/``yaml`` have no such restriction (JSON/YAML both escape a
+    surrogate and round-trip it), so this is sqlite-only.
+    """
+    candidates = [("path", path)]
+    for field in ("mode", "owner", "group", "type"):
+        value = rec.get(field)
+        if isinstance(value, str):
+            candidates.append((field, value))
+    for name, value in candidates:
+        try:
+            value.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise DbError(
+                f"{value!r}: {name} is not valid UTF-8; the sqlite backend "
+                "cannot store it"
+            ) from exc
+
+
 class SqliteDb(DbProvider):
     """SQLite store: one row per path, upserted in place (no append log)."""
 
@@ -661,11 +688,35 @@ class SqliteDb(DbProvider):
         finally:
             conn.close()
 
+    def _has_entries_table(self, conn) -> bool:
+        """Return ``True`` if ``conn``'s database already has the
+        ``entries`` table; ``False`` for a schema-less file (empty, or a
+        zero-byte file sqlite happily opens); raise :class:`DbError` for a
+        SQLite file that holds OTHER tables but not ``entries`` -- some
+        other program's database, not one of ours."""
+        tables = {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        if "entries" in tables:
+            return True
+        if tables:
+            raise DbError(
+                f"{self.path}: not a pkgforge sqlite DB (no 'entries' "
+                f"table; has {', '.join(sorted(tables))})"
+            )
+        return False
+
     def load(self) -> Db:
         if not self.path.exists():
             return {}
         db: Db = {}
-        with self._connect() as conn:
+        # ensure_schema=False: a read must never write, not even the no-op
+        # `CREATE TABLE IF NOT EXISTS` -- pointing a read at an empty or
+        # foreign SQLite file must not add a table to it.
+        with self._connect(ensure_schema=False) as conn:
+            if not self._has_entries_table(conn):
+                return {}
             for row in conn.execute(
                 'SELECT path, mode, owner, "group", type, meta_json, removed FROM entries'
             ):
@@ -684,6 +735,7 @@ class SqliteDb(DbProvider):
 
     def _insert_add(self, conn, path: str, entry: FileEntry) -> None:
         rec = _fields(entry)
+        _ensure_utf8(path, rec)
         conn.execute(
             'INSERT INTO entries (path, mode, owner, "group", type, meta_json, removed) '
             "VALUES (?, ?, ?, ?, ?, ?, 0) "
@@ -701,6 +753,7 @@ class SqliteDb(DbProvider):
         )
 
     def _insert_remove(self, conn, path: str) -> None:
+        _ensure_utf8(path, {})
         conn.execute(
             "INSERT INTO entries (path, removed) VALUES (?, 1) "
             "ON CONFLICT(path) DO UPDATE SET removed=1",
@@ -731,7 +784,9 @@ class SqliteDb(DbProvider):
     def compact(self) -> None:
         if not self.path.exists():
             return
-        with self._connect() as conn:
+        with self._connect(ensure_schema=False) as conn:
+            if not self._has_entries_table(conn):
+                return
             conn.execute("DELETE FROM entries WHERE removed=1")
             # VACUUM must run outside a transaction; commit what we have first.
             conn.commit()

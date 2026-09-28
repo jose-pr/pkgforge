@@ -480,6 +480,24 @@ def test_scan_drop_stale_sqlite_sees_walk(tmp_path, cli):
 
 
 @pytest.mark.posix
+def test_scan_non_utf8_name_sqlite_one_line_error(tmp_path, cli):
+    root = tmp_path / "root"
+    tree = root / "usr" / "share" / "tool"
+    tree.mkdir(parents=True)
+    (tree / "ok").write_text("x")
+    bad_name = os.fsencode(str(tree)) + b"/raw\xe9"
+    with open(bad_name, "wb") as fh:
+        fh.write(b"y")
+
+    db = tmp_path / "files.db"
+    result = cli("--db", str(db), "--buildroot", str(root), "scan", "/usr/share/tool")
+    assert result.rc == 1
+    err = result.err.decode(errors="replace")
+    assert "UTF-8" in err
+    assert "Traceback" not in err
+
+
+@pytest.mark.posix
 def test_install_source_is_destination_keeps_file(tmp_path, cli):
     root = tmp_path / "root"
     db = tmp_path / "files.jsonl"

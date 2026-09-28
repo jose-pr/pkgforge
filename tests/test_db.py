@@ -1047,3 +1047,63 @@ def test_scan_sqlite_one_connection(tmp_path, cli, monkeypatch):
 
     loaded = open_db(db, "sqlite", for_read=True).load()
     assert len(loaded) == 200
+
+
+# --------------------------------------------------------------------------
+# reading a SQLite DB never writes; non-UTF-8 text fails cleanly
+# --------------------------------------------------------------------------
+
+
+def test_sqlite_load_leaves_empty_file(tmp_path):
+    path = tmp_path / "empty.db"
+    path.write_bytes(b"")
+
+    assert open_db(path, "sqlite", for_read=True).load() == {}
+    assert path.stat().st_size == 0
+
+
+@pytest.mark.parametrize("op", ["load", "compact"])
+def test_sqlite_foreign_db_rejected(tmp_path, op):
+    import sqlite3
+
+    from pkgforge.db import DbError
+
+    path = tmp_path / "foreign.db"
+    conn = sqlite3.connect(str(path))
+    try:
+        conn.execute("CREATE TABLE t (x)")
+        conn.commit()
+    finally:
+        conn.close()
+
+    p = open_db(path, "sqlite", for_read=True)
+    with pytest.raises(DbError):
+        getattr(p, op)()
+
+    conn = sqlite3.connect(str(path))
+    try:
+        tables = {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+    finally:
+        conn.close()
+    assert tables == {"t"}  # never given an `entries` table of our own
+
+
+@pytest.mark.parametrize("which", ["path", "owner"])
+def test_sqlite_rejects_non_utf8_text(tmp_path, make_entry, which):
+    from pkgforge.db import DbError
+
+    p = open_db(tmp_path / "f.db", "sqlite")
+    p.init()
+    bad = "raw\udce9"  # a lone surrogate: undecodable bytes from os.walk
+    if which == "path":
+        path, entry = bad, make_entry()
+    else:
+        path, entry = "/a", make_entry(owner=bad)
+
+    with pytest.raises(DbError) as excinfo:
+        p.add(path, entry)
+    assert "UTF-8" in str(excinfo.value)
+    assert open_db(p.path, "sqlite", for_read=True).load() == {}
