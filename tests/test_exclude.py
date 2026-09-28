@@ -250,7 +250,7 @@ def test_dbdump_trailing_doublestar(tmp_path, cli):
 @pytest.mark.posix
 def test_scan_default_buildroot_anchor(tmp_path, monkeypatch, cli, cmd):
     # Guards: the default (relative ".") buildroot must not make an absolute
-    # -X pattern float and match at every depth (F35).
+    # -X pattern float and match at every depth.
     monkeypatch.chdir(tmp_path)
     (tmp_path / "tmp").mkdir()
     (tmp_path / "a" / "tmp").mkdir(parents=True)
@@ -261,3 +261,208 @@ def test_scan_default_buildroot_anchor(tmp_path, monkeypatch, cli, cmd):
     recorded = {k.replace("\\", "/") for k in cmd(name="files.jsonl").loaddb()}
     assert "/a/tmp" in recorded
     assert "/tmp" not in recorded
+
+
+# --------------------------------------------------------------------------
+# lazy entry building: glob before file, overrides never mutate, meta sees -O
+# --------------------------------------------------------------------------
+
+
+def test_glob_only_statement_never_reads_file(monkeypatch):
+    # Guards: a statement with no inline tests must never build an entry,
+    # so a glob-only "-X '*.fifo'" excludes a FIFO/socket instead of
+    # crashing on it.
+    import pkgforge.exclude as exclude_mod
+
+    def _boom(path, meta=None):
+        raise AssertionError("entry_from_path must not run for a glob-only statement")
+
+    monkeypatch.setattr(exclude_mod, "entry_from_path", _boom)
+    m = PathMatch([PathMatchStmt.parse("*.fifo")])
+    assert m.match(Path("/a/b.txt")) is None
+    assert m.match(Path("/a/b.fifo")) is True
+
+
+def test_overrides_do_not_mutate_entry(make_entry):
+    # Guards: PathMatch.match(..., **overrides) must layer overrides onto a
+    # COPY, never writing into the caller's own entry dict.
+    import copy
+
+    entry = make_entry(type="file")
+    before = copy.deepcopy(entry)
+    m = PathMatch([PathMatchStmt.parse("(?type:directory)*.x")])
+    assert m.match(Path("/a/b.x"), entry, type="directory") is True
+    assert entry == before
+
+
+def test_empty_entry_is_used():
+    # An explicit empty dict counts as "the caller supplied an entry" (`is
+    # not None`, not a truthiness check) -- no real lstat happens for a
+    # nonexistent path, and an override can still fill it in for a test to
+    # read.
+    m = PathMatch([PathMatchStmt.parse("(?type:file)*.x")])
+    assert m.match(Path("/nonexistent/b.x"), {}, type="file") is True
+
+
+@pytest.mark.posix
+@pytest.mark.parametrize("command", ["scan", "install"])
+def test_exclude_skips_fifo(tmp_path, cli, command):
+    # -X '*.fifo' is the documented way to skip a FIFO/socket: the glob
+    # matches before any entry is built, so no lstat/type/pwd/grp lookup --
+    # and no FileType.from_path TypeError -- ever happens for it.
+    import os as _os
+
+    src = tmp_path / "src"
+    src.mkdir()
+    _os.mkfifo(src / "p.fifo")
+    (src / "keep.txt").write_text("x")
+    db = tmp_path / "files.jsonl"
+
+    if command == "scan":
+        result = cli(
+            "--db", str(db), "--buildroot", str(src), "scan", "-X", "*.fifo", "/"
+        )
+        assert result.rc == 0
+        from pkgforge.common import PkgForgeCmd
+
+        recorded = {
+            k.replace("\\", "/")
+            for k in PkgForgeCmd(db=db, db_format=None, buildroot=src).loaddb()
+        }
+        assert "/keep.txt" in recorded
+        assert "/p.fifo" not in recorded
+    else:
+        root = tmp_path / "root"
+        result = cli(
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "install",
+            "-p",
+            "-d",
+            "-X",
+            "*.fifo",
+            str(src),
+            "/opt/app",
+        )
+        assert result.rc == 0
+        staged = root / "opt" / "app" / "src"
+        assert (staged / "keep.txt").exists()
+        assert not (staged / "p.fifo").exists()
+
+
+@pytest.mark.posix
+def test_scan_fifo_error_is_one_line(tmp_path, cli):
+    # A file scan cannot record (not excluded) stops it with a clean,
+    # one-line error naming the path and the -X remedy -- never a traceback.
+    import os as _os
+
+    src = tmp_path / "src"
+    src.mkdir()
+    _os.mkfifo(src / "p.fifo")
+    db = tmp_path / "files.jsonl"
+
+    result = cli("--db", str(db), "--buildroot", str(src), "scan", "/")
+    assert result.rc == 1
+    err = result.err.decode()
+    lines = [line for line in err.splitlines() if line.strip()]
+    assert len(lines) == 1
+    assert "pkgforge: error:" in lines[0]
+    assert "p.fifo" in lines[0]
+    assert "-X" in lines[0]
+    assert "Traceback" not in err
+
+
+@pytest.mark.posix
+@pytest.mark.parametrize("command", ["scan", "install"])
+def test_meta_test_sees_O(tmp_path, cli, command):
+    # (?meta:k=v) in install -X and scan -X now sees the -O values -- it
+    # never matched there before, and (?!meta:k=v) excluded everything.
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.conf").write_text("x")
+
+    if command == "scan":
+        db_drop = tmp_path / "drop.jsonl"
+        assert (
+            cli(
+                "--db",
+                str(db_drop),
+                "--buildroot",
+                str(src),
+                "scan",
+                "-O",
+                "keep=1",
+                "-X",
+                "(?meta:keep=1)*.conf",
+                "/",
+            ).rc
+            == 0
+        )
+        from pkgforge.common import PkgForgeCmd
+
+        dropped = set(PkgForgeCmd(db=db_drop, db_format=None, buildroot=src).loaddb())
+        assert "/a.conf" not in dropped
+
+        db_keep = tmp_path / "keep.jsonl"
+        assert (
+            cli(
+                "--db",
+                str(db_keep),
+                "--buildroot",
+                str(src),
+                "scan",
+                "-O",
+                "keep=1",
+                "-X",
+                "(?!meta:keep=1)*.conf",
+                "/",
+            ).rc
+            == 0
+        )
+        kept = set(PkgForgeCmd(db=db_keep, db_format=None, buildroot=src).loaddb())
+        assert "/a.conf" in kept
+    else:
+        db = tmp_path / "files.jsonl"
+        root_drop = tmp_path / "root_drop"
+        assert (
+            cli(
+                "--db",
+                str(db),
+                "--buildroot",
+                str(root_drop),
+                "install",
+                "-p",
+                "-d",
+                "-O",
+                "keep=1",
+                "-X",
+                "(?meta:keep=1)*.conf",
+                str(src),
+                "/opt/app",
+            ).rc
+            == 0
+        )
+        assert not (root_drop / "opt" / "app" / "src" / "a.conf").exists()
+
+        root_keep = tmp_path / "root_keep"
+        assert (
+            cli(
+                "--db",
+                str(db),
+                "--buildroot",
+                str(root_keep),
+                "install",
+                "-p",
+                "-d",
+                "-O",
+                "keep=1",
+                "-X",
+                "(?!meta:keep=1)*.conf",
+                str(src),
+                "/opt/app",
+            ).rc
+            == 0
+        )
+        assert (root_keep / "opt" / "app" / "src" / "a.conf").exists()

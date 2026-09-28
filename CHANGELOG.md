@@ -12,6 +12,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   excludes everything below `/opt/app` but not `/opt/app` itself. Some
   patterns now exclude more than before; review any `-X` value containing
   `**`.
+- `install -X` and `scan -X` read file metadata only for a statement that
+  actually has an inline test (`(?type:...)`/`(?meta:...)`), so a glob-only
+  `-X '*.fifo'` now skips a FIFO or socket instead of failing on it; a
+  special file `scan` cannot record any other way now stops it with a
+  one-line error naming the path and the `-X` remedy, instead of a
+  traceback or a silently truncated DB.
+- `(?meta:k=v)` in `install -X` and `scan -X` now sees that run's `-O`
+  values; it never matched there before, and `(?!meta:k=v)` excluded every
+  matching path regardless of `-O`.
+- `PathMatch.match(path, entry, **overrides)` no longer writes the
+  `**overrides` into the caller's `entry` dict (reachable only from the
+  Python API, e.g. filtering a loaded DB in `dbdump`).
 - `install` and `scan` exit 2 when DESTINATION or PATH leaves the build root
   through a `..` that climbs above it, or a symlinked path component leading
   outside it, instead of writing or recording outside `--buildroot`. An

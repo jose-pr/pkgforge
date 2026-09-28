@@ -482,7 +482,27 @@ class Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
                 matcher = PathMatch(self.exclude, src)
 
                 def _ignore(_dir: str, _files: typing.List[str]):
-                    return [file for file in _files if matcher.match(Path(_dir, file))]
+                    excluded = []
+                    for file in _files:
+                        path = Path(_dir, file)
+                        try:
+                            # meta=dict(self.meta): a (?meta:k=v) inline
+                            # test then sees this run's -O values, same as
+                            # scan (see exclude.py's PathMatch.match header).
+                            if matcher.match(path, meta=dict(self.meta)):
+                                excluded.append(file)
+                        except TypeError as exc:
+                            # FileType.from_path raises TypeError for a
+                            # fifo/socket. A glob-only -X (e.g. '*.fifo')
+                            # already excluded such a path above without
+                            # reaching here; this is a test-bearing
+                            # statement whose glob still hit one.
+                            raise PkgForgeError(
+                                f"{path}: unsupported file type (not a "
+                                "file, directory or symlink); exclude it "
+                                "with -X"
+                            ) from exc
+                    return excluded
 
             else:
                 _ignore = None

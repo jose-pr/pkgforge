@@ -13,6 +13,7 @@ from .common import (
     AUTO,
     FileType,
     PkgForgeCmd,
+    PkgForgeError,
     FileEntryArgs,
     entry_from_args,
     resolve_entry,
@@ -60,14 +61,28 @@ class ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
 
         def _scanfile(path: Path):
             nonlocal recorded
-            if self.exclude and filter.match(path):
-                self._logger_.debug("Excluding %s", path)
-                return
-            fspath = os.fspath(self.buildpath(path))
-            if db.get(fspath) is None:
-                self._logger_.debug("Updating file entry for: %s", fspath)
-                self.add_entry(fspath, entry=resolve_entry(baseentry, path))
-                recorded += 1
+            try:
+                # meta=dict(self.meta): a (?meta:k=v) inline test then sees
+                # this run's -O values, the same as it always has in dbdump
+                # (scan/install build the entry from disk, which never
+                # carries meta on its own).
+                if self.exclude and filter.match(path, meta=dict(self.meta)):
+                    self._logger_.debug("Excluding %s", path)
+                    return
+                fspath = os.fspath(self.buildpath(path))
+                if db.get(fspath) is None:
+                    self._logger_.debug("Updating file entry for: %s", fspath)
+                    self.add_entry(fspath, entry=resolve_entry(baseentry, path))
+                    recorded += 1
+            except TypeError as exc:
+                # FileType.from_path raises TypeError for a fifo/socket. A
+                # glob-only -X (e.g. '*.fifo') already skipped such a path
+                # above without ever reaching here (PathMatch builds the
+                # entry lazily); this is the path scan cannot record at all.
+                raise PkgForgeError(
+                    f"{path}: unsupported file type (not a file, directory "
+                    "or symlink); exclude it with -X"
+                ) from exc
 
         if not scanpath.is_dir():
             _scanfile(scanpath)

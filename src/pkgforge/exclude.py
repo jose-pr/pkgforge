@@ -212,14 +212,20 @@ class PathMatchStmt(NS):
             is not None
         )
 
+    def _tests_pass(self, path: _Candidate, fileentry: FileEntry) -> bool:
+        return all(test(path, fileentry) for test in self.tests)
+
     def match(self, path: _Candidate, fileentry: FileEntry) -> typing.Optional[bool]:
         """Evaluate this statement: ``True``/``False`` decide, ``None`` defers.
 
         A statement that does not apply returns ``None`` so the caller keeps
         evaluating later statements — never ``False``, which would veto them.
+        Requires an already-built ``fileentry`` -- :class:`PathMatch` is the
+        one that builds it lazily, only for a statement whose glob already
+        matched and that actually has inline tests.
         """
-        if (not self.pattern or self._pattern_matches(path)) and all(
-            test(path, fileentry) for test in self.tests
+        if (not self.pattern or self._pattern_matches(path)) and self._tests_pass(
+            path, fileentry
         ):
             return not self.negate
         return None
@@ -306,8 +312,17 @@ class PathMatch(typing.List[PathMatchStmt]):
     ) -> typing.Optional[bool]:
         if not self:
             return True
-        fileentry = entry_from_path(path) if not entry else entry
-        fileentry.update(typing.cast(FileEntry, overrides))
+
+        # The entry is built lazily -- at most once, and only for a
+        # statement whose glob ALREADY matched and that actually has inline
+        # tests -- so a glob-only "-X '*.fifo'" excludes a FIFO or socket
+        # without ever lstat-ing/typing/pwd-grp-looking-up it (and without
+        # ever risking FileType.from_path's TypeError for one). `overrides`
+        # are layered onto a COPY, so the caller's `entry` dict (e.g. a live
+        # DB record in dbdump) is never mutated; `entry is not None` (not a
+        # truthiness check) so an explicitly empty `{}` still counts as
+        # "the caller supplied one" rather than triggering a real lstat.
+        fileentry: typing.Optional[FileEntry] = None
 
         # With a root, an ANCHORED statement is matched against the
         # candidate's own absolute path (the rebased pattern already embeds
@@ -324,9 +339,20 @@ class PathMatch(typing.List[PathMatchStmt]):
                 candidate = typing.cast(Path, abspath)
             else:
                 candidate = _relative_candidate(typing.cast(Path, abspath), self.root)
-            result = stmt.match(candidate, fileentry)
-            if result is not None:
-                return result
+
+            if stmt.pattern and not stmt._pattern_matches(candidate):
+                continue
+
+            if stmt.tests:
+                if fileentry is None:
+                    base = entry if entry is not None else entry_from_path(path)
+                    fileentry = typing.cast(
+                        FileEntry, {**base, **overrides} if overrides else base
+                    )
+                if not stmt._tests_pass(candidate, fileentry):
+                    continue
+
+            return not stmt.negate
         return _default
 
 

@@ -225,9 +225,16 @@ tree).
   caller's statements untouched — a multi-source `install` constructs one
   `PathMatch` per source from the same parsed list). `.match(path,
   entry=None, _default=None, **overrides) -> bool | None` — evaluates
-  statements in order, first non-`None` result wins; `entry=None` derives one
-  via `FileEntry.from_path`; an empty `PathMatch` always matches (`True`).
-  With a root, an anchored statement matches the candidate's own absolute
+  statements in order, first non-`None` result wins; the entry is derived
+  lazily via `FileEntry.from_path`, at most once, and only for a statement
+  whose glob already matched and that actually has inline tests -- a
+  glob-only statement never lstats, types or does a pwd/grp lookup on the
+  path, so `-X '*.fifo'` excludes a FIFO or socket instead of raising for
+  it. `**overrides` are layered onto a COPY of the entry (never the
+  caller's own dict, e.g. a live DB record in `dbdump`); an explicit `entry`
+  of `{}` still counts as "the caller supplied one" (`is not None`, not a
+  truthiness check). An empty `PathMatch` always matches (`True`). With a
+  root, an anchored statement matches the candidate's own absolute
   path; a relative statement matches the path taken relative to the root
   (by name, for the single-file-scan case where the path equals the root;
   unchanged, for a path outside the root entirely). With no root (`dbdump`),
@@ -311,12 +318,19 @@ above).
   file.
   `-d` cannot be combined with `-t`/`--type` (a declared `conflicts=`
   group; exit 2, enforced by argparse itself before `Install` is
-  constructed).
+  constructed). `-X`'s `(?meta:k=v)` inline test sees this run's `-O`
+  values; a FIFO or socket the copy itself would otherwise reach raises
+  `PkgForgeError` naming the path and the `-X` remedy, unless a glob-only
+  `-X` already excluded it first.
 - **`scan.ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd)`** (`pkgforge scan`) — walk a
   path under the build root, recording an entry per file; `--missing` only
   fills gaps not already in the DB. `--type/-t` is hidden from `--help` and
   never applied (scan always records each path's own on-disk type); an
-  explicit value logs a warning instead of doing nothing silently.
+  explicit value logs a warning instead of doing nothing silently. `-X`'s
+  `(?meta:k=v)` inline test sees this run's `-O` values, same as `install`;
+  a FIFO or socket `scan` cannot record raises `PkgForgeError` naming the
+  path and the `-X` remedy, unless a glob-only `-X` already excluded it
+  first.
 - **`dbdump.DbDump(ExcludeArgs, PkgForgeCmd)`** (`pkgforge dbdump -f FORMAT [output]`) —
   render surviving (post-`--exclude`) DB entries via the format registry
   above.
