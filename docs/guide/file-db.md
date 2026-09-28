@@ -14,7 +14,9 @@ of which is used, because they all load to the same shape.
 
 The backend is chosen from the `--db` file's **extension**; `--db-format`
 (or `PKGFORGE_DB_FORMAT`) overrides it. When *reading* an existing file, its
-actual content is sniffed, so a legacy or mislabeled file still loads.
+actual content is sniffed, so a legacy or mislabeled file still loads. A
+flow-style YAML file (`{...}`) must be compacted
+(`pkgforge --db FILE compact`) before appending.
 `jsonl` and `yaml` files are UTF-8; a malformed one raises `DbError` naming
 the file (and line).
 

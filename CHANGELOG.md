@@ -295,6 +295,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `"755"`. A `bool` or float mode, a non-octal-digit int mode, a non-string
   `type`, or a record that is not a mapping now raises `DbError` instead of
   silently mispackaging or crashing later with a raw `KeyError`.
+- A flow-style YAML DB (`{/usr/bin/x: ...}`, `{}`) is still read as YAML.
+  Appending to one now raises `DbError` instead of silently corrupting it;
+  `pkgforge --db FILE compact` rewrites it in block style first.
 
 ## [0.1.2] - 2026-08-16
 

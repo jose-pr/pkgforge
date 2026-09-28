@@ -212,8 +212,15 @@ tree).
 - **Built-in backends** (all registered at import time): **`JsonlDb`**
   (`format="jsonl"`, suffixes `.jsonl`/`.ndjson`, default when unset) —
   append-only JSON Lines, one object per line, last record per path wins on
-  load; **`YamlDb`** (`format="yaml"`, suffixes `.yaml`/`.yml`) —
-  append-only YAML, concatenated single-key documents; **`SqliteDb`**
+  load; sniffed by a quoted first key (`re.match(r'\s*\{\s*"', head)`, so
+  pkgforge's own output and a hand-written `{ "path": ...}` both match, but a
+  flow-style YAML mapping with a plain key -- what `yaml.safe_dump` emits --
+  does not); **`YamlDb`** (`format="yaml"`, suffixes `.yaml`/`.yml`) —
+  append-only YAML, concatenated single-key documents; a flow-style
+  top-level document (e.g. `{/usr/bin/x: {...}}`, or `{}`) is read fine, but
+  `add`/`remove` raise `DbError` instead of appending a block-style mapping
+  after it (which would be invalid YAML) -- `compact()` rewrites the file in
+  block style, unblocking further appends; **`SqliteDb`**
   (`format="sqlite"`, suffixes `.db`/`.sqlite`/`.sqlite3`, sniffed by the
   SQLite file magic) — a real upserted-in-place table, no append log
   (`compact()` drops removed rows + `VACUUM`s).

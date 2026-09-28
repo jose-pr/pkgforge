@@ -121,6 +121,29 @@ def _jsonl_line(path: str, entry: typing.Optional[FileEntry]) -> str:
     return json.dumps({"path": path, **_fields(entry)}, sort_keys=True) + "\n"
 
 
+def _is_flow_style_yaml(path: Path) -> bool:
+    """True if an existing, non-empty YAML file's first substantive line
+    (skipping blank lines, ``#`` comments and a lone ``---`` document-start
+    marker) opens a flow-style mapping (``{``).
+
+    ``YamlDb._append`` only ever writes a block-style top-level mapping;
+    appending that onto an existing flow-style document (e.g.
+    ``{/usr/bin/x: {...}}``, or the empty mapping ``{}``) produces invalid
+    YAML. pkgforge itself never writes flow style, so this only matters for
+    a hand-written or third-party file.
+    """
+    try:
+        with path.open(encoding="utf-8") as fh:
+            for line in fh:
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#") or stripped == "---":
+                    continue
+                return stripped.startswith("{")
+    except (OSError, UnicodeDecodeError):
+        return False
+    return False
+
+
 def _append_text(path: Path, text: str) -> None:
     """Append ``text`` to ``path`` as UTF-8, first repairing a missing
     trailing newline on the file's existing content.
@@ -380,6 +403,12 @@ class YamlDb(DbProvider):
         }
 
     def _append(self, path: str, entry: typing.Optional[FileEntry]) -> None:
+        if self.path.exists() and _is_flow_style_yaml(self.path):
+            raise DbError(
+                f"{self.path}: a flow-style YAML DB cannot be appended to; "
+                "run `pkgforge --db-format yaml compact` first to rewrite "
+                "it in block style"
+            )
         _, dumper = _yaml_io()
         import yaml
 
@@ -524,7 +553,10 @@ register_provider(
     "jsonl",
     JsonlDb,
     suffixes=(".jsonl", ".ndjson"),
-    sniff=lambda head: head.lstrip()[:1] == b"{",
+    # A quoted first key: claims pkgforge's own output ({"group": ...) and a
+    # hand-written record ({ "path": ...}), never a flow-style YAML mapping
+    # (yaml.safe_dump's plain-key output, e.g. {/usr/bin/x: ...}, or {}).
+    sniff=lambda head: re.match(rb'\s*\{\s*"', head) is not None,
 )
 register_provider("yaml", YamlDb, suffixes=(".yaml", ".yml"))
 register_provider(
@@ -548,9 +580,11 @@ def format_for_suffix(path: Path) -> str:
 def sniff_format(path: Path) -> typing.Optional[str]:
     """Detect an existing file's format from its content, or ``None`` if unknown.
 
-    Registered sniffers are tried newest-first; if none claims the file, the
-    built-in fallback treats a leading ``{`` as JSON Lines and any other
-    non-empty content as YAML.
+    Registered sniffers are tried newest-first (the registered ``jsonl``
+    sniffer is what claims a quoted-first-key ``{``; see
+    :func:`register_provider`'s built-in registration below); if none claims
+    the file, the fallback treats any other non-empty content as YAML (the
+    most permissive text format).
     """
     try:
         # Read only the 16 bytes the sniffers look at — an append-log DB can

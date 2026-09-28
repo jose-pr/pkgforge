@@ -737,3 +737,71 @@ def test_bad_field_types_raise(tmp_path, kind):
     with pytest.raises(DbError) as excinfo:
         open_db(path, fmt, for_read=True).load()
     assert "/a" in str(excinfo.value)
+
+
+# --------------------------------------------------------------------------
+# sniffing: a quoted-first-key jsonl sniffer; flow-style YAML append refusal
+# --------------------------------------------------------------------------
+
+
+def test_flow_yaml_sniffs_as_yaml(tmp_path):
+    path = tmp_path / "flow.yaml"
+    path.write_text(
+        "{/usr/bin/x: {mode: '0755', owner: root, group: root, type: file, "
+        "meta: {}}}\n",
+        encoding="utf-8",
+    )
+    assert sniff_format(path) == "yaml"
+    db = open_db(path, for_read=True).load()
+    assert db["/usr/bin/x"]["mode"] == "0755"
+
+
+def test_spaced_jsonl_sniffs_as_jsonl(tmp_path):
+    # Pin: a hand-written record with a space before the quoted key must
+    # keep sniffing as jsonl, not fall through to the yaml fallback.
+    path = tmp_path / "noext"
+    path.write_text('{ "path": "/a", "mode": "644"}\n', encoding="utf-8")
+    assert sniff_format(path) == "jsonl"
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "{/usr/bin/x: {mode: '0755'}}\n",
+        "{}\n",
+        "# a comment\n---\n{/usr/bin/x: {mode: '0755'}}\n",
+    ],
+    ids=["flow", "empty", "comment_then_flow"],
+)
+def test_append_to_flow_yaml_refused(tmp_path, make_entry, content):
+    from pkgforge.db import DbError
+
+    path = tmp_path / "flow.yaml"
+    path.write_bytes(content.encode("utf-8"))
+    before = path.read_bytes()
+
+    p = open_db(path, "yaml")
+    with pytest.raises(DbError):
+        p.add("/new", make_entry())
+
+    assert path.read_bytes() == before
+
+
+def test_compact_rewrites_flow_yaml_to_block(tmp_path, make_entry):
+    path = tmp_path / "flow.yaml"
+    path.write_text(
+        "{/usr/bin/x: {mode: '0755', owner: root, group: root, type: file, "
+        "meta: {}}}\n",
+        encoding="utf-8",
+    )
+    p = open_db(path, "yaml")
+    p.compact()
+
+    rewritten = path.read_text(encoding="utf-8").lstrip()
+    assert not rewritten.startswith("{")
+
+    # An append now succeeds against the rewritten block-style file.
+    p.add("/new", make_entry())
+    db = open_db(path, "yaml", for_read=True).load()
+    assert db["/usr/bin/x"]["mode"] == "0755"
+    assert db["/new"] is not None
