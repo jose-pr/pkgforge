@@ -87,15 +87,18 @@ def register_provider(
     return provider_cls
 
 
-def _record(path: str, entry: typing.Optional[FileEntry]) -> dict:
-    """A JSON/YAML-safe record dict for one entry (FileType coerced to str)."""
+def _fields(entry: typing.Optional[FileEntry]) -> dict:
+    """``entry``'s fields alone (no ``path``), FileType coerced to its plain
+    string value. ``None`` (a removal) becomes ``{"_removed": True}``."""
     if entry is None:
-        return {"path": path, "_removed": True}
-    rec = {"path": path}
-    for k, v in entry.items():
-        # FileType is a str-enum; store its plain string value.
-        rec[k] = str(v.value) if hasattr(v, "value") else v
-    return rec
+        return {"_removed": True}
+    return {k: (str(v.value) if hasattr(v, "value") else v) for k, v in entry.items()}
+
+
+def _jsonl_line(path: str, entry: typing.Optional[FileEntry]) -> str:
+    """One JSON Lines record for ``path``/``entry`` (or a removal marker),
+    terminated with a single trailing newline."""
+    return json.dumps({"path": path, **_fields(entry)}, sort_keys=True) + "\n"
 
 
 class DbProvider(abc.ABC):
@@ -150,24 +153,19 @@ class JsonlDb(DbProvider):
             db[path] = None if rec.pop("_removed", False) else rec
         return db
 
-    def _append(self, record: dict) -> None:
-        line = json.dumps(record, sort_keys=True) + "\n"
+    def _append(self, line: str) -> None:
         with self.path.open("a") as fh:
             fh.write(line)
 
     def add(self, path: str, entry: FileEntry) -> None:
-        self._append(_record(path, entry))
+        self._append(_jsonl_line(path, entry))
 
     def remove(self, path: str) -> None:
-        self._append(_record(path, None))
+        self._append(_jsonl_line(path, None))
 
     def compact(self) -> None:
         db = self.load()
-        lines = [
-            json.dumps(_record(p, e), sort_keys=True) + "\n"
-            for p, e in db.items()
-            if e is not None
-        ]
+        lines = [_jsonl_line(p, e) for p, e in db.items() if e is not None]
         self.path.write_text("".join(lines))
 
     def init(self) -> None:
@@ -190,9 +188,7 @@ class YamlDb(DbProvider):
         return yaml.safe_load(self.path.read_text()) or {}
 
     def _append(self, path: str, entry: typing.Optional[FileEntry]) -> None:
-        rec = _record(path, entry)
-        rec.pop("path")
-        value = None if entry is None else rec
+        value = None if entry is None else _fields(entry)
         with self.path.open("a") as fh:
             fh.write(yaml.safe_dump({path: value}))
 
@@ -204,17 +200,11 @@ class YamlDb(DbProvider):
 
     def compact(self) -> None:
         db = self.load()
-        live = {p: _dict_no_path(_record(p, e)) for p, e in db.items() if e is not None}
+        live = {p: _fields(e) for p, e in db.items() if e is not None}
         self.path.write_text(yaml.safe_dump(live) if live else "")
 
     def init(self) -> None:
         self.path.write_text("")
-
-
-def _dict_no_path(record: dict) -> dict:
-    record = dict(record)
-    record.pop("path", None)
-    return record
 
 
 # --------------------------------------------------------------------------
@@ -272,7 +262,7 @@ class SqliteDb(DbProvider):
         return db
 
     def add(self, path: str, entry: FileEntry) -> None:
-        rec = _record(path, entry)
+        rec = _fields(entry)
         with self._connect() as conn:
             conn.execute(
                 'INSERT INTO entries (path, mode, owner, "group", type, meta_json, removed) '
@@ -387,5 +377,5 @@ def open_db(
     except KeyError:
         raise ValueError(
             f"unknown db format {fmt!r}; choose from {', '.join(sorted(PROVIDERS))}"
-        )
+        ) from None
     return provider_cls(path)

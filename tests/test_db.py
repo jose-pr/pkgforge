@@ -135,6 +135,27 @@ def test_unknown_format_raises(tmp_path):
         open_db(tmp_path / "x", "toml")
 
 
+def test_open_db_unknown_format_has_no_context(tmp_path):
+    with pytest.raises(ValueError) as excinfo:
+        open_db(tmp_path / "x", "toml")
+    assert excinfo.value.__suppress_context__ is True
+
+
+def test_stdout_record_matches_jsonl_line(cmd, make_entry, capsys):
+    # _write_entry's stdout fallback (no --db) must emit exactly the same
+    # bytes JsonlDb.add/remove would append to a real file.
+    from pkgforge.db import _jsonl_line
+
+    inst = cmd(db=None)
+    entry = make_entry(mode="755")
+
+    inst.add_entry("/usr/bin/x", entry)
+    assert capsys.readouterr().out == _jsonl_line("/usr/bin/x", entry)
+
+    inst.remove_entry("/usr/bin/y")
+    assert capsys.readouterr().out == _jsonl_line("/usr/bin/y", None)
+
+
 # --------------------------------------------------------------------------
 # backend specifics
 # --------------------------------------------------------------------------

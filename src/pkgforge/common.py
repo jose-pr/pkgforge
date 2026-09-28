@@ -23,7 +23,6 @@ import argparse
 import contextlib
 import enum
 import functools
-import json
 import logging
 import os
 import posixpath
@@ -645,9 +644,9 @@ class PkgForgeCmd(LoggingArgs, Cmd):
         if self._no_file_db():
             # No file: emit the record as a JSON Lines line to stdout.
             # Function-local for the same reason as _provider() above.
-            from .db import _record
+            from .db import _jsonl_line
 
-            print(json.dumps(_record(path, entry), sort_keys=True))
+            print(_jsonl_line(path, entry), end="")
             return
         provider = self._provider(for_read=True)
         if entry is None:
