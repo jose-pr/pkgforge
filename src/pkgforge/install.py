@@ -111,6 +111,51 @@ TAR_SUFFIXES = (
 #: on an interpreter without it raises ``TypeError``, so we only opt in when safe.
 _TARFILE_HAS_FILTER = hasattr(tarfile, "data_filter")
 
+#: Suffixes stripped from an extracted archive's destination directory name
+#: (``app-1.0.tgz`` -> ``app-1.0``): every :data:`TAR_SUFFIXES` entry plus the
+#: two bsdtar-only formats named on the ``-x``/``--decompress`` KIND list
+#: elsewhere in this module. Matched case-insensitively by
+#: :func:`_archive_dir_name`, longest match first.
+ARCHIVE_SUFFIXES: typing.Tuple[str, ...] = (*TAR_SUFFIXES, ".iso", ".zip")
+
+
+def _archive_dir_name(name: str) -> str:
+    """Strip an archive source's suffix from a directory-install
+    destination name (``app-1.0.tgz`` -> ``app-1.0``). The caller applies
+    this only when the source is an archive being extracted, never a real
+    directory source, which keeps its own name (``conf.tar.d`` stays
+    ``conf.tar.d``).
+
+    Matches the longest of :data:`ARCHIVE_SUFFIXES` against ``name.lower()``
+    first. Failing that, falls back to the old ``tar``/``iso`` dot-segment
+    rule (now case-insensitive) for a bsdtar-only tar variant with no fixed
+    suffix list entry, such as ``.tar.zst`` or ``.tar.lz4``: it cuts at the
+    last ``tar`` or ``iso`` segment, preferring ``tar`` when both are
+    present. Never returns an empty name -- a source literally named e.g.
+    ``.tgz``, with nothing before the suffix, keeps it as-is.
+    """
+    low = name.lower()
+    matched = max(
+        (suffix for suffix in ARCHIVE_SUFFIXES if low.endswith(suffix)),
+        key=len,
+        default=None,
+    )
+    if matched is not None and len(name) > len(matched):
+        return name[: -len(matched)]
+
+    parts = name.split(".")
+    if len(parts) > 1:
+        suffixes = list(reversed(parts[1:]))
+        lowered = [s.lower() for s in suffixes]
+        for ty in ("tar", "iso"):
+            if ty in lowered:
+                idx = lowered.index(ty)
+                stripped = ".".join([parts[0], *reversed(suffixes[idx + 1 :])])
+                if stripped:
+                    return stripped
+                break
+    return name
+
 
 def _looks_like_path(kind: str) -> bool:
     """True if a ``--decompress`` value looks like a path instead of a kind.
@@ -907,18 +952,13 @@ class Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
                 if name.lower().endswith(suffix):
                     name = name[: -len(suffix)]
                 self.destination = self.destination.with_name(name)
-            if self.type == FileType.Directory:
-                name = self.destination.name
-                parts = name.split(".")
-                if len(parts) > 1:
-                    suffixes = parts[1:]
-                    suffixes.reverse()
-                    for ty in ["tar", "iso"]:
-                        if ty in suffixes:
-                            idx = suffixes.index(ty)
-                            name = ".".join([parts[0], *reversed(suffixes[idx + 1 :])])
-                            self.destination = self.destination.with_name(name)
-                            break
+            if self.type == FileType.Directory and not self.source.is_dir():
+                # An archive being extracted (not a real directory source,
+                # which keeps its own name unchanged): drop its archive
+                # suffix from the destination name.
+                self.destination = self.destination.with_name(
+                    _archive_dir_name(self.destination.name)
+                )
 
         dest = self._rootpath(
             self.destination, follow_final=(self.type == FileType.Directory)

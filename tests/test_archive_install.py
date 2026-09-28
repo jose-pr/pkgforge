@@ -16,6 +16,7 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 import tarfile
 from pathlib import Path
 
@@ -615,3 +616,186 @@ def test_tar_as_root_drops_owner(tmp_path):
 
     st = os.stat(root / "opt" / "app" / "owned")
     assert st.st_uid == 0
+
+
+# --------------------------------------------------------------------------
+# Archive-to-directory naming: an extracted archive drops its suffix,
+# a directory source keeps its own name
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        ".tar",
+        ".tar.gz",
+        ".tgz",
+        ".tar.bz2",
+        ".tbz2",
+        ".tbz",
+        ".tar.xz",
+        ".txz",
+        ".TAR.GZ",
+        ".iso",
+        ".zip",
+        ".tar.zst",
+    ],
+)
+def test_archive_dir_name(suffix):
+    from pkgforge.install import _archive_dir_name
+
+    assert _archive_dir_name(f"foo-1.0{suffix}") == "foo-1.0"
+
+
+def test_archive_dir_name_bare_suffix_unchanged():
+    # A source literally named ".tgz" (nothing before the suffix) keeps its
+    # name -- never returns an empty string.
+    from pkgforge.install import _archive_dir_name
+
+    assert _archive_dir_name(".tgz") == ".tgz"
+
+
+@pytest.mark.parametrize("suffix", [".tgz", ".tbz2", ".tbz", ".txz", ".TAR.GZ", ".Tgz"])
+def test_install_archive_strips_suffix(tmp_path, suffix):
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+    archive = tmp_path / f"foo-1.0{suffix}"
+
+    def _build(tf):
+        _add_file(tf, "x", b"data")
+
+    _write_tar(archive, _build)
+
+    inst = Install._parser_().parse_args(
+        ["--db", str(db), "--buildroot", str(root), "-p", "-d", str(archive), "/opt"]
+    )
+    inst()
+
+    assert (root / "opt" / "foo-1.0" / "x").read_bytes() == b"data"
+    assert "/opt/foo-1.0" in inst.loaddb()
+
+
+@pytest.mark.parametrize("suffix", [".tar", ".tar.gz", ".tar.bz2", ".tar.xz"])
+def test_install_archive_strips_suffix_guard(tmp_path, suffix):
+    # Guard: the old loop already stripped a literal .tar/.tar.gz/.tar.bz2/
+    # .tar.xz suffix before this fix.
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+    archive = tmp_path / f"foo-1.0{suffix}"
+
+    def _build(tf):
+        _add_file(tf, "x", b"data")
+
+    _write_tar(archive, _build)
+
+    Install._parser_().parse_args(
+        ["--db", str(db), "--buildroot", str(root), "-p", "-d", str(archive), "/opt"]
+    )()
+
+    assert (root / "opt" / "foo-1.0" / "x").read_bytes() == b"data"
+
+
+def test_install_directory_source_keeps_dotted_name(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+    src = tmp_path / "conf.tar.d"
+    src.mkdir()
+    (src / "a").write_text("x")
+
+    Install._parser_().parse_args(
+        ["--db", str(db), "--buildroot", str(root), "-p", "-d", str(src), "/etc"]
+    )()
+
+    assert (root / "etc" / "conf.tar.d" / "a").read_text() == "x"
+
+
+def test_install_tar_routes_through_tarfile_guard(tmp_path, monkeypatch):
+    # Guard: a plain .tar.gz source still goes through the stdlib tarfile
+    # path, not bsdtar, after the naming rework.
+    import pkgforge.install as install_mod
+
+    calls = []
+    monkeypatch.setattr(install_mod, "_extract_tar", lambda src, dst: calls.append(src))
+    monkeypatch.setattr(
+        install_mod,
+        "_extract_bsdtar",
+        lambda src, dst: pytest.fail("must not route through bsdtar"),
+    )
+
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+    archive = tmp_path / "foo-1.0.tar.gz"
+    _write_tar(archive, lambda tf: _add_file(tf, "x", b"data"))
+
+    Install._parser_().parse_args(
+        ["--db", str(db), "--buildroot", str(root), "-p", "-d", str(archive), "/opt"]
+    )()
+
+    assert calls == [archive]
+
+
+@pytest.mark.skipif(shutil.which("bsdtar") is None, reason="bsdtar not available")
+def test_install_zip_via_bsdtar(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+    src_dir = tmp_path / "bundle"
+    src_dir.mkdir()
+    (src_dir / "a").write_text("data")
+    archive = tmp_path / "bundle.zip"
+    subprocess.run(
+        ["bsdtar", "-c", "-f", str(archive), "-C", str(src_dir), "a"],
+        check=True,
+    )
+
+    inst = Install._parser_().parse_args(
+        ["--db", str(db), "--buildroot", str(root), "-p", "-d", str(archive), "/opt"]
+    )
+    inst()
+
+    assert (root / "opt" / "bundle" / "a").read_text() == "data"
+    assert "/opt/bundle" in inst.loaddb()
+
+
+@pytest.mark.skipif(shutil.which("bsdtar") is None, reason="bsdtar not available")
+def test_install_archive_from_stdin_via_bsdtar_guard(tmp_path):
+    # Guard: -x/-T stdin archive install already worked through bsdtar
+    # before this fix; naming a stdin destination never goes through
+    # _archive_dir_name at all (it always needs an explicit -T name).
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+    src_dir = tmp_path / "bundle"
+    src_dir.mkdir()
+    (src_dir / "a").write_text("data")
+    archive = tmp_path / "bundle.tar"
+    subprocess.run(
+        ["bsdtar", "-c", "-f", str(archive), "-C", str(tmp_path), "bundle"],
+        check=True,
+    )
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pkgforge",
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "install",
+            "-p",
+            "-d",
+            "-T",
+            "-",
+            "/opt/x",
+        ],
+        input=archive.read_bytes(),
+        capture_output=True,
+    )
+    assert proc.returncode == 0, proc.stderr.decode()
+    assert (root / "opt" / "x" / "bundle" / "a").read_text() == "data"

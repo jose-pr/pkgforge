@@ -16,6 +16,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   instead of extracting with no path/symlink/special-file checks at all.
 
 ### Changed
+- `app-1.0.tgz`, `.tbz2`, `.tbz`, `.txz`, `.zip`, `.iso` and upper-case
+  suffixes installed without `-T` now land at `DESTINATION/app-1.0`
+  (previously only a literal `.tar`/`.tar.gz`/`.tar.bz2`/`.tar.xz`
+  dot-segment was stripped); a directory source keeps its full name
+  unchanged (`conf.tar.d` stays `conf.tar.d`, never `conf`). Update any
+  script relying on the old paths.
 - A tar archive writing through any symlink, even one inside the
   destination, is refused (exit 1), as `bsdtar` already did; a hardlink
   member naming another archive member by an absolute-looking path (e.g.

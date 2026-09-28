@@ -49,7 +49,7 @@ pkgforge install [options] SOURCE... DESTINATION
 | `-t, --type` | `file` / `directory` / `symlink`, in any case (auto-detected from the source if unset, or if given as `--`) |
 | `-d` | shortcut for `--type directory`; not allowed with `-t`/`--type` (exit 2) |
 | `-p, --parents` | create missing parent directories of the destination |
-| `-T, --no-target-directory` | treat DESTINATION as the final path, not a directory |
+| `-T, --no-target-directory` | treat DESTINATION as the final path, not a directory (else, for an extracted archive, its archive suffix -- `.tar`, `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz2`/`.tbz`, `.tar.xz`/`.txz`, `.iso`, `.zip`, matched case-insensitively -- is dropped from the destination name; a directory source keeps its own name unchanged) |
 | `-D` | shortcut for `-Tp` |
 | `-x, --decompress [KIND]` | decompress the source (`gz`, `xz`, `bz2`, `zst`, `lzma`, or a decompressor tool name such as `gunzip`/`unxz`, matched case-insensitively; inferred from the suffix if KIND is omitted) |
 | `-X, --exclude PATTERN` | exclude matches when copying a directory source |

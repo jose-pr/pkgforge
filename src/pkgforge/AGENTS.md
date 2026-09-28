@@ -285,7 +285,13 @@ above).
   decompress-on-copy) into the build root, apply mode/ownership, and record
   the entry. `-D` = `-Tp` shortcut, `-d` = `--type directory` shortcut.
   `--type=--` (or the Python API's `FileType._AUTO`) auto-detects from the
-  source, same as leaving `-t` unset.
+  source, same as leaving `-t` unset. Without `-T`, an extracted archive
+  lands at `DESTINATION/<name minus its archive suffix>` (`.tar`,
+  `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz2`/`.tbz`, `.tar.xz`/`.txz`, `.iso`,
+  `.zip`, matched case-insensitively, longest suffix first; a bsdtar-only
+  tar variant with no fixed entry, e.g. `.tar.zst`, falls back to cutting
+  at the last `tar`/`iso` dot-segment); a directory source keeps its own
+  name unchanged (`conf.tar.d` stays `conf.tar.d`).
   `-x`/`--decompress [KIND]` accepts `gz`, `xz`, `bz2`, `zst`, `lzma` or a
   decompressor tool name (`gzip`/`gunzip`, `xz`/`unxz`, `bzip2`/`bunzip2`,
   `zstd`/`unzstd`, `lzma`/`unlzma`), matched case-insensitively; any other
