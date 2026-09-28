@@ -484,6 +484,18 @@ def test_register_provider_accepted_as_db_format(restore_registries, tmp_path):
     assert inst.db_format == "custom"
 
 
+def test_register_provider_adds_leading_dot(restore_registries, tmp_path):
+    register_provider("tsv", _TsvDb, suffixes=("TSV",))  # no dot, upper-case
+    assert format_for_suffix(tmp_path / "x.tsv") == "tsv"
+    assert isinstance(open_db(tmp_path / "x.tsv"), _TsvDb)
+
+
+def test_register_provider_rejects_multi_dot_suffix(restore_registries):
+    with pytest.raises(ValueError):
+        register_provider("targz", _TsvDb, suffixes=(".tar.gz",))
+    assert "targz" not in dbmod.PROVIDERS
+
+
 # --------------------------------------------------------------------------
 # UTF-8 text I/O, newline repair on append, and DbError
 # --------------------------------------------------------------------------

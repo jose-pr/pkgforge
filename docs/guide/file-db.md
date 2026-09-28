@@ -82,6 +82,10 @@ Once registered, the format is selectable with `--db-format toml`, by a `.toml`
 `provider_cls(path)` and must implement `load`/`add`/`remove`/`compact`/`init`;
 `load()` returns `{path: entry-or-None}` like the built-ins.
 
+A suffix without a leading dot gets one (`"toml"` registers the same as
+`".toml"`); a multi-dot suffix (e.g. `".tar.gz"`) is refused, since it could
+never match a `--db` path's suffix.
+
 `batch()` is optional: a context manager yielding the provider around a run
 of many writes (e.g. `scan`'s walk); the default does nothing. `sqlite`
 overrides it to hold one connection open and commit every 1000 rows instead

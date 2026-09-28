@@ -333,6 +333,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   is not valid UTF-8 (e.g. an undecodable file name, or a `pwd`/`grp` entry
   containing one) now raises `DbError` naming it, instead of an
   interpreter-level `UnicodeEncodeError` traceback partway through a scan.
+- `register_provider`'s `suffixes` now add a missing leading dot
+  (`"toml"` registers the same as `".toml"`), since `Path.suffix` always
+  includes one and a dotless entry could never match a `--db` path before.
+  A suffix with more than one dot (e.g. `".tar.gz"`) is now rejected with
+  `ValueError` at registration time instead of silently never matching.
 
 ## [0.1.2] - 2026-08-16
 

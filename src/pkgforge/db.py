@@ -101,8 +101,14 @@ def register_provider(
     * ``name`` -- the format name (used by ``--db-format`` and error messages).
     * ``provider_cls`` -- a :class:`DbProvider` subclass constructed as
       ``provider_cls(path)``.
-    * ``suffixes`` -- file suffixes (e.g. ``(".toml",)``, leading dot,
-      case-insensitive) that infer this format from a ``--db`` path.
+    * ``suffixes`` -- file suffixes (e.g. ``(".toml",)`` or ``("toml",)``,
+      case-insensitive; a missing leading dot is added, since
+      :attr:`Path.suffix` always includes one and a dotless entry could
+      otherwise never match) that infer this format from a ``--db`` path.
+      An empty string is left as-is (it matches an extensionless path); a
+      suffix with more than one dot (e.g. ``".tar.gz"``) is rejected with
+      ``ValueError``, since :attr:`Path.suffix` only ever returns the last
+      dot-segment and such an entry could never match either.
     * ``sniff`` -- optional ``sniff(head: bytes) -> bool`` that inspects a file's
       first 16 bytes and returns True if this backend owns it. Registered
       sniffers are consulted newest-first, before the built-in heuristics, so a
@@ -111,9 +117,25 @@ def register_provider(
     Returns ``provider_cls`` so it can be used as a decorator. Re-registering a
     name replaces the previous class for that name.
     """
-    PROVIDERS[name] = provider_cls
+    # Normalize and validate every suffix BEFORE registering anything, so a
+    # bad suffix raises without leaving `name` half-registered (in PROVIDERS
+    # but with none, or only some, of its suffixes actually wired up).
+    normalized = []
     for suffix in suffixes:
-        SUFFIX_FORMATS[suffix.lower()] = name
+        suffix = suffix.lower()
+        if suffix and not suffix.startswith("."):
+            suffix = "." + suffix
+        if suffix.count(".") > 1:
+            raise ValueError(
+                f"suffix {suffix!r} has more than one dot; Path.suffix "
+                "only ever returns the last dot-segment, so this could "
+                "never match a --db path"
+            )
+        normalized.append(suffix)
+
+    PROVIDERS[name] = provider_cls
+    for suffix in normalized:
+        SUFFIX_FORMATS[suffix] = name
     if sniff is not None:
         _SNIFFERS.insert(0, (name, sniff))
     return provider_cls

@@ -219,12 +219,18 @@ tree).
   format name.
 - **`register_provider(name, provider_cls, *, suffixes=(), sniff=None) ->
   type[DbProvider]`** — the extension seam for third-party backends. `name`
-  is used by `--db-format` and error messages; `suffixes` (lowercase, no
-  leading-dot requirement enforced but conventionally `.ext`) infer the
-  format from a `--db` path; `sniff(head: bytes) -> bool` inspects a file's
-  first 16 bytes to claim it by content (newer registrations are tried
-  first). Returns `provider_cls` (usable as a decorator). Re-registering a
-  name replaces the previous class.
+  is used by `--db-format` and error messages; `suffixes` (case-insensitive;
+  a missing leading dot is added, e.g. `"toml"` registers the same as
+  `".toml"` -- `Path.suffix` always includes one, so a dotless entry could
+  never match otherwise; an empty string is left alone, matching an
+  extensionless path; a suffix with more than one dot, e.g. `".tar.gz"`,
+  raises `ValueError` at registration time, since `Path.suffix` only ever
+  returns the last dot-segment) infer the format from a `--db` path;
+  `sniff(head: bytes) -> bool` inspects a file's first 16 bytes to claim it
+  by content (newer registrations are tried first). Returns `provider_cls`
+  (usable as a decorator). Re-registering a name replaces the previous
+  class; a rejected (multi-dot) suffix registers nothing at all, not a
+  half-registered name.
 - **Built-in backends** (all registered at import time): **`JsonlDb`**
   (`format="jsonl"`, suffixes `.jsonl`/`.ndjson`, default when unset) —
   append-only JSON Lines, one object per line, last record per path wins on
