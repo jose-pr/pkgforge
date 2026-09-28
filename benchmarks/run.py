@@ -202,13 +202,20 @@ def measure():
     return metrics
 
 
+def _platform_id() -> str:
+    """OS, architecture and libc only; the kernel release identifies the host."""
+    libc, ver = platform.libc_ver()
+    parts = [platform.system(), platform.machine()]
+    return "-".join(parts + ([f"{libc}{ver}"] if libc else []))
+
+
 def build_result(name: str, metrics: dict) -> dict:
     """The comparable JSON result for one run. Pure: no I/O, no measuring."""
     return {
         "name": name,
         "pkgforge_version": pkgforge.__version__,
         "python": platform.python_version(),
-        "platform": platform.platform(),
+        "platform": _platform_id(),
         "processor": platform.processor() or platform.machine(),
         "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "db_size": DB_SIZE,

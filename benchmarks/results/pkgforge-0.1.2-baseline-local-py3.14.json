@@ -61,7 +61,7 @@
   },
   "name": "pkgforge-0.1.2-baseline-local-py3.14",
   "pkgforge_version": "0.1.2",
-  "platform": "Linux-6.18.40.1-microsoft-standard-WSL2+-aarch64-with-glibc2.43",
+  "platform": "Linux-aarch64-glibc2.43",
   "processor": "aarch64",
   "python": "3.14.3",
   "scan_tree_size": 250,
