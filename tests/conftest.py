@@ -58,10 +58,10 @@ def pytest_collection_modifyitems(config: pytest.Config, items) -> None:
 
 @pytest.fixture(autouse=True)
 def _isolated_env(monkeypatch: pytest.MonkeyPatch):
-    """Scrub the PKGFORGE_* env vars around every test.
+    """Scrub ``SCRUBBED_ENV`` around every test.
 
-    The module-level pop above only guards the one-time import-time binding
-    (F51/F22); this additionally protects a test that reads the environment
+    The module-level pop above only guards the one-time import-time binding;
+    this additionally protects a test that reads the environment
     directly (e.g. a subprocess test that forgets to override one of the
     three), and stays correct once env resolution moves to parse time.
     """
@@ -72,10 +72,7 @@ def _isolated_env(monkeypatch: pytest.MonkeyPatch):
 
 @pytest.fixture
 def make_entry():
-    """Factory for a :class:`~pkgforge.common.FileEntry` dict with sane defaults.
-
-    Replaces the two diverging ``_entry`` copies (F103).
-    """
+    """Factory for a :class:`~pkgforge.common.FileEntry` dict with sane defaults."""
 
     def _make(
         mode: str = "644",
@@ -102,9 +99,8 @@ def make_entry():
 def cmd(tmp_path: Path):
     """Factory for a :class:`~pkgforge.common.PkgForgeCmd` bound to ``tmp_path``.
 
-    Replaces the old ``PkgForge.__new__(PkgForge)`` + setattr seeding (F103):
-    the constructor accepts ``db``/``db_format``/``buildroot`` directly
-    (measured against duho 0.5.0 and 0.5.4), so no bypass is needed.
+    The constructor accepts ``db``/``db_format``/``buildroot`` directly, so no
+    ``__new__`` + setattr bypass is needed.
     """
 
     def _make(name: str = "files.yaml", **over) -> PkgForgeCmd:
@@ -123,7 +119,7 @@ class CliResult(typing.NamedTuple):
 
 @pytest.fixture
 def cli(capfdbinary):
-    """Factory driving ``pkgforge.main(argv)`` like a real invocation (F52).
+    """Factory driving ``pkgforge.main(argv)`` like a real invocation.
 
     ``rc``: ``None`` -> 0, an int stays, any other ``SystemExit`` code -> 1
     with ``str(code)`` appended to ``err`` (as CPython's own top-level

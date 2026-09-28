@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke-test an INSTALLED pkgforge distribution (F53).
+"""Smoke-test an INSTALLED pkgforge distribution.
 
 Run this with the interpreter of a venv that has ``pkgforge`` installed
 NON-editable (e.g. from a built wheel) -- it is never collected by pytest:

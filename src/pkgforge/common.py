@@ -334,7 +334,7 @@ class PkgForgeCmd(LoggingArgs, Cmd):
         path = os.fspath(buildpath)
         if self._no_file_db():
             # No file: emit the record as a JSON Lines line to stdout.
-            # Function-local for the same reason as _provider() above (Q2).
+            # Function-local for the same reason as _provider() above.
             from .db import _record
 
             print(json.dumps(_record(path, entry), sort_keys=True))

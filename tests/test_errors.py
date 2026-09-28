@@ -14,7 +14,7 @@ from pkgforge.common import PkgForge, PkgForgeError, UsageError
 
 
 def test_root_command_not_runnable():
-    # Guard: PkgForgeCmd/PkgForge no longer override __call__ (F72) -- duho's
+    # Guard: PkgForgeCmd/PkgForge no longer override __call__ -- duho's
     # own Cmd base already raises NotImplementedError naming the class, so a
     # bare root command still fails loud if ever reached directly.
     with pytest.raises(NotImplementedError):

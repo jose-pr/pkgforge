@@ -190,7 +190,7 @@ def measure():
 
         # The documented AUTO sentinel (--) makes owner/group resolve from
         # disk (pwd/grp lookups) on top of the mode/type resolution a plain
-        # scan already does -- this is the cost path C107 changes.
+        # scan already does -- the lookup cost this metric isolates.
         auto_owner_db = Path(td) / "scan.auto_owner.jsonl"
         metrics["scan.cmd_auto_owner"] = sample(
             _run_scan,

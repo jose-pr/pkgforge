@@ -66,7 +66,7 @@ def test_entry_functions_exported():
 
 
 # --------------------------------------------------------------------------
-# apply_entry: chown-then-chmod order, symlinks, and the glibc floor (C101/F02)
+# apply_entry: chown-then-chmod order, symlinks, and the glibc floor
 # --------------------------------------------------------------------------
 
 
