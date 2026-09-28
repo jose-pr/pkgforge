@@ -85,10 +85,10 @@ reading an existing file auto-detects its actual format.
 
 ## Dump formats
 
-| Format | Output |
-| --- | --- |
-| `rpmspecfiles` | RPM `%files` lines (`%attr(...)`, `%dir`, `meta.rpmprefix`) to a file or `-` |
-| `debian` | `install` + `permissions` + `dirs` files into an output directory (or `-`, sectioned) |
+| Format | Aliases | Output |
+| --- | --- | --- |
+| `rpmspecfiles` | `rpm`, `rpmspec` | RPM `%files` lines (`%attr(...)`, `%dir`, `meta.rpmprefix`) to a file or `-` |
+| `debian` | `deb` | `install` + `permissions` + `dirs` files into an output directory (or `-`, sectioned) |
 
 Output of the Quick start above:
 

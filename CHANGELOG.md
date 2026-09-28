@@ -6,6 +6,40 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- `dbdump -f` accepts `rpm`/`rpmspec` as aliases for `rpmspecfiles`, and
+  `deb` as an alias for `debian`.
+- `pkgforge.db.DbProvider` and `pkgforge.dbdump.DumpFormat` (plus its two
+  subclasses `PerEntryFormat` and `MultiArtifactFormat`) are now the
+  documented extension points: add a backend or a dump format by
+  subclassing one of these with your own `NAME` (and, optionally,
+  `ALIASES`/`SUFFIXES`/`sniff`) -- no registration call needed.
+- `pkgforge.dbdump.UnsupportedOutputError`: raised for OUTPUT of the wrong
+  shape for the chosen dump format (a file for a multi-artifact format, or
+  an existing directory for a per-entry one). Also a `UsageError` (exit 2,
+  unchanged) and, per its name, a `NotImplementedError`.
+
+### Changed
+- `pkgforge.db` and `pkgforge.dbdump` are now packages, one module per
+  backend/format (`db/{jsonl,yaml,sqlite}.py`, `dbdump/{rpm,debian}.py`),
+  instead of one flat module each. Import from `pkgforge.db`/`pkgforge.dbdump`
+  as before; only a direct `import pkgforge.db` (or `.dbdump`) expecting a
+  plain module, rather than a package, would need updating.
+- `DbProvider.format` is renamed to `DbProvider.NAME`.
+
+### Removed
+- `pkgforge.db.register_provider()`, `PROVIDERS`, `SUFFIX_FORMATS` and
+  `_SNIFFERS`: subclass `DbProvider` with your own `NAME` (and, optionally,
+  `ALIASES`/`SUFFIXES`/`sniff`) instead; look one up by name with
+  `DbProvider.lookup(name)` (list every registered name with
+  `DbProvider.names()`).
+- `pkgforge.dbdump.PER_ENTRY_FORMATS`, `MULTI_ARTIFACT_FORMATS`,
+  `dump_formats()` and `PerEntryDumper`: subclass `PerEntryFormat` or
+  `MultiArtifactFormat` instead; look one up with `DumpFormat.lookup(name)`
+  (list every registered name with `DumpFormat.names()`).
+- `pkgforge.dbdump.rpmspecfile()`: use `RpmSpecFiles().render_entry(path,
+  entry)` instead (`from pkgforge.dbdump import RpmSpecFiles`).
+
 ### Fixed
 - `dbdump ... -` writes through `sys.stdout` instead of a raw file
   descriptor: it now works when `sys.stdout` is redirected (or otherwise not

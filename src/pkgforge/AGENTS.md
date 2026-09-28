@@ -8,7 +8,7 @@ API. For the CLI overview and code layout, see the shipped `README.md`, or <http
 `pkgforge.__all__`: `PkgForgeCmd`, `PkgForge`, `PkgForgeError`, `DbError`,
 `DbProvider`, `FileEntry`, `FileEntryArgs`, `FileType`, `UsageError`,
 `__version__`, `apply_entry`, `entry_from_args`, `entry_from_path`,
-`normalize_mode`, `resolve_entry`, `main`, `open_db`, `register_provider`, plus the
+`normalize_mode`, `resolve_entry`, `main`, `open_db`, plus the
 leaf-command submodules themselves
 (`compact`, `dbdump`, `initdb`, `install`, `scan` — importing `pkgforge` runs
 each module's `_register()` call, attaching it to the `PkgForge` subcommand
@@ -115,8 +115,8 @@ tree).
   octal permission string (`"644"`).
 - **`PkgForgeCmd(duho.LoggingArgs, duho.Cmd)`** — common base every
   subcommand extends. Fields: `--db PATH` (from `PKGFORGE_DB`),
-  `--db-format FMT` (from `PKGFORGE_DB_FORMAT`; a built-in or
-  `register_provider`-registered name, else `UsageError` -- checked in
+  `--db-format FMT` (from `PKGFORGE_DB_FORMAT`; a built-in or registered
+  `DbProvider` subclass's `NAME`, else `UsageError` -- checked in
   `__init__`, so it also covers direct Python-API construction),
   `--buildroot/-r DIR` (from `PKGFORGE_ROOT`, else `.`; a relative build root
   whose realpath is `/` -- the ordinary cwd default with no `PKGFORGE_ROOT`
@@ -164,7 +164,7 @@ tree).
   falls back to the class name (`PkgForge`), which shell completion cannot
   bind to (case-sensitive lookup on bash/zsh/fish).
 
-## DB backends (`db.py`)
+## DB backends (`db/`)
 
 - **`DbError(PkgForgeError, ValueError)`** — a backend's on-disk content
   could not be read as one, or a value it was given could not be stored:
@@ -197,9 +197,25 @@ tree).
   `493`) instead of PyYAML's YAML-1.1 typing.
 - **`Db`** — type alias `dict[str, FileEntry | None]` (a loaded DB; `None`
   marks a removed path).
-- **`DbProvider(abc.ABC)`** — storage backend bound to a filesystem `path`
-  (`provider_cls(path)`). Abstract methods: `load() -> Db`, `add(path,
-  entry)`, `remove(path)`, `compact()`, `init()`. Class attr `format: str`.
+- **`DbProvider(pkgforge._registry.Registered, abc.ABC)`** — storage backend
+  bound to a filesystem `path` (`provider_cls(path)`). Abstract methods:
+  `load() -> Db`, `add(path, entry)`, `remove(path)`, `compact()`, `init()`.
+  A subclass registers itself simply by declaring its own `NAME: str` (e.g.
+  `NAME = "toml"`); `ALIASES: tuple[str, ...]` (extra selectable names) and
+  `SUFFIXES: tuple[str, ...]` (file suffixes that infer this format from a
+  `--db` path -- case-insensitive; a missing leading dot is added, e.g.
+  `"toml"` registers the same as `".toml"`; a suffix with more than one dot,
+  e.g. `".tar.gz"`, raises `ValueError` when the class is created, and
+  registers nothing at all, not a half-registered class) are optional. An
+  optional `sniff(head: bytes) -> bool` staticmethod inspects a file's first
+  16 bytes to claim it by content; it counts only when the subclass's OWN
+  body defines it (an inherited one is ignored) -- newer registrations are
+  tried first. Two classmethods (from `Registered`, shared with
+  `dbdump.DumpFormat`): `DbProvider.lookup(name) -> type[DbProvider]`
+  (`name` is `NAME` or an `ALIASES` entry; raises `UsageError`, also a
+  `ValueError`, naming every registered name with its aliases for an
+  unrecognized one) and `DbProvider.names() -> list[str]` (every registered
+  `NAME`, sorted). Lookups are case-sensitive.
   **`batch(self) -> ContextManager[DbProvider]`** — non-abstract; a
   `contextlib.contextmanager` yielding `self`. The default does nothing
   extra (every `add`/`remove` inside it still writes exactly as it would
@@ -215,40 +231,30 @@ tree).
   and construct the provider. Precedence: explicit `fmt` wins; else, when
   `for_read` and `path` already exists, its content is sniffed (so a
   mislabeled/legacy file still loads correctly); else the `path` suffix
-  decides, defaulting to `"jsonl"`. Raises `ValueError` for an unknown
-  format name. `for_read=True` means "sniff an existing file's content",
-  not "this call only reads" -- `PkgForgeCmd._write_entry` passes it on
-  writes too, so an append keeps the file's actual format instead of
-  writing JSON Lines into, say, a legacy YAML file under a `.jsonl` suffix.
-- **`register_provider(name, provider_cls, *, suffixes=(), sniff=None) ->
-  type[DbProvider]`** — the extension seam for third-party backends. `name`
-  is used by `--db-format` and error messages; `suffixes` (case-insensitive;
-  a missing leading dot is added, e.g. `"toml"` registers the same as
-  `".toml"` -- `Path.suffix` always includes one, so a dotless entry could
-  never match otherwise; an empty string is left alone, matching an
-  extensionless path; a suffix with more than one dot, e.g. `".tar.gz"`,
-  raises `ValueError` at registration time, since `Path.suffix` only ever
-  returns the last dot-segment) infer the format from a `--db` path;
-  `sniff(head: bytes) -> bool` inspects a file's first 16 bytes to claim it
-  by content (newer registrations are tried first). Returns `provider_cls`
-  (usable as a decorator). Re-registering a name replaces the previous
-  class; a rejected (multi-dot) suffix registers nothing at all, not a
-  half-registered name.
-- **Built-in backends** (all registered at import time): **`JsonlDb`**
-  (`format="jsonl"`, suffixes `.jsonl`/`.ndjson`, default when unset) —
+  decides, defaulting to `"jsonl"`. Raises `UsageError` (also a
+  `ValueError`, so an existing `except ValueError` caller is unaffected) for
+  an unknown format name -- see `DbProvider.lookup` above. `for_read=True`
+  means "sniff an existing file's content", not "this call only reads" --
+  `PkgForgeCmd._write_entry` passes it on writes too, so an append keeps the
+  file's actual format instead of writing JSON Lines into, say, a legacy
+  YAML file under a `.jsonl` suffix.
+- **Built-in backends** (each its own module, imported -- and so registered
+  -- at `pkgforge.db` import time): **`JsonlDb`** (`db/jsonl.py`;
+  `NAME = "jsonl"`, `SUFFIXES = (".jsonl", ".ndjson")`, default when unset) —
   append-only JSON Lines, one object per line, last record per path wins on
   load; sniffed by a quoted first key (`re.match(r'\s*\{\s*"', head)`, so
   pkgforge's own output and a hand-written `{ "path": ...}` both match, but a
   flow-style YAML mapping with a plain key -- what `yaml.safe_dump` emits --
-  does not); **`YamlDb`** (`format="yaml"`, suffixes `.yaml`/`.yml`) —
+  does not); **`YamlDb`** (`db/yaml.py`; `NAME = "yaml"`,
+  `SUFFIXES = (".yaml", ".yml")`) —
   append-only YAML: a single mapping, appended key by key (the last
   duplicate key wins); a flow-style
   top-level document (e.g. `{/usr/bin/x: {...}}`, or `{}`) is read fine, but
   `add`/`remove` raise `DbError` instead of appending a block-style mapping
   after it (which would be invalid YAML) -- `compact()` rewrites the file in
   block style, unblocking further appends; **`SqliteDb`**
-  (`format="sqlite"`, suffixes `.db`/`.sqlite`/`.sqlite3`, sniffed by the
-  SQLite file magic) — a real upserted-in-place table, no append log
+  (`db/sqlite.py`; `NAME = "sqlite"`, `SUFFIXES = (".db", ".sqlite", ".sqlite3")`,
+  sniffed by the SQLite file magic) — a real upserted-in-place table, no append log
   (`compact()` drops removed rows + `VACUUM`s). `load()`/`compact()` never
   write: an empty or schema-less file loads as (or compacts as a no-op on)
   an empty DB, and a SQLite file that holds other tables but no `entries`
@@ -264,21 +270,32 @@ tree).
   it in place, so a failed write (`ENOSPC`, a kill) leaves the original file
   untouched; a symlinked `--db` keeps its link, a hardlinked one is detached.
   `sqlite3` and PyYAML are both imported lazily (inside `SqliteDb._connect`
-  and a private `_yaml_io()` respectively), not at module top: `import
-  pkgforge`, `--help` and the `jsonl` backend all work on an interpreter
-  that lacks one of them. Actually using the `sqlite`/`yaml` backend on
-  such an interpreter raises `PkgForgeError` naming the missing module,
-  instead of a bare `ImportError`. `_yaml_io()` prefers PyYAML's
+  and a private `db.yaml._yaml_io()` respectively), not at module top:
+  `import pkgforge`, `--help` and the `jsonl` backend all work on an
+  interpreter that lacks one of them. Actually using the `sqlite`/`yaml`
+  backend on such an interpreter raises `PkgForgeError` naming the missing
+  module, instead of a bare `ImportError`. `_yaml_io()` prefers PyYAML's
   libyaml-backed `CSafeLoader`/`CSafeDumper` over the pure-Python
   `SafeLoader`/`SafeDumper` when the installed build has them (several
   times faster; the on-disk format and duplicate-key last-wins behavior
   are unaffected either way).
+- **`db/_appendlog.py`** — machinery shared by `JsonlDb`/`YamlDb`:
+  `AppendLogDb(DbProvider)` (declares no `NAME` of its own, so subclassing
+  it alone registers nothing) implements `add`/`remove`/`compact`/`init` in
+  terms of two hooks each backend supplies: `_record(path, entry) -> str`
+  (one record's text) and `_render_all(live) -> str`
+  (the whole compacted file's text for the surviving records). Also holds
+  the on-disk mechanics: `_locked`, `_compact_lock`, `_atomic_write_text`,
+  `_append_text`, and the record normalizer `_normalize` described above.
 - **`format_for_suffix(path: Path) -> str`** — suffix → registered format
-  name, else `DEFAULT_FORMAT` (`"jsonl"`).
+  name, else `DEFAULT_FORMAT` (`"jsonl"`). Only a class's OWN `SUFFIXES`
+  count (never one inherited from a parent class); registered classes are
+  tried newest-first, so a suffix claimed by two classes resolves to
+  whichever registered most recently.
 - **`sniff_format(path: Path) -> str | None`** — detect an existing file's
-  format from its first 16 bytes via registered sniffers (newest-first);
-  falls back to `"yaml"` for any non-empty content no sniffer claims, `None`
-  for an empty/unreadable file.
+  format from its first 16 bytes via each registered class's own `sniff`
+  (newest-first); falls back to `"yaml"` for any non-empty content no
+  sniffer claims, `None` for an empty/unreadable file.
 
 ## Exclude / filter grammar (`exclude.py`)
 
@@ -337,33 +354,40 @@ tree).
   cleanly rather than letting it escape as a traceback from the `-X`
   `type=` converter.
 
-## `dbdump` format registry (`dbdump.py`)
+## `dbdump` format registry (`dbdump/`)
 
-- **`dump_formats() -> list[str]`** — every registered format name, sorted.
-- **`PER_ENTRY_FORMATS: dict[str, PerEntryDumper]`** — one-line-per-entry
-  formats, each `dumper(path, entry) -> bytes`. Built in: `"rpmspecfiles"`
-  (RPM `%files` lines: `%attr(mode,owner,group) "path"`, `%dir` prefix for
-  directories, `meta["rpmprefix"]` prepended if set). The path is quoted for
-  rpm's `%files -f` parser (targets rpm 4.19+): `\` and `"` are escaped, the
-  line is written as UTF-8 with `surrogateescape` (a non-UTF-8 name
-  round-trips its original bytes), and glob characters are never escaped
-  (rpm's own quoting already matches only the literal name). A `%` anywhere
-  in the path raises `DumpError` -- no version of rpm treats a quoted `%`
-  as literal, and `%(...)` runs a shell command -- as does any C0 control
+- **`DumpFormat(pkgforge._registry.Registered, abc.ABC)`** — a packaging
+  manifest format, selected by `dbdump -f NAME`. A subclass registers
+  itself simply by declaring its own `NAME`/`ALIASES` (same mechanism as
+  `DbProvider`, see above; `DumpFormat.lookup(name)`/`DumpFormat.names()`
+  work the same way too). Subclass one of the two shapes below, not
+  `DumpFormat` directly.
+- **`PerEntryFormat(DumpFormat)`** — renders one line per DB entry to a
+  single output stream. Abstract `render_entry(path, entry) -> bytes`;
+  concrete `render(entries) -> bytes` (joins every `render_entry` call) and
+  `dump(entries, output, logger=None)` (checks OUTPUT, renders, opens
+  OUTPUT, writes). `check_output` refuses an existing directory.
+  Built in: **`rpm.RpmSpecFiles`** (`NAME = "rpmspecfiles"`,
+  `ALIASES = ("rpm", "rpmspec")`) — RPM `%files` lines:
+  `%attr(mode,owner,group) "path"`, `%dir` prefix for directories,
+  `meta["rpmprefix"]` prepended if set. The path is quoted for rpm's
+  `%files -f` parser (targets rpm 4.19+): `\` and `"` are escaped, the line
+  is written as UTF-8 with `surrogateescape` (a non-UTF-8 name round-trips
+  its original bytes), and glob characters are never escaped (rpm's own
+  quoting already matches only the literal name). A `%` anywhere in the
+  path raises `DumpError` -- no version of rpm treats a quoted `%` as
+  literal, and `%(...)` runs a shell command -- as does any C0 control
   character or DEL.
-- **`DumpError(PkgForgeError, ValueError)`** — a DB entry that a dump
-  format's own tooling cannot represent (a `%` or a control character for
-  `rpmspecfiles`; see `MULTI_ARTIFACT_FORMATS` below for `debian`). Caught by
-  `main()`'s error boundary like any `PkgForgeError` (one stderr line, exit
-  1). Every entry is rendered before OUTPUT is opened, so raising this
-  leaves no partial file.
-- **`MULTI_ARTIFACT_FORMATS: dict[str, Callable[[Entries], dict[str,
-  bytes]]]`** — formats that render several named artifacts, each
-  `render(entries) -> {filename: bytes}`. Built in: `"debian"` — `install`
-  (`dh_install`-style `<src> <dest-dir>` lines, non-directory entries only)
-  + `permissions` (a pkgforge-specific `<path> <mode> <owner> <group>`
-  manifest -- **not** `dpkg-statoverride` input, which takes `user group
-  mode path` and rejects `-`; apply it instead from an
+- **`MultiArtifactFormat(DumpFormat)`** — renders several named artifacts
+  into a directory (or, for `-`, concatenates them to stdout under
+  `# === <name> ===` section headers). Abstract
+  `render(entries) -> dict[str, bytes]`; concrete `dump(...)` (checks,
+  renders, then writes). `check_output` refuses an existing non-directory.
+  Built in: **`debian.Debian`** (`NAME = "debian"`, `ALIASES = ("deb",)`) —
+  `install` (`dh_install`-style `<src> <dest-dir>` lines, non-directory
+  entries only) + `permissions` (a pkgforge-specific `<path> <mode> <owner>
+  <group>` manifest -- **not** `dpkg-statoverride` input, which takes `user
+  group mode path` and rejects `-`; apply it instead from an
   `override_dh_fixperms` target -- unescaped, `-` meaning "unpinned"; parse
   right-to-left, since the path may itself contain spaces -- for only the
   entries that pin a non-default mode/owner/group) + `dirs`
@@ -389,9 +413,21 @@ tree).
   `ntpath` also treats a literal backslash as a separator, which split a
   path containing one (e.g. a source named `back\slash`) in the wrong
   place on Windows.
+- **`UnsupportedOutputError(UsageError, DumpError, NotImplementedError)`** —
+  OUTPUT is the wrong shape for the chosen format (an existing file for
+  `debian`, an existing directory for `rpmspecfiles`); raised by
+  `check_output`. Caught by `main()`'s error boundary as a `UsageError`
+  (one stderr line, exit 2, same as before); also a `DumpError` (the format
+  itself is refusing this OUTPUT) and, per its name, a `NotImplementedError`.
+- **`DumpError(PkgForgeError, ValueError)`** — a DB entry that a dump
+  format's own tooling cannot represent (a `%` or a control character for
+  `rpmspecfiles`; see `MultiArtifactFormat.Debian` above for `debian`).
+  Caught by `main()`'s error boundary like any `PkgForgeError` (one stderr
+  line, exit 1). Every entry is rendered before OUTPUT is opened, so
+  raising this leaves no partial file.
 - **`Entries`** — type alias `list[tuple[str, FileEntry]]` (surviving DB
   entries after `--exclude` filtering), the shared input shape for both
-  registries above.
+  format shapes above.
 
 ## CLI subcommands
 
@@ -542,17 +578,20 @@ above).
   still counts as absent and is re-added if its file exists.
 - **`dbdump.DbDump(ExcludeArgs, PkgForgeCmd)`** (`pkgforge dbdump -f FORMAT [output]`) —
   render surviving (post-`--exclude`) DB entries via the format registry
-  above. Logs a WARNING (exit code and output unchanged: an empty manifest,
-  exit 0) when `--db` is unset, `-`, or names a file that does not exist,
-  and when the DB has entries but none survive `--exclude`. `--format`/OUTPUT
-  are validated before the DB is read (an unknown format, a file OUTPUT for a
-  multi-artifact format, or a directory OUTPUT for a per-entry format all
-  raise `UsageError`, exit 2), so a format typo never surfaces as whatever
-  the DB load happens to raise first; the check is a runtime registry lookup
-  (never `duho.Choice`), so a format registered after import still works.
-  Entries are emitted sorted by DB path (code-point order), never backend or
-  filesystem order, so the same staged tree gives byte-identical manifests
-  on any filesystem or DB backend.
+  above. `-f` accepts a `NAME` or an `ALIASES` entry (`rpm`/`rpmspec` for
+  `rpmspecfiles`, `deb` for `debian`); `self.format` is set to the resolved
+  `NAME` before `__call__` runs, so an alias and its canonical name always
+  produce identical output. Logs a WARNING (exit code and output unchanged: an
+  empty manifest, exit 0) when `--db` is unset, `-`, or names a file that does
+  not exist, and when the DB has entries but none survive `--exclude`.
+  `--format`/OUTPUT are validated before the DB is read (an unknown format, or
+  OUTPUT of the wrong shape for the chosen format, raise `UnsupportedOutputError`
+  or a plain `UsageError`, both exit 2), so a format typo never surfaces as
+  whatever the DB load happens to raise first; the check is a runtime registry
+  lookup (never `duho.Choice`), so a format registered after import still
+  works. Entries are emitted sorted by DB path (code-point order), never
+  backend or filesystem order, so the same staged tree gives byte-identical
+  manifests on any filesystem or DB backend.
 - **`initdb.InitDb(PkgForgeCmd)`** (`pkgforge initdb`) — create or truncate
   an empty DB; a no-op, now with a WARNING, for an unset/stdout DB. A `--db`
   naming a file that doesn't exist yet is not this case -- creating it is

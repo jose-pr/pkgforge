@@ -27,8 +27,6 @@ and dump helpers are importable.
     options:
       show_root_heading: true
 
-::: pkgforge.db.register_provider
-
 ::: pkgforge.db.open_db
 
 ## Commands
@@ -51,9 +49,19 @@ and dump helpers are importable.
 
 ## Dump formats
 
-::: pkgforge.dbdump.rpmspecfile
+::: pkgforge.dbdump.DumpFormat
+    options:
+      show_root_heading: true
 
-::: pkgforge.dbdump.dump_formats
+::: pkgforge.dbdump.PerEntryFormat
+
+::: pkgforge.dbdump.MultiArtifactFormat
+
+::: pkgforge.dbdump.rpm.RpmSpecFiles
+
+::: pkgforge.dbdump.debian.Debian
+
+::: pkgforge.dbdump.UnsupportedOutputError
 
 ## Extraction helpers
 

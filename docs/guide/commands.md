@@ -187,6 +187,9 @@ or one naming a file that doesn't exist yet -- nothing is created.
 ## `dbdump`
 
 Render the file DB into a packaging manifest. See [Dump formats](formats.md).
+`FORMAT` is a format's own name (`rpmspecfiles`, `debian`) or one of its
+aliases (`rpm`/`rpmspec` for `rpmspecfiles`, `deb` for `debian`) -- either
+spelling produces identical output.
 
 ```bash
 pkgforge dbdump -f FORMAT [-X PATTERN] [OUTPUT]

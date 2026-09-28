@@ -56,37 +56,41 @@ is detached from the hardlink by the next compact.
 
 ## Adding a backend
 
-Backends are pluggable. A third-party package can register its own by
-subclassing `DbProvider` and calling `register_provider` at import time — core
-pkgforge never needs to know about it:
+Backends are pluggable. A third-party package adds its own simply by
+subclassing `DbProvider` with its own `NAME` — core pkgforge never needs to
+know about it, and no separate registration call is needed:
 
 ```python
 import pkgforge
 
 class TomlDb(pkgforge.DbProvider):
-    format = "toml"
+    NAME = "toml"
+    SUFFIXES = (".toml",)                        # infer from a --db suffix
     def load(self): ...
     def add(self, path, entry): ...
     def remove(self, path): ...
     def compact(self): ...
     def init(self): ...
 
-pkgforge.register_provider(
-    "toml",
-    TomlDb,
-    suffixes=(".toml",),                       # infer from a --db suffix
-    sniff=lambda head: head.startswith(b"#toml"),  # or from file content
-)
+    @staticmethod
+    def sniff(head: bytes) -> bool:               # or claim a file by content
+        return head.startswith(b"#toml")
 ```
 
-Once registered, the format is selectable with `--db-format toml`, by a `.toml`
-`--db` suffix, or by content sniffing on read. A `DbProvider` is constructed as
-`provider_cls(path)` and must implement `load`/`add`/`remove`/`compact`/`init`;
-`load()` returns `{path: entry-or-None}` like the built-ins.
+Once defined, the format is selectable with `--db-format toml`, by a `.toml`
+`--db` suffix, or by content sniffing on read (`sniff` counts only when a
+class's own body defines it — a subclass that does not redeclare it is not
+consulted). A `DbProvider` is constructed as `provider_cls(path)` and must
+implement `load`/`add`/`remove`/`compact`/`init`; `load()` returns
+`{path: entry-or-None}` like the built-ins. Look one up directly with
+`DbProvider.lookup("toml")`, or list every registered name with
+`DbProvider.names()`.
 
-A suffix without a leading dot gets one (`"toml"` registers the same as
-`".toml"`); a multi-dot suffix (e.g. `".tar.gz"`) is refused, since it could
-never match a `--db` path's suffix.
+A `SUFFIXES` entry without a leading dot gets one (`"toml"` registers the same
+as `".toml"`); a multi-dot suffix (e.g. `".tar.gz"`) is refused (raises
+`ValueError` when the class is created), since it could never match a `--db`
+path's suffix — and, like an invalid `NAME`/`ALIASES` clash, leaves the class
+entirely unregistered rather than half-registered.
 
 `batch()` is optional: a context manager yielding the provider around a run
 of many writes (e.g. `scan`'s walk); the default does nothing. `sqlite`

@@ -3,10 +3,10 @@
 `pkgforge dbdump -f FORMAT [OUTPUT]` renders the file DB into a packaging
 manifest. `null` (removed) entries and `--exclude` matches are skipped.
 
-| Format | Shape | Output |
-| --- | --- | --- |
-| `rpmspecfiles` | per-entry lines | a file or `-` (stdout) |
-| `debian` | multiple artifacts | a **directory**, or `-` (stdout, sectioned) |
+| Format | Aliases | Shape | Output |
+| --- | --- | --- | --- |
+| `rpmspecfiles` | `rpm`, `rpmspec` | per-entry lines | a file or `-` (stdout) |
+| `debian` | `deb` | multiple artifacts | a **directory**, or `-` (stdout, sectioned) |
 
 ## `rpmspecfiles`
 
