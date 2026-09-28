@@ -7,6 +7,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- A failed install leaves no empty or partial file (or extracted directory)
+  behind, and keeps an earlier staged copy at that destination exactly as
+  it was, instead of truncating or clobbering it. Re-running a symlink
+  install now replaces the link (including a dangling in-place link, and a
+  target retargeted between runs) instead of failing with
+  `FileExistsError`; a stale host symlink at the destination is replaced by
+  the real staged file instead of being silently kept.
 - Sources resolving to one non-directory destination in a multi-source
   `install` exit 2 before staging instead of the last one silently
   overwriting the earlier ones (directory and archive sources sharing a

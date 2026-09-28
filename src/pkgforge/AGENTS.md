@@ -266,6 +266,12 @@ above).
   harmless no-op. A symlink source's recorded `meta["target"]` never
   leaks into a later entry -- the symlink branch rebinds `meta` rather
   than mutating it in place.
+  A failed install leaves `DESTINATION` exactly as it was: file, stream and
+  decompress staging write a sibling temp next to it and `os.replace` it in
+  only after the entry is applied, removing the temp on any failure.
+  Re-running an install always works: it replaces a staged file or symlink
+  (never a real directory, which raises `UsageError` instead), and several
+  directory/archive sources sharing a destination keep merging as before.
 - **`scan.ScanCmd(FileEntryArgs, PkgForgeCmd)`** (`pkgforge scan`) — walk a
   path under the build root, recording an entry per file; `--missing` only
   fills gaps not already in the DB. `--type/-t` is hidden from `--help` and

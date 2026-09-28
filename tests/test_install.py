@@ -18,6 +18,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
 import threading
 from pathlib import Path
@@ -848,3 +849,319 @@ def test_install_directory_sources_still_merge(tmp_path):
 
     assert (root / "opt" / "app" / "one").read_text() == "1"
     assert (root / "opt" / "app" / "two").read_text() == "2"
+
+
+# --------------------------------------------------------------------------
+# Atomicity: a failed install leaves the destination as it was; re-runs work
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.posix
+def test_install_failed_decompress_leaves_nothing(tmp_path):
+    if shutil.which("gzip") is None:
+        pytest.skip("gzip not available")
+    root = tmp_path / "root"
+    root.mkdir()
+    src = tmp_path / "bad.gz"
+    src.write_bytes(b"not actually gzip data")
+
+    parser = Install._parser_()
+    inst = parser.parse_args(
+        [
+            "--db",
+            str(tmp_path / "files.jsonl"),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-x",
+            "gz",
+            str(src),
+            "/e",
+        ]
+    )
+    with pytest.raises(subprocess.CalledProcessError):
+        inst()
+
+    # -p created the parent dir; the destination FILE itself must not exist.
+    assert not (root / "e" / "bad").exists()
+    assert not list(root.glob("**/*.pkgforge-tmp"))
+
+
+@pytest.mark.posix
+def test_install_failed_reinstall_keeps_previous_file(tmp_path):
+    if shutil.which("gzip") is None:
+        pytest.skip("gzip not available")
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+    good_src = tmp_path / "good.gz"
+    _write_compressed(good_src, "gz", b"hello\n")
+
+    common = ["--db", str(db), "--buildroot", str(root), "-p", "-x", "gz"]
+    Install._parser_().parse_args(common + [str(good_src), "/e"])()
+    staged = root / "e" / "good"
+    assert staged.read_bytes() == b"hello\n"
+
+    good_src.write_bytes(b"now junk, not gzip")
+    inst = Install._parser_().parse_args(common + [str(good_src), "/e"])
+    with pytest.raises(subprocess.CalledProcessError):
+        inst()
+
+    assert staged.read_bytes() == b"hello\n"
+    assert not list((root / "e").glob("*.pkgforge-tmp"))
+
+
+@pytest.mark.posix
+def test_install_bad_archive_leaves_nothing(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    payload = tmp_path / "payload"
+    payload.mkdir()
+    (payload / "f1").write_bytes(b"x" * 200_000)
+    (payload / "f2").write_bytes(b"y" * 200_000)
+    tar_path = tmp_path / "trunc.tar"
+    with tarfile.open(tar_path, "w") as tf:
+        tf.add(payload / "f1", arcname="f1")
+        tf.add(payload / "f2", arcname="f2")
+    data = tar_path.read_bytes()
+    tar_path.write_bytes(data[: len(data) - 250_000])  # cut it mid-member
+
+    parser = Install._parser_()
+    inst = parser.parse_args(
+        [
+            "--db",
+            str(tmp_path / "files.jsonl"),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-d",
+            str(tar_path),
+            "/tr",
+        ]
+    )
+    with pytest.raises(tarfile.ReadError):
+        inst()
+
+    # -p created the parent dir; the extracted destination dir itself
+    # (the ".tar" suffix stripped from the archive's basename) must not.
+    assert not (root / "tr" / "trunc").exists()
+    assert not list(root.glob("**/*.pkgforge-tmp"))
+
+
+@pytest.mark.posix
+def test_install_staged_modes_follow_umask(tmp_path):
+    if shutil.which("gzip") is None:
+        pytest.skip("gzip not available")
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+    old_umask = os.umask(0o022)
+    try:
+        gz_src = tmp_path / "a.gz"
+        _write_compressed(gz_src, "gz", b"data\n")
+        Install._parser_().parse_args(
+            [
+                "--db",
+                str(db),
+                "--buildroot",
+                str(root),
+                "-p",
+                "-x",
+                "gz",
+                str(gz_src),
+                "/f",
+            ]
+        )()
+        staged_file = root / "f" / "a"
+        assert (staged_file.stat().st_mode & 0o777) == 0o644
+
+        payload = tmp_path / "d"
+        payload.mkdir()
+        (payload / "x").write_text("x")
+        tar_src = tmp_path / "d.tar"
+        with tarfile.open(tar_src, "w") as tf:
+            tf.add(payload, arcname=".")
+        Install._parser_().parse_args(
+            [
+                "--db",
+                str(db),
+                "--buildroot",
+                str(root),
+                "-p",
+                "-d",
+                str(tar_src),
+                "/g",
+            ]
+        )()
+        staged_dir = root / "g"
+        assert (staged_dir.stat().st_mode & 0o777) == 0o755
+    finally:
+        os.umask(old_umask)
+
+
+@pytest.mark.posix
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "file",
+        "dir",
+        "symlink_rel",
+        "symlink_pkg_only",
+        "type_symlink",
+        "archive",
+        "decompress",
+    ],
+)
+def test_install_rerun_is_idempotent(tmp_path, kind):
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+    common = ["--db", str(db), "--buildroot", str(root), "-p"]
+
+    if kind == "file":
+        src = tmp_path / "f.conf"
+        src.write_text("hello")
+        argv = common + [str(src), "/e"]
+        check = lambda: (root / "e" / "f.conf").read_text() == "hello"
+    elif kind == "dir":
+        d = tmp_path / "d"
+        d.mkdir()
+        (d / "a").write_text("A")
+        argv = common + ["-d", "-D", str(d), "/opt/app"]
+        check = lambda: (root / "opt" / "app" / "a").read_text() == "A"
+    elif kind == "symlink_rel":
+        link = tmp_path / "rel.link"
+        link.symlink_to("reltarget")
+        argv = common + [str(link), "/usr/bin"]
+        check = lambda: os.readlink(root / "usr" / "bin" / "rel.link") == "reltarget"
+    elif kind == "symlink_pkg_only":
+        link = tmp_path / "pkg.link"
+        link.symlink_to("/usr/bin/not-on-host-xyz")
+        argv = common + [str(link), "/usr/bin"]
+        check = (
+            lambda: os.readlink(root / "usr" / "bin" / "pkg.link")
+            == "/usr/bin/not-on-host-xyz"
+        )
+    elif kind == "type_symlink":
+        argv = common + [
+            "-T",
+            "--type",
+            "symlink",
+            "-O",
+            "target=/usr/bin/app",
+            "-",
+            "/usr/bin/app.link",
+        ]
+        check = lambda: os.readlink(root / "usr" / "bin" / "app.link") == "/usr/bin/app"
+    elif kind == "archive":
+        d = tmp_path / "archsrc"
+        d.mkdir()
+        (d / "a").write_text("A")
+        tar_src = tmp_path / "t.tar"
+        with tarfile.open(tar_src, "w") as tf:
+            tf.add(d, arcname=".")
+        argv = common + ["-d", "-D", str(tar_src), "/opt/from_tar"]
+        check = lambda: (root / "opt" / "from_tar" / "a").read_text() == "A"
+    else:  # decompress
+        if shutil.which("gzip") is None:
+            pytest.skip("gzip not available")
+        gz_src = tmp_path / "z.gz"
+        _write_compressed(gz_src, "gz", b"zdata\n")
+        argv = common + ["-x", "gz", str(gz_src), "/e2"]
+        check = lambda: (root / "e2" / "z").read_bytes() == b"zdata\n"
+
+    for _ in range(2):
+        Install._parser_().parse_args(argv)()
+        assert check()
+
+
+@pytest.mark.posix
+def test_install_symlink_rerun_applies_new_target(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+    link = tmp_path / "ch.link"
+    link.symlink_to("/usr/bin/env")
+
+    def _argv():
+        return ["--db", str(db), "--buildroot", str(root), "-p", str(link), "/usr/bin"]
+
+    Install._parser_().parse_args(_argv())()
+    staged = root / "usr" / "bin" / "ch.link"
+    assert os.readlink(staged) == "/usr/bin/env"
+
+    link.unlink()
+    link.symlink_to("/usr/bin/bash")
+    Install._parser_().parse_args(_argv())()
+    assert os.readlink(staged) == "/usr/bin/bash"
+
+    common = [
+        "--db",
+        str(db),
+        "--buildroot",
+        str(root),
+        "-p",
+        "-T",
+        "--type",
+        "symlink",
+    ]
+    Install._parser_().parse_args(common + ["-O", "target=/a", "-", "/usr/bin/s"])()
+    assert os.readlink(root / "usr" / "bin" / "s") == "/a"
+    Install._parser_().parse_args(common + ["-O", "target=/b", "-", "/usr/bin/s"])()
+    assert os.readlink(root / "usr" / "bin" / "s") == "/b"
+
+
+@pytest.mark.posix
+def test_install_symlink_inplace_records_target(tmp_path):
+    # The source IS the already-staged path (an in-place build, where the
+    # source tree lives under the build root itself).
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+    link_dir = root / "usr" / "lib"
+    link_dir.mkdir(parents=True)
+    link = link_dir / "libfoo.so"
+    link.symlink_to("libfoo.so.1")
+
+    parser = Install._parser_()
+    inst = parser.parse_args(
+        [
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "-T",
+            str(link),
+            "/usr/lib/libfoo.so",
+        ]
+    )
+    inst()
+
+    assert os.readlink(link) == "libfoo.so.1"
+    recorded = inst.loaddb()["/usr/lib/libfoo.so"]
+    assert recorded["meta"]["target"] == "libfoo.so.1"
+
+
+@pytest.mark.posix
+def test_install_file_replaces_stale_host_symlink(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+    src = tmp_path / "f.conf"
+    src.write_text("payload")
+
+    dest_dir = root / "etc"
+    dest_dir.mkdir()
+    stale = dest_dir / "f.conf"
+    stale.symlink_to(src)  # points AT the source itself
+
+    parser = Install._parser_()
+    inst = parser.parse_args(
+        ["--db", str(db), "--buildroot", str(root), "-T", str(src), "/etc/f.conf"]
+    )
+    inst()
+
+    assert not stale.is_symlink()
+    assert stale.read_text() == "payload"
+    recorded = inst.loaddb()["/etc/f.conf"]
+    assert recorded["type"] == "file"

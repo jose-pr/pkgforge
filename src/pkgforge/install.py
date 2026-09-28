@@ -13,6 +13,7 @@ import stat
 import subprocess
 import sys
 import tarfile
+import tempfile
 import typing
 from pathlib import Path
 
@@ -180,6 +181,22 @@ def _detect_source_type(path: Path) -> FileType:
     raise UsageError(f"{path}: unsupported source type (socket or block device)")
 
 
+def _umask() -> int:
+    """Read the process umask without changing it (``os.umask`` has no
+    read-only form: setting it is the only way to read it)."""
+    mask = os.umask(0)
+    os.umask(mask)
+    return mask
+
+
+def _refuse_real_directory_dest(dst: Path) -> None:
+    """Refuse to replace a real (non-symlink) directory with a file or
+    symlink -- a clear error instead of a confusing OSError deep in a
+    copy/rename call."""
+    if dst.is_dir() and not dst.is_symlink():
+        raise UsageError(f"{dst}: cannot replace a directory with a file or symlink")
+
+
 def _extract_tar(fileobj_or_name, dst: Path) -> None:
     """Extract a tar-family archive into ``dst`` using stdlib :mod:`tarfile`.
 
@@ -289,23 +306,29 @@ class Install(FileEntryArgs, PkgForgeCmd):
         )
         return parser
 
-    def install(self, src: Path, dst: Path):
-        self._logger_.info(
-            "Installing %s at %s", DEFAULT if src is None else src, self.buildpath(dst)
+    def _stage_file(self, src: Path, dst: Path) -> Path:
+        """Write this clone's file content into a temp file next to ``dst``.
+
+        Never touches ``dst`` itself; the caller applies the entry and
+        ``os.replace``s the returned temp onto ``dst``. On any failure the
+        temp is removed and the exception re-raised.
+        """
+        fd, tmp_name = tempfile.mkstemp(
+            dir=os.fspath(dst.parent), prefix=f".{dst.name}.", suffix=".pkgforge-tmp"
         )
-        if (
-            dst.exists()
-            and src not in [DEFAULT, None]
-            and src.resolve() == dst.resolve()
-        ):
-            return
-        if self.type == FileType.File:
-            dst.unlink(True)
+        os.close(fd)
+        tmp = Path(tmp_name)
+        try:
             if not src:
-                dst.touch()
+                # An empty file (-t file, no source). mkstemp already
+                # created it 0600; give it the umask-adjusted default mode
+                # a plain touch() would have, since apply_entry() skips
+                # chmod entirely when mode is left at DEFAULT.
+                os.chmod(tmp, 0o666 & ~_umask())
             elif self.decompress:
+                os.chmod(tmp, 0o666 & ~_umask())
                 argv, _ = _DECOMPRESSORS[self.decompress]
-                with dst.open("wb") as f:
+                with tmp.open("wb") as f:
                     subprocess.run(
                         [
                             *argv,
@@ -324,53 +347,100 @@ class Install(FileEntryArgs, PkgForgeCmd):
                     )
             elif str(src) != DEFAULT:
                 if stat.S_ISREG(os.stat(src).st_mode):
-                    # Copy src -> dst. The staged file is independent of the
-                    # source: -m/--chown apply to the copy only, and the
-                    # source keeps its own content, mode and ownership.
-                    shutil.copy2(os.fspath(src), os.fspath(dst))
+                    # Copy src -> tmp. mkstemp already created tmp; copy2
+                    # wants to create the file itself (to also copy the
+                    # source's own mode/mtime), so remove the placeholder.
+                    tmp.unlink()
+                    shutil.copy2(os.fspath(src), os.fspath(tmp))
                 else:
                     # A FIFO or non-terminal character device (a named pipe,
                     # /dev/stdin, process substitution): stream its bytes.
                     # copy2/copystat do not apply to a non-regular file.
-                    with open(src, "rb") as input, dst.open("wb") as output:
+                    os.chmod(tmp, 0o666 & ~_umask())
+                    with open(src, "rb") as input, tmp.open("wb") as output:
                         shutil.copyfileobj(input, output)
             else:
                 self._logger_.info("Obtaining data from stdin")
-                with dst.open("wb") as output:
+                os.chmod(tmp, 0o666 & ~_umask())
+                with tmp.open("wb") as output:
                     shutil.copyfileobj(_require_stdin(), output)
-        elif self.type == FileType.Symlink:
-            if str(src) == DEFAULT or not src:
-                target = self.meta.get("target")
-                if not target:
-                    # __call__ already checks this right after type
-                    # resolution (before the destination is even computed);
-                    # this raise stays for a direct Python-API caller of
-                    # install() itself.
-                    raise UsageError("a symlink with no source needs -O target=PATH")
-                dst.symlink_to(target)
-            else:
-                target = src.readlink()
-                # Rebind, never mutate: self.meta may be the caller's own
-                # dict, a shared class-level default, or a parser -O
-                # action's stored default. Mutating it in place leaked
-                # "target" into every entry recorded after this one, in
-                # the same multi-source install and beyond it.
-                self.meta = {**self.meta, "target": os.fspath(target)}
-                dst.symlink_to(target)
-                shutil.copystat(src, dst, follow_symlinks=False)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
+        return tmp
 
-        elif self.type == FileType.Directory:
+    def _stage_symlink(self, src: Path, dst: Path) -> Path:
+        """Reserve a temp name next to ``dst`` and symlink it to the
+        resolved target. Never touches ``dst`` itself; see :meth:`_stage_file`.
+        """
+        if str(src) == DEFAULT or not src:
+            target = self.meta.get("target")
+            if not target:
+                # __call__ already checks this right after type resolution
+                # (before the destination is even computed); this raise
+                # stays for a direct Python-API caller of install() itself.
+                raise UsageError("a symlink with no source needs -O target=PATH")
+            copystat_from = None
+        else:
+            target = os.fspath(src.readlink())
+            # Rebind, never mutate: self.meta may be the caller's own dict,
+            # a shared class-level default, or a parser -O action's stored
+            # default. Mutating it in place leaked "target" into every
+            # entry recorded after this one, in the same multi-source
+            # install and beyond it.
+            self.meta = {**self.meta, "target": target}
+            copystat_from = src
+
+        fd, tmp_name = tempfile.mkstemp(
+            dir=os.fspath(dst.parent), prefix=f".{dst.name}.", suffix=".pkgforge-tmp"
+        )
+        os.close(fd)
+        tmp = Path(tmp_name)
+        tmp.unlink()  # mkstemp's placeholder; replaced with the symlink below
+        try:
+            os.symlink(target, tmp)
+            if copystat_from is not None:
+                shutil.copystat(copystat_from, tmp, follow_symlinks=False)
+        except BaseException:
+            if tmp.is_symlink() or tmp.exists():
+                tmp.unlink(missing_ok=True)
+            raise
+        return tmp
+
+    def _stage_directory(self, src: Path, dst: Path) -> Path:
+        """Stage a directory (or archive) source at ``dst``.
+
+        Returns ``dst`` once its final content is in place (a merge, or
+        creating an empty directory, leaves nothing further for the caller
+        to swap); returns a sibling temp directory when the caller must
+        still ``os.replace`` it onto ``dst`` (a fresh, non-merging archive
+        extraction).
+        """
+        if not src:
+            # -t directory, no source: an empty directory. May already
+            # exist (a re-run); nothing to extract or merge.
             dst.mkdir(exist_ok=True)
-            if not src:
-                ...
-            elif src == DEFAULT or not src.is_dir():
-                # Extract an archive source. Prefer stdlib tarfile for the tar
-                # family (no external binary, cross-platform, safe `data`
-                # filter); fall back to bsdtar for stdin and formats tarfile
-                # can't open (e.g. iso).
+            return dst
+
+        if src == DEFAULT or not src.is_dir():
+            # Extract an archive source into a fresh temp directory first,
+            # so a filter rejection or a truncated archive never reaches
+            # dst directly.
+            tmp = Path(
+                tempfile.mkdtemp(
+                    dir=os.fspath(dst.parent),
+                    prefix=f".{dst.name}.",
+                    suffix=".pkgforge-tmp",
+                )
+            )
+            os.chmod(tmp, 0o777 & ~_umask())
+            try:
+                # Prefer stdlib tarfile for the tar family (no external
+                # binary, cross-platform, safe `data` filter); fall back to
+                # bsdtar for stdin and formats tarfile can't open (e.g. iso).
                 if src != DEFAULT and _is_tar_source(src):
                     self._logger_.debug("Extracting %s via tarfile", src)
-                    _extract_tar(src, dst)
+                    _extract_tar(src, tmp)
                 else:
                     self._logger_.debug("Extracting %s via bsdtar", src)
                     subprocess.run(
@@ -378,34 +448,83 @@ class Install(FileEntryArgs, PkgForgeCmd):
                             "bsdtar",
                             "-x",
                             "-C",
-                            os.fspath(dst),
+                            os.fspath(tmp),
                             "-f",
                             os.fspath(src) if src != DEFAULT else "-",
                         ],
                         stdin=sys.stdin if src == DEFAULT else None,
                         check=True,
                     )
-            elif src.is_dir():
-                shutil.copystat(src, dst, follow_symlinks=False)
-                if self.exclude:
-                    filter = PathMatch(self.exclude, src)
+                if dst.exists():
+                    shutil.copytree(tmp, dst, symlinks=True, dirs_exist_ok=True)
+                    shutil.rmtree(tmp)
+                    return dst
+                return tmp
+            except BaseException:
+                shutil.rmtree(tmp, ignore_errors=True)
+                raise
 
-                    def _ignore(_dir: str, _files: typing.List[str]):
-                        return [
-                            file for file in _files if filter.match(Path(_dir, file))
-                        ]
+        # A directory source: copytree onto dst, merging if dst already
+        # exists. Only roll back dst on failure if this call created it --
+        # a partial merge into a pre-existing directory is not rolled back.
+        created = not dst.exists()
+        try:
+            dst.mkdir(exist_ok=True)
+            shutil.copystat(src, dst, follow_symlinks=False)
+            if self.exclude:
+                filter = PathMatch(self.exclude, src)
 
-                else:
-                    _ignore = None
-                shutil.copytree(
-                    src,
-                    dst,
-                    symlinks=True,
-                    ignore=_ignore,
-                    ignore_dangling_symlinks=True,
-                    dirs_exist_ok=True,
-                )
+                def _ignore(_dir: str, _files: typing.List[str]):
+                    return [file for file in _files if filter.match(Path(_dir, file))]
 
+            else:
+                _ignore = None
+            shutil.copytree(
+                src,
+                dst,
+                symlinks=True,
+                ignore=_ignore,
+                ignore_dangling_symlinks=True,
+                dirs_exist_ok=True,
+            )
+        except BaseException:
+            if created:
+                shutil.rmtree(dst, ignore_errors=True)
+            raise
+        return dst
+
+    def install(self, src: Path, dst: Path) -> Path:
+        """Stage ``src`` at ``dst`` and return the path holding the final
+        content: either ``dst`` itself (nothing further to do -- a merge,
+        an in-place no-op, or an already-empty directory) or a sibling temp
+        the caller must ``os.replace`` onto ``dst`` after applying the
+        entry. Writes nothing to ``dst`` directly for a file or symlink
+        type, so a failure here never touches a previously staged copy.
+        """
+        self._logger_.info(
+            "Installing %s at %s", DEFAULT if src is None else src, self.buildpath(dst)
+        )
+        if (
+            src not in [DEFAULT, None]
+            and os.path.lexists(dst)
+            and os.path.samestat(os.lstat(src), os.lstat(dst))
+        ):
+            # src already IS the staged dst (e.g. an in-place build, or a
+            # hardlink left by an earlier run): nothing to stage. Uses
+            # samestat on lstat, not resolve()/exists(), so a stale host
+            # symlink that merely resolves to src does not count as "same".
+            if self.type == FileType.Symlink:
+                self.meta = {**self.meta, "target": os.fspath(src.readlink())}
+            return dst
+
+        if self.type == FileType.File:
+            _refuse_real_directory_dest(dst)
+            return self._stage_file(src, dst)
+        elif self.type == FileType.Symlink:
+            _refuse_real_directory_dest(dst)
+            return self._stage_symlink(src, dst)
+        elif self.type == FileType.Directory:
+            return self._stage_directory(src, dst)
         else:
             raise NotImplementedError(self.type)
 
@@ -525,11 +644,31 @@ class Install(FileEntryArgs, PkgForgeCmd):
         return dest
 
     def _stage(self, dest: Path) -> None:
-        """Stage this clone's source at ``dest`` and record its entry."""
+        """Stage this clone's source at ``dest`` and record its entry.
+
+        ``install()`` returns either ``dest`` itself (nothing further to
+        swap) or a sibling temp; the entry is applied to whichever of the
+        two actually holds the content, and only then is the temp (if any)
+        replaced onto ``dest`` -- so a failed chmod/chown/record leaves an
+        earlier good ``dest`` exactly as it was, never a partial temp.
+        """
         if self.parents:
             dest.parent.mkdir(parents=True, exist_ok=True)
 
-        self.install(self.source, dest)
+        staged = self.install(self.source, dest)
+        try:
+            fileentry = entry_from_args(self)
+            fileentry = resolve_entry(fileentry, staged)
+            apply_entry(fileentry, staged, chown=self.chown, logger=self._logger_)
+            if staged != dest:
+                os.replace(staged, dest)
+        except BaseException:
+            if staged != dest and (staged.is_symlink() or staged.exists()):
+                if staged.is_dir() and not staged.is_symlink():
+                    shutil.rmtree(staged, ignore_errors=True)
+                else:
+                    staged.unlink(missing_ok=True)
+            raise
 
         if self.remove_source and self.source not in [DEFAULT, None]:
             # A directory source needs rmtree; unlink only removes files/symlinks.
@@ -537,10 +676,6 @@ class Install(FileEntryArgs, PkgForgeCmd):
                 shutil.rmtree(self.source)
             else:
                 self.source.unlink()
-
-        fileentry = entry_from_args(self)
-        fileentry = resolve_entry(fileentry, dest)
-        apply_entry(fileentry, dest, chown=self.chown, logger=self._logger_)
 
         if not self.noentry:
             fspath = os.fspath(self.buildpath(dest))
