@@ -16,6 +16,14 @@ from pkgforge.dbdump import (
 )
 from pkgforge.install import _extract_tar, _is_tar_source
 
+#: The tarfile route needs PEP 706's extraction filter (3.9.17+, 3.10.12+,
+#: 3.11.4+, 3.12+); without it pkgforge routes to bsdtar or refuses, so tests of
+#: the tarfile route itself cannot run there (e.g. the 3.9.13 binary builds).
+requires_tar_filter = pytest.mark.skipif(
+    not hasattr(tarfile, "data_filter"),
+    reason="this Python's tarfile has no extraction filter (PEP 706)",
+)
+
 # --------------------------------------------------------------------------
 # tar detection + extraction
 # --------------------------------------------------------------------------
@@ -39,6 +47,7 @@ def test_is_tar_source(name, expected):
     assert _is_tar_source(name) is expected
 
 
+@requires_tar_filter
 def test_extract_tar_gz_roundtrip(tmp_path):
     # Build a .tar.gz, extract via stdlib tarfile (no bsdtar involved).
     srcdir = tmp_path / "content"

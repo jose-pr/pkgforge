@@ -25,6 +25,14 @@ import pytest
 from pkgforge.common import PkgForgeError
 from pkgforge.install import BSDTAR_EXTRACT_FLAGS, Install, _extract_bsdtar
 
+#: The tarfile route needs PEP 706's extraction filter (3.9.17+, 3.10.12+,
+#: 3.11.4+, 3.12+); without it pkgforge routes to bsdtar or refuses, so tests of
+#: the tarfile route itself cannot run there (e.g. the 3.9.13 binary builds).
+requires_tar_filter = pytest.mark.skipif(
+    not hasattr(tarfile, "data_filter"),
+    reason="this Python's tarfile has no extraction filter (PEP 706)",
+)
+
 # --------------------------------------------------------------------------
 # Re-running a directory install whose source holds symlinks
 # --------------------------------------------------------------------------
@@ -507,6 +515,7 @@ def test_tar_keeps_absolute_and_climbing_symlinks(tmp_path):
         )
 
 
+@requires_tar_filter
 @pytest.mark.parametrize(
     "kind",
     [
@@ -857,6 +866,7 @@ def test_install_directory_source_keeps_dotted_name(tmp_path):
     assert (root / "etc" / "conf.tar.d" / "a").read_text() == "x"
 
 
+@requires_tar_filter
 @pytest.mark.posix
 def test_install_tar_routes_through_tarfile_guard(tmp_path, monkeypatch):
     # Guard: a plain .tar.gz source still goes through the stdlib tarfile

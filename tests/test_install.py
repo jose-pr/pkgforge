@@ -940,7 +940,9 @@ def test_install_bad_archive_leaves_nothing(tmp_path):
             "/tr",
         ]
     )
-    with pytest.raises(tarfile.ReadError):
+    # tarfile reports ReadError; without PEP 706 the archive goes to bsdtar,
+    # which exits non-zero. Either way nothing may be left behind.
+    with pytest.raises((tarfile.ReadError, subprocess.CalledProcessError)):
         inst()
 
     # -p created the parent dir; the extracted destination dir itself
