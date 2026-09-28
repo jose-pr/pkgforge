@@ -67,8 +67,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install libarchive-tools (bsdtar) on Linux
-        # A couple of tests exercise the bsdtar extraction fallback; the tar
-        # family itself uses stdlib tarfile and needs no external tool.
+        # tests/test_archive_install.py exercises the bsdtar extraction
+        # fallback; the tar family itself uses stdlib tarfile and needs no
+        # external tool.
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libarchive-tools
       - name: Install package with dev extras
