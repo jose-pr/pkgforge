@@ -332,6 +332,18 @@ def _normalize(dbfile: Path, path: str, rec: object) -> dict:
     wouldn't match a strict octal-digit pattern, and a DB written by an
     older pkgforge must keep loading.
     """
+    # Fast path: every record pkgforge itself writes is already canonical, and
+    # the loaders hand over a freshly decoded dict, so it can be returned as is.
+    if (
+        type(rec) is dict
+        and type(rec.get("mode")) is str
+        and type(rec.get("owner")) is str
+        and type(rec.get("group")) is str
+        and "meta" in rec
+        and "type" in rec
+        and (rec["type"] is None or type(rec["type"]) is str)
+    ):
+        return rec
     if not isinstance(rec, dict):
         raise DbError(f"{dbfile}: {path}: record is not a mapping")
     rec = dict(rec)
