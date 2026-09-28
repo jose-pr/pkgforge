@@ -221,6 +221,66 @@ def test_missing_backend_module_is_one_line_error(tmp_path, block, ext, fmt, act
     assert block in lines[0]
 
 
+# --------------------------------------------------------------------------
+# yaml loader/dumper: prefer libyaml's C variants when available
+# --------------------------------------------------------------------------
+
+
+def test_yaml_uses_libyaml_when_available():
+    if not getattr(yaml, "__with_libyaml__", False):
+        pytest.skip("PyYAML installed without libyaml (no CSafeLoader/CSafeDumper)")
+
+    from pkgforge.db import _yaml_io
+
+    _yaml_io.cache_clear()
+    try:
+        loader, dumper = _yaml_io()
+        assert loader is yaml.CSafeLoader
+        assert dumper is yaml.CSafeDumper
+    finally:
+        _yaml_io.cache_clear()
+
+
+@pytest.mark.parametrize(
+    "which",
+    [
+        "pure",
+        pytest.param(
+            "c",
+            marks=pytest.mark.skipif(
+                not getattr(yaml, "__with_libyaml__", False),
+                reason="PyYAML installed without libyaml",
+            ),
+        ),
+    ],
+)
+def test_yaml_loader_parity(tmp_path, monkeypatch, make_entry, which):
+    # Whichever loader/dumper _yaml_io() picks, behavior (last-wins,
+    # tombstones) and the exact bytes compact() writes must be unchanged.
+    import pkgforge.db as dbmod
+
+    if which == "pure":
+        loader, dumper = yaml.SafeLoader, yaml.SafeDumper
+    else:
+        loader, dumper = yaml.CSafeLoader, yaml.CSafeDumper
+    monkeypatch.setattr(dbmod, "_yaml_io", lambda: (loader, dumper))
+
+    p = open_db(tmp_path / "f.yaml", "yaml")
+    p.init()
+    p.add("/a", make_entry(mode="644"))
+    p.add("/a", make_entry(mode="600"))  # last write for a path wins
+    p.add("/b", make_entry(mode="755"))
+    p.remove("/b")  # tombstone
+
+    db = open_db(p.path, "yaml", for_read=True).load()
+    assert db["/a"]["mode"] == "600"
+    assert db["/b"] is None
+
+    p.compact()
+    compacted = p.path.read_text()
+    assert compacted == yaml.safe_dump({"/a": make_entry(mode="600")})
+
+
 def test_open_db_unknown_format_has_no_context(tmp_path):
     with pytest.raises(ValueError) as excinfo:
         open_db(tmp_path / "x", "toml")

@@ -198,7 +198,11 @@ tree).
   pkgforge`, `--help` and the `jsonl` backend all work on an interpreter
   that lacks one of them. Actually using the `sqlite`/`yaml` backend on
   such an interpreter raises `PkgForgeError` naming the missing module,
-  instead of a bare `ImportError`.
+  instead of a bare `ImportError`. `_yaml_io()` prefers PyYAML's
+  libyaml-backed `CSafeLoader`/`CSafeDumper` over the pure-Python
+  `SafeLoader`/`SafeDumper` when the installed build has them (several
+  times faster; the on-disk format and duplicate-key last-wins behavior
+  are unaffected either way).
 - **`format_for_suffix(path: Path) -> str`** — suffix → registered format
   name, else `DEFAULT_FORMAT` (`"jsonl"`).
 - **`sniff_format(path: Path) -> str | None`** — detect an existing file's

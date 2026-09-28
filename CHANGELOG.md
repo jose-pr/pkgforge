@@ -37,6 +37,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `/a`) links to that member, never to a real host path that happens to
   exist there; escaping members or links, and device nodes or FIFOs, exit 1
   with one message, not a traceback.
+- The `yaml` backend uses PyYAML's libyaml-backed loader/dumper when the
+  installed PyYAML build has them; the on-disk file format is unchanged.
 
 ### Added
 - `scan --drop-stale` records a removal for each DB entry below PATH whose

@@ -182,6 +182,14 @@ def _yaml_io() -> typing.Tuple[type, type]:
     backend pays for the import. A missing module raises one clear
     :class:`~pkgforge.common.PkgForgeError` instead of a bare ``ImportError``
     surfacing from wherever this was first called.
+
+    Prefers PyYAML's libyaml-backed ``CSafeLoader``/``CSafeDumper`` (several
+    times faster than the pure-Python ``SafeLoader``/``SafeDumper``) when the
+    installed PyYAML build has them, falling back to the pure-Python classes
+    otherwise. Both give identical results: the C loader only swaps the
+    scanner/parser (its constructor is still ``SafeConstructor``, so
+    duplicate-key last-wins is unaffected), and the C dumper's output is
+    byte-identical to the pure-Python one.
     """
     try:
         import yaml
@@ -190,7 +198,9 @@ def _yaml_io() -> typing.Tuple[type, type]:
             "the yaml DB backend needs PyYAML, which is not installed; "
             "use --db-format jsonl or sqlite"
         ) from exc
-    return yaml.SafeLoader, yaml.SafeDumper
+    loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+    dumper = getattr(yaml, "CSafeDumper", yaml.SafeDumper)
+    return loader, dumper
 
 
 class YamlDb(DbProvider):
