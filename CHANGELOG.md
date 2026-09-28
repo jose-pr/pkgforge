@@ -26,6 +26,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   character in a path, or whitespace in a mode/owner/group, now stops
   `dbdump` with an error. Non-UTF-8 names are written as their original
   bytes (was `UnicodeEncodeError`).
+- `debian` also writes `dirs` (`dh_installdirs` lines, one per directory
+  entry), so an empty directory recorded with `install -d` reaches the
+  package (previously only `rpmspecfiles`' `%dir` covered it). `dbdump -f
+  debian DIR` now also writes (and replaces) `DIR/dirs`, and `-` gains a
+  `# === dirs ===` section.
 
 ### Added
 - `pkgforge.dbdump.DumpError`, raised for a DB entry a dump format's own

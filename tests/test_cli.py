@@ -109,6 +109,17 @@ def test_dbdump_debian_to_stdout(tmp_path, cli):
     assert b"usr/bin/tool usr/bin" in result.out
 
 
+def test_dbdump_debian_stdout_sections(tmp_path, cli):
+    db = tmp_path / "files.jsonl"
+    _seed_tool_entry(db)
+
+    result = cli("--db", str(db), "dbdump", "-f", "debian", "-")
+    assert result.rc == 0
+    text = result.out.decode()
+    assert text.index("# === install ===") < text.index("# === permissions ===")
+    assert text.index("# === permissions ===") < text.index("# === dirs ===")
+
+
 @pytest.mark.parametrize("fmt", ["rpmspecfiles", "debian"])
 def test_dbdump_stdout_honours_redirect(tmp_path, fmt):
     # A raw os.fdopen(sys.stdout.fileno(), ...) raises io.UnsupportedOperation

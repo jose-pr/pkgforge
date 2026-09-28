@@ -364,16 +364,24 @@ tree).
   + `permissions` (a pkgforge-specific `<path> <mode> <owner> <group>`
   manifest, unescaped -- parse right-to-left, since the path may itself
   contain spaces -- for only the entries that pin a non-default
-  mode/owner/group). `install`'s source is debhelper-escaped (needs compat
-  13): a backslash before each glob character (`\ * ? [ ] { }`, which also
-  makes a literal `${` read as literal since `{`/`}` get escaped), a space as
-  `${Space}`, and a leading `#` backslash-escaped (a line starting with `#`
-  is a `dh_install` comment). The destination is only ever
-  `${Dollar}{`/`${Space}`-escaped, never glob-escaped -- `dh_install` takes it
-  literally. Every entry is validated first (a control character in the
-  path, or whitespace in mode/owner/group, raises `DumpError` before either
-  artifact is built), and both artifacts are written as UTF-8 with
-  `surrogateescape` (a non-UTF-8 name round-trips its original bytes).
+  mode/owner/group) + `dirs` (`dh_installdirs`-style dest-escaped lines, one
+  per directory entry, always written even when empty -- routed there and
+  never through `install`, which would re-copy any children `--exclude`
+  dropped -- so a directory recorded with no files under it, e.g. `install
+  -d` for an empty state directory, still reaches the package). `install`'s
+  source is debhelper-escaped (needs compat 13): a backslash before each
+  glob character (`\ * ? [ ] { }`, which also makes a literal `${` read as
+  literal since `{`/`}` get escaped), a space as `${Space}`, and a leading
+  `#` backslash-escaped (a line starting with `#` is a `dh_install`
+  comment); `dirs` gets the same leading-`#` case as `./#...` instead
+  (`dh_installdirs` never globs, so there is nothing else to escape there).
+  Every destination (`install`'s and `dirs`') is only ever
+  `${Dollar}{`/`${Space}`-escaped, never glob-escaped -- `dh_install`/
+  `dh_installdirs` take it literally. Every entry is validated first (a
+  control character in the path, or whitespace in mode/owner/group, raises
+  `DumpError` before any artifact is built), and every artifact is written
+  as UTF-8 with `surrogateescape` (a non-UTF-8 name round-trips its
+  original bytes).
 - **`Entries`** — type alias `list[tuple[str, FileEntry]]` (surviving DB
   entries after `--exclude` filtering), the shared input shape for both
   registries above.

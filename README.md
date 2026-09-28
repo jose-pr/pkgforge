@@ -9,7 +9,7 @@ Stage files into a *build root* and record their intended install metadata
 (mode, owner, group, type, and free-form key/value `meta`) in a *file DB*
 (JSON Lines, YAML, or SQLite),
 then dump that DB into packaging manifests — an RPM `%files` list or Debian
-`install` + `permissions` files.
+`install` + `permissions` + `dirs` files.
 
 `pkgforge` is a small, dependency-light helper for unattended build pipelines
 on Linux: install a source into place, remember how it should be owned and
@@ -88,7 +88,7 @@ reading an existing file auto-detects its actual format.
 | Format | Output |
 | --- | --- |
 | `rpmspecfiles` | RPM `%files` lines (`%attr(...)`, `%dir`, `meta.rpmprefix`) to a file or `-` |
-| `debian` | `install` + `permissions` files into an output directory (or `-`, sectioned) |
+| `debian` | `install` + `permissions` + `dirs` files into an output directory (or `-`, sectioned) |
 
 ```
 # rpmspecfiles

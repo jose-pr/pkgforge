@@ -303,6 +303,26 @@ def test_debian_permissions_artifact():
     assert "/etc/tool -" not in perms
 
 
+def _dir_entry(path, mode="-", owner="-", group="-"):
+    return (
+        path,
+        {"mode": mode, "owner": owner, "group": group, "type": "directory", "meta": {}},
+    )
+
+
+def test_debian_dirs_artifact():
+    entries = [
+        _dir_entry("/var/lib/tool"),
+        _dir_entry("/var/lib/sp ace"),
+        _dir_entry("/#state"),
+    ]
+    arts = MULTI_ARTIFACT_FORMATS["debian"](entries)
+    dirs = arts["dirs"].decode().splitlines()
+    assert dirs == ["var/lib/tool", "var/lib/sp${Space}ace", "./#state"]
+    # A directory entry is never an install target.
+    assert "var/lib/tool" not in arts["install"].decode()
+
+
 def _jsonl_row(path: str) -> str:
     return json.dumps(
         {
@@ -366,3 +386,5 @@ def test_dbdump_debian_writes_directory(tmp_path):
     assert "/usr/bin/tool 755 root root" in perms
     # None (removed) entries skipped.
     assert "removed" not in (outdir / "install").read_text()
+    # No directory entries in this DB -> an empty (but present) dirs file.
+    assert (outdir / "dirs").read_text() == ""

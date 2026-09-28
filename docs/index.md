@@ -3,7 +3,7 @@
 **pkgforge** stages files into a *build root* and records their intended
 install metadata — mode, owner, group, type, and free-form key/value `meta` — in
 a YAML *file DB*. That DB can then be dumped into packaging manifests such as an
-RPM `%files` list or Debian `install` + `permissions` files.
+RPM `%files` list or Debian `install` + `permissions` + `dirs` files.
 
 It is a small, dependency-light helper for unattended build pipelines on Linux:
 install a source into place, remember how it should be owned and permissioned,
@@ -39,7 +39,7 @@ pkgforge install -p -m 644 -o root -g root ./app.conf /etc
 pkgforge install -D -d -m 755 -o root -g root ./share /usr/share/app
 pkgforge scan --missing --mode=-- -o root -g root /usr/share/app
 pkgforge dbdump -f rpmspecfiles -          # RPM %files to stdout
-pkgforge dbdump -f debian ./debian         # debian/install + permissions
+pkgforge dbdump -f debian ./debian         # debian/{install,permissions,dirs}
 ```
 
 See the [Guide](guide/install.md) for the full command and format reference.

@@ -51,7 +51,7 @@ pkgforge dbdump -f rpmspecfiles -          # to stdout
 
 ## `debian`
 
-Writes two artifacts into an output directory (created if needed):
+Writes three artifacts into an output directory (created if needed):
 
 - **`install`** — `dh_install`-style `<src> <dest-dir>` lines (one per
   non-directory entry), where the source is the build-root-relative path and the
@@ -74,6 +74,16 @@ Writes two artifacts into an output directory (created if needed):
     right-to-left (everything before the last three fields is the path),
     not with a naive `read path mode owner group`.
 
+- **`dirs`** — `dh_installdirs`-style lines, one per directory entry
+  (dest-escaped; always written, even when empty), so a directory recorded
+  with no files under it (e.g. `install -d` for an empty state directory)
+  still reaches the package -- `rpmspecfiles`' `%dir` prefix covers the same
+  case for RPM:
+
+    ```
+    var/lib/tool
+    ```
+
 `install` sources are escaped for `dh_install`/`dh_installdirs` (needs
 debhelper compat 13): a backslash before each glob character (`\ * ? [ ] { }`)
 so the name matches only itself, a leading `#` backslash-escaped (`dh_install`
@@ -85,12 +95,15 @@ stops `dbdump` with an error naming the problem; a non-UTF-8 name is written
 as its original bytes.
 
 ```bash
-pkgforge dbdump -f debian debian/          # writes debian/install + debian/permissions
-pkgforge dbdump -f debian -                # both to stdout under "# === <name> ===" headers
+pkgforge dbdump -f debian debian/          # writes debian/{install,permissions,dirs}
+pkgforge dbdump -f debian -                # all three to stdout under "# === <name> ===" headers
 ```
 
 !!! note
     The `debian` format produces inputs you wire into your packaging: drop
-    `install` in as a `debian/<pkg>.install` file, and feed `permissions` to
+    `install` in as a `debian/<pkg>.install` file and `dirs` in as a
+    `debian/<pkg>.dirs` file (dumping straight into `debian/` writes plain
+    `debian/install`/`debian/dirs`, which debhelper also reads for the
+    first binary package), and feed `permissions` to
     `dpkg-statoverride` (or a `debian/rules` override) to pin ownership/modes
     that `dh_fixperms` would otherwise normalize.
