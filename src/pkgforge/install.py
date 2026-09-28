@@ -130,6 +130,85 @@ def _is_tar_source(src: Path | str) -> bool:
     return name.endswith(TAR_SUFFIXES)
 
 
+#: Flags always passed to ``bsdtar -x``, so an extraction never restores an
+#: archive's ownership, setuid/setgid bit, group/other write bit, xattrs,
+#: ACLs or file flags -- even when this process runs as root, where bsdtar's
+#: own defaults (``--same-owner``, ``-p``) would otherwise apply them. Needs
+#: libarchive 3.3+ for the xattr/ACL/fflags flags; every extraction is still
+#: followed by :func:`_reject_special_files`, since these flags alone do not
+#: stop bsdtar from creating a device node or FIFO as root.
+BSDTAR_EXTRACT_FLAGS: typing.Tuple[str, ...] = (
+    "--no-same-owner",
+    "--no-same-permissions",
+    "--no-xattrs",
+    "--no-acls",
+    "--no-fflags",
+)
+
+
+def _special_file_kind(mode: int) -> typing.Optional[str]:
+    """Name the special-file kind of a raw ``st_mode``, or ``None`` for a
+    regular file, directory or symlink (nothing to refuse)."""
+    if stat.S_ISFIFO(mode):
+        return "fifo"
+    if stat.S_ISCHR(mode):
+        return "character device"
+    if stat.S_ISBLK(mode):
+        return "block device"
+    if stat.S_ISSOCK(mode):
+        return "socket"
+    if stat.S_ISREG(mode) or stat.S_ISDIR(mode) or stat.S_ISLNK(mode):
+        return None
+    return "special file"
+
+
+def _reject_special_files(root: Path) -> None:
+    """Walk an already-extracted ``root`` and raise :class:`PkgForgeError`
+    naming the first device node, FIFO or socket found -- the same kind of
+    entry the tarfile path already refuses via ``tarfile.SpecialFileError``,
+    but that bsdtar happily creates (as root, even with
+    :data:`BSDTAR_EXTRACT_FLAGS`). The caller removes the whole extraction
+    directory on this (or any) failure, so nothing further is unlinked here.
+    """
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        for name in (*dirnames, *filenames):
+            path = Path(dirpath, name)
+            kind = _special_file_kind(os.lstat(path).st_mode)
+            if kind is not None:
+                raise PkgForgeError(f"{path}: refusing to extract a {kind}")
+
+
+def _extract_bsdtar(src: typing.Union[Path, str], dst: Path) -> None:
+    """Extract ``src`` (a real path, or :data:`DEFAULT` for stdin) into
+    ``dst`` via the external ``bsdtar`` binary -- the fallback for stdin and
+    any format stdlib :mod:`tarfile` cannot open (``.zip``, ``.iso``,
+    ``.cpio``, or a tar variant it has no codec for).
+
+    Always passes :data:`BSDTAR_EXTRACT_FLAGS` and then runs
+    :func:`_reject_special_files` on the result, so this path applies the
+    same extraction policy as :func:`_extract_tar` regardless of format or
+    whether the source came from stdin. Raises :class:`PkgForgeError` naming
+    ``bsdtar`` if it is not on ``PATH``, before running anything.
+    """
+    if shutil.which("bsdtar") is None:
+        raise PkgForgeError(f"cannot extract {src}: bsdtar not found on PATH")
+    from_stdin = src == DEFAULT
+    subprocess.run(
+        [
+            "bsdtar",
+            "-x",
+            *BSDTAR_EXTRACT_FLAGS,
+            "-C",
+            os.fspath(dst),
+            "-f",
+            "-" if from_stdin else os.fspath(src),
+        ],
+        stdin=sys.stdin if from_stdin else None,
+        check=True,
+    )
+    _reject_special_files(dst)
+
+
 def _require_stdin() -> typing.BinaryIO:
     """Return stdin's binary buffer for a ``-`` source, after checking it is
     actually readable data (piped, or ``/dev/null``) rather than a terminal
@@ -519,18 +598,7 @@ class Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
                     _extract_tar(src, tmp)
                 else:
                     self._logger_.debug("Extracting %s via bsdtar", src)
-                    subprocess.run(
-                        [
-                            "bsdtar",
-                            "-x",
-                            "-C",
-                            os.fspath(tmp),
-                            "-f",
-                            os.fspath(src) if src != DEFAULT else "-",
-                        ],
-                        stdin=sys.stdin if src == DEFAULT else None,
-                        check=True,
-                    )
+                    _extract_bsdtar(src, tmp)
                 if dst.exists():
                     shutil.copytree(
                         tmp,

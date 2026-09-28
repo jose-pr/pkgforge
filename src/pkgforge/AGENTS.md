@@ -311,6 +311,15 @@ above).
   harmless no-op. A symlink source's recorded `meta["target"]` never
   leaks into a later entry -- the symlink branch rebinds `meta` rather
   than mutating it in place.
+  Archive extraction (both the stdlib `tarfile` path for a real tar-family
+  path and the `bsdtar` fallback for stdin -- any format, since `tarfile`
+  needs a real path -- and other formats) never restores an archive's
+  ownership, setuid/setgid bit, group/other write bit, extended attributes,
+  ACLs or file flags, even when running as root; a device node, FIFO or
+  socket found in the archive is refused with `PkgForgeError` naming it and
+  the kind, and nothing from that extraction is left on disk. `bsdtar`
+  always runs with `--no-same-owner --no-same-permissions --no-xattrs
+  --no-acls --no-fflags` (libarchive 3.3+).
   A failed install leaves `DESTINATION` exactly as it was: file, stream and
   decompress staging write a sibling temp next to it and `os.replace` it in
   only after the entry is applied, removing the temp on any failure.

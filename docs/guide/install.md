@@ -17,9 +17,14 @@ imports and runs on any platform, so you can develop and unit-test on Windows or
 macOS; the file-staging operations expect a POSIX filesystem.
 
 Archive extraction prefers stdlib `tarfile` for the tar family
-(`.tar`, `.tar.gz`/`.tgz`, `.tar.bz2`, `.tar.xz`) and only falls back to the
-`bsdtar` binary for formats `tarfile` cannot open (e.g. `.iso`) — so a plain
-tar-based build needs no external archiver installed.
+(`.tar`, `.tar.gz`/`.tgz`, `.tar.bz2`, `.tar.xz`) and falls back to the
+`bsdtar` binary (needs libarchive 3.3+) for stdin sources -- even a tar
+stream, since `tarfile` needs a real path -- and for any other format
+(`.zip`, `.iso`, `.cpio`, ...); so a plain tar-based build from a real file
+needs no external archiver installed. Both paths apply the same extraction
+policy: an archive's ownership, setuid/setgid, group/other write, xattrs,
+ACLs and file flags are never restored, and a device node, FIFO or socket
+is refused.
 
 ## From source
 

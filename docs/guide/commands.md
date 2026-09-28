@@ -78,7 +78,17 @@ before anything is staged; directory (and archive) sources sharing a
 destination still merge into it, as they always have.
 
 A tar-family archive given as a `directory`-typed source is extracted with
-stdlib `tarfile`; other archive types fall back to `bsdtar`.
+stdlib `tarfile`; other archive types (and a `-` stdin source, even a tar
+stream) fall back to `bsdtar`.
+
+**Archive extraction policy** (both paths): an archive's ownership,
+setuid/setgid bit, group/other write bit, extended attributes, ACLs and
+file flags are never restored on the staged tree -- even when running as
+root -- and a device node, FIFO or socket found in an archive is refused
+(exit 1); apply the mode/ownership you want with `-m`/`--chown` instead. The
+`bsdtar` path always runs with `--no-same-owner --no-same-permissions
+--no-xattrs --no-acls --no-fflags` (needs libarchive 3.3+) and then checks
+the extracted tree for a special file.
 
 Re-running a directory install onto an existing destination always works:
 any stale destination symlink (from an earlier run, or left there by

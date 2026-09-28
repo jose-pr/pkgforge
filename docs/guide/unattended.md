@@ -66,5 +66,8 @@ Every command logs under its own logger, `pkgforge.<command>` (`pkgforge.install
   permission bits and modification time), so `-m`/`--chown` never touch the
   source, and the build root may sit on any filesystem (including a tmpfs
   `/tmp`).
-- **No external archiver required** for tar-family sources — stdlib `tarfile`
-  handles them; `bsdtar` is only needed for other formats (e.g. `.iso`).
+- **No external archiver required** for a tar-family source given as a real
+  path — stdlib `tarfile` handles it; `bsdtar` is needed for a `-` (stdin)
+  source (any format, including a tar stream) and for other formats (e.g.
+  `.iso`). Neither path restores an archive's ownership or special bits as
+  root, and a device node, FIFO or socket in the archive is refused.

@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+- Archives extracted with `bsdtar` (stdin, `.zip`, `.iso`, `.cpio`) no
+  longer restore owners, setuid/setgid, group/other write, xattrs, ACLs or
+  file flags as root; an archive holding a device node, FIFO or socket is
+  refused (exit 1).
+
 ### Fixed
 - Re-running a directory install whose source holds symlinks no longer
   fails with `shutil.Error`; a stale symlink left at the destination

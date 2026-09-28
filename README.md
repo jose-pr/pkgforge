@@ -23,9 +23,11 @@ pip install pkgforge
 
 Requires Python 3.9+. Runtime operations use POSIX facilities (`chmod`, `chown`,
 symlinks), so runtime targets Linux; the CLI and `--help` import
-cleanly on any platform. Tar-family archives extract via stdlib `tarfile` — no
-external archiver needed; `bsdtar` is only a fallback for other formats (e.g.
-`.iso`).
+cleanly on any platform. A tar-family archive given as a real path extracts
+via stdlib `tarfile` — no external archiver needed; a `-` (stdin) source and
+other formats (e.g. `.iso`) fall back to `bsdtar`. Neither path restores an
+archive's ownership or special bits as root, and a device node, FIFO or
+socket in the archive is refused.
 
 ## Quick start
 
