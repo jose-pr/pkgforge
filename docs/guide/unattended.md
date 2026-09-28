@@ -58,11 +58,15 @@ Every command logs under its own logger, `pkgforge.<command>` (`pkgforge.install
   file); a terminal or closed stdin is a usage error, not a wait, and a `-`
   source needs `-T`/`-D` (an explicit destination file name).
 - **Resilient defaults.** `--buildroot` defaults to the current directory and
-  `--db` to `PKGFORGE_DB`; a missing DB reads as empty rather than erroring.
-  The one exception: if that default resolves to `/` (e.g. a container's
-  default `WORKDIR`, with `PKGFORGE_ROOT` unset or lost), `install`/`scan`
-  exit 2 instead of treating the live filesystem as the build root -- pass
-  `--buildroot /` (or `PKGFORGE_ROOT=/`) to do that on purpose.
+  `--db` to `PKGFORGE_DB`; a missing, unset or `-` DB reads as empty rather
+  than erroring (exit codes are unchanged), and `dbdump`/`initdb`/`compact`
+  now log a WARNING when that's the case, so make sure `PKGFORGE_DB` is
+  actually exported into the build environment rather than relying on
+  the warning to catch a typo. The one exception: if that default resolves
+  to `/` (e.g. a container's default `WORKDIR`, with `PKGFORGE_ROOT` unset
+  or lost), `install`/`scan` exit 2 instead of treating the live filesystem
+  as the build root -- pass `--buildroot /` (or `PKGFORGE_ROOT=/`) to do
+  that on purpose.
 - **Ownership is opt-in.** `install` records owner/group but only *applies* them
   with `--chown`, so an unprivileged build doesn't fail trying to `chown`.
 - **Sources are never modified.** File sources are copied (content,

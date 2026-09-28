@@ -608,6 +608,25 @@ class PkgForgeCmd(LoggingArgs, Cmd):
         """True when there is no real DB file to operate on (unset / stdout)."""
         return self.db is None or str(self.db) == "-"
 
+    def _no_db_reason(self) -> typing.Optional[str]:
+        """Human-readable reason there is no real DB *file* configured
+        (``--db`` unset, or ``-``), or ``None`` if ``self.db`` names one --
+        a path that doesn't exist YET is a different case each caller
+        checks for itself: it means something to `initdb` (create it) and
+        something else to `dbdump`/`compact` (warn and act as if empty).
+
+        Used by `dbdump`/`initdb`/`compact` to log a WARNING instead of
+        silently treating a missing DB as empty, per the documented
+        "resilient defaults" (a missing/unset/`-` DB reads as empty, exit
+        codes unchanged) -- this makes that leniency visible instead of
+        changing it.
+        """
+        if self.db is None:
+            return "no file DB (--db / PKGFORGE_DB unset)"
+        if str(self.db) == "-":
+            return "--db - is write-only (stdout); reads see an empty DB"
+        return None
+
     def _provider(self, *, for_read: bool = False):
         """Resolve the DB storage provider for the configured --db/--db-format."""
         # Function-local: db.py imports common only under TYPE_CHECKING today,

@@ -499,12 +499,26 @@ above).
   still counts as absent and is re-added if its file exists.
 - **`dbdump.DbDump(ExcludeArgs, PkgForgeCmd)`** (`pkgforge dbdump -f FORMAT [output]`) —
   render surviving (post-`--exclude`) DB entries via the format registry
-  above.
+  above. Logs a WARNING (exit code and output unchanged: an empty manifest,
+  exit 0) when `--db` is unset, `-`, or names a file that does not exist,
+  and when the DB has entries but none survive `--exclude`.
 - **`initdb.InitDb(PkgForgeCmd)`** (`pkgforge initdb`) — create or truncate
-  an empty DB; no-op for an unset/stdout DB.
+  an empty DB; a no-op, now with a WARNING, for an unset/stdout DB. A `--db`
+  naming a file that doesn't exist yet is not this case -- creating it is
+  exactly `initdb`'s job.
 - **`compact.Compact(PkgForgeCmd)`** (`pkgforge compact`) — collapse an
   append-log DB to one record per live path, dropping removals and
-  superseded history; no-op for backends without an append log.
+  superseded history; for `sqlite`, deletes removal rows and `VACUUM`s. A
+  no-op, now with a WARNING, for an unset/stdout DB or one naming a file
+  that does not exist yet (nothing is created, for every backend).
+- **`PkgForgeCmd._no_db_reason() -> str | None`** — a human-readable reason
+  there is no real DB *file* configured (`--db` unset, or `-`), or `None` if
+  `self.db` names one (existing or not -- a nonexistent path is a separate
+  case each of the three commands above checks for itself, since it means
+  something different to each). Used by `dbdump`/`initdb`/`compact` for
+  their warnings above; distinct from `_no_file_db() -> bool`, which the DB
+  read/write helpers use and which answers the same "unset or `-`" question
+  as a plain boolean.
 
 ## Environment variables
 

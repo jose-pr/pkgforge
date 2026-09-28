@@ -8,7 +8,7 @@ Global options are read from the command line or the environment:
 
 | Option | Env | Meaning |
 | --- | --- | --- |
-| `--db PATH` | `PKGFORGE_DB` | file DB to read/write (`-` for stdout/stdin) |
+| `--db PATH` | `PKGFORGE_DB` | file DB to read/write (`-` = write records to stdout; reads see an empty DB) |
 | `--db-format FMT` | `PKGFORGE_DB_FORMAT` | backend: `jsonl` / `yaml` / `sqlite` (else inferred from the `--db` suffix) |
 | `--buildroot DIR` | `PKGFORGE_ROOT` | staging root that maps to `/` in the DB; DESTINATION/PATH must resolve inside it |
 | `-v, --verbose` | | raise the running command's log level (repeatable) |
@@ -38,6 +38,11 @@ Keep the DB (and any `dbdump` output) outside `--buildroot`: `scan` skips its
 own configured DB file (and, for `sqlite`, its `-journal`/`-wal`/`-shm`
 sidecars) if it finds them inside the scanned tree, logging a warning, but
 it cannot recognize an output file `dbdump` wrote there earlier.
+
+With no `--db` (unset or `-`), `initdb` logs a WARNING and does nothing --
+there's no file to create or reset. `install` and `scan` are unaffected by
+that case: with no `--db`, they still stage/scan normally and print each
+recorded entry as a JSON Lines line on stdout instead of writing to a file.
 
 ## `install`
 
@@ -175,7 +180,9 @@ dropping superseded records and removal tombstones.
 pkgforge -r stage --db stage.files.jsonl compact
 ```
 
-A no-op for a `sqlite` DB (it upserts in place) or a stdout/unset DB.
+For `sqlite` it deletes removal rows and `VACUUM`s (it never accumulates an
+append log to collapse). A no-op, with a WARNING, for a stdout/unset `--db`
+or one naming a file that doesn't exist yet -- nothing is created.
 
 ## `dbdump`
 
@@ -184,3 +191,8 @@ Render the file DB into a packaging manifest. See [Dump formats](formats.md).
 ```bash
 pkgforge dbdump -f FORMAT [-X PATTERN] [OUTPUT]
 ```
+
+`--db` unset or `-`, or naming a file that doesn't exist, logs a WARNING
+and dumps an empty manifest (exit 0 unchanged -- a missing DB has always
+read as empty; this just makes that visible). A `--db` with entries but
+none surviving `--exclude` also warns.

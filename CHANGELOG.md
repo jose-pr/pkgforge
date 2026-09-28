@@ -338,6 +338,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   includes one and a dotless entry could never match a `--db` path before.
   A suffix with more than one dot (e.g. `".tar.gz"`) is now rejected with
   `ValueError` at registration time instead of silently never matching.
+- `dbdump` now logs a WARNING when `--db` is unset, `-`, or names a file
+  that doesn't exist, and when the DB has entries but `--exclude` leaves
+  none; `initdb` warns when `--db` is unset or `-`; `compact` warns for
+  either of those cases, and also for a `--db` naming a file that doesn't
+  exist yet (previously it silently created an empty `jsonl`/`yaml` file
+  in that case; now nothing is created, for every backend). Exit codes and
+  output are unchanged -- a missing/unset/`-` DB has always read as empty;
+  this just makes that visible instead of silent.
 
 ## [0.1.2] - 2026-08-16
 

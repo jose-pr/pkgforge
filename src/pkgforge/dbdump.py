@@ -120,6 +120,13 @@ class DbDump(ExcludeArgs, PkgForgeCmd):
     ("output",)
 
     def _surviving_entries(self) -> Entries:
+        reason = self._no_db_reason()
+        if reason:
+            self._logger_.warning("%s; dumping an empty manifest", reason)
+        elif not self.db.exists():
+            self._logger_.warning(
+                "DB %s does not exist; dumping an empty manifest", self.db
+            )
         db = self.loaddb()
         filter = PathMatch(self.exclude)
         entries: Entries = []
@@ -127,6 +134,13 @@ class DbDump(ExcludeArgs, PkgForgeCmd):
             if entry is None or (self.exclude and filter.match(Path(path), entry)):
                 continue
             entries.append((path, entry))
+        if db and self.exclude and not entries:
+            live = sum(1 for entry in db.values() if entry is not None)
+            self._logger_.warning(
+                "0 of %d entries survived --exclude filtering; dumping an "
+                "empty manifest",
+                live,
+            )
         return entries
 
     def __call__(self):

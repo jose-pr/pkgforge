@@ -115,6 +115,67 @@ def test_dbdump_unknown_format_fails(tmp_path, cli):
     assert b"rpmspecfiles" in result.err
 
 
+@pytest.mark.parametrize("case", ["unset", "dash", "missing"])
+def test_dbdump_warns_without_db(tmp_path, cli, caplog, case):
+    argv = []
+    if case == "dash":
+        argv = ["--db", "-"]
+    elif case == "missing":
+        argv = ["--db", str(tmp_path / "nope.jsonl")]
+
+    with caplog.at_level("WARNING"):
+        result = cli(*argv, "dbdump", "-f", "rpmspecfiles", "-")
+    assert result.rc == 0
+    assert result.out == b""
+    assert any(
+        "empty manifest" in r.message
+        for r in caplog.records
+        if r.name == "pkgforge.dbdump"
+    )
+    if case == "missing":
+        assert not (tmp_path / "nope.jsonl").exists()
+
+
+def test_dbdump_warns_when_exclude_drops_all(tmp_path, cli, caplog):
+    db = tmp_path / "files.jsonl"
+    _seed_tool_entry(db)
+
+    with caplog.at_level("WARNING"):
+        result = cli("--db", str(db), "dbdump", "-X", "**", "-f", "rpmspecfiles", "-")
+    assert result.rc == 0
+    assert result.out == b""
+    assert any(
+        "survived" in r.message for r in caplog.records if r.name == "pkgforge.dbdump"
+    )
+
+
+def test_initdb_warns_without_db(tmp_path, cli, caplog, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    with caplog.at_level("WARNING"):
+        result = cli("initdb")
+    assert result.rc == 0
+    assert list(tmp_path.iterdir()) == []
+    assert any(
+        "nothing to initialize" in r.message
+        for r in caplog.records
+        if r.name == "pkgforge.initdb"
+    )
+
+
+@pytest.mark.parametrize("ext", ["jsonl", "yaml", "db"])
+def test_compact_missing_db_creates_nothing(tmp_path, cli, caplog, ext):
+    db = tmp_path / f"nope.{ext}"
+    with caplog.at_level("WARNING"):
+        result = cli("--db", str(db), "compact")
+    assert result.rc == 0
+    assert not db.exists()
+    assert any(
+        "nothing to compact" in r.message
+        for r in caplog.records
+        if r.name == "pkgforge.compact"
+    )
+
+
 def test_malformed_db_is_one_line_error(tmp_path, cli):
     db = tmp_path / "files.jsonl"
     db.write_text('{"path": "/a", not valid json\n', encoding="utf-8")

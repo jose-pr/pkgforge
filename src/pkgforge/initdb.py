@@ -12,7 +12,9 @@ class InitDb(PkgForgeCmd):
     _logger_name_ = "pkgforge.initdb"
 
     def __call__(self):
-        if self._no_file_db():
+        reason = self._no_db_reason()
+        if reason:
+            self._logger_.warning("%s: nothing to initialize", reason)
             return
         self.db.parent.mkdir(parents=True, exist_ok=True)
         self.initdb()  # provider-specific empty DB (truncate file / reset table)

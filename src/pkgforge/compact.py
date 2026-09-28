@@ -12,8 +12,12 @@ class Compact(PkgForgeCmd):
     _logger_name_ = "pkgforge.compact"
 
     def __call__(self):
-        if self._no_file_db():
-            self._logger_.info("No file DB to compact")
+        reason = self._no_db_reason()
+        if reason:
+            self._logger_.warning("%s: nothing to compact", reason)
+            return
+        if not self.db.exists():
+            self._logger_.warning("DB %s does not exist; nothing to compact", self.db)
             return
         before = self.loaddb()
         live = sum(1 for entry in before.values() if entry is not None)
