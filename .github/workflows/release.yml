@@ -22,7 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.9", "3.13"] # oldest + newest supported
+        python-version: ["3.9", "3.14"] # oldest + newest supported
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -34,11 +34,51 @@ jobs:
       - name: Install package with dev extras
         run: python -m pip install -e ".[dev]"
       - name: Run tests
-        run: python -m pytest -q
+        run: python -m pytest -q -rs
+
+  # The declared floors, exercised on a real release: every runtime dependency
+  # installed AT the lower bound pyproject.toml declares, on the oldest
+  # supported Python, so a v* tag can never publish over a broken floor.
+  floors:
+    name: Test at the declared dependency floors
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: Install libarchive-tools (bsdtar) on Linux
+        run: sudo apt-get update && sudo apt-get install -y libarchive-tools
+      - name: Pin every declared dependency to its floor
+        shell: python
+        run: |
+          import re
+          import subprocess
+          import sys
+
+          subprocess.run([sys.executable, "-m", "pip", "install", "-q", "tomli"], check=True)
+          import tomli
+
+          project = tomli.load(open("pyproject.toml", "rb"))["project"]
+          specs = list(project.get("dependencies", []))
+          for extra, deps in project.get("optional-dependencies", {}).items():
+              if extra not in ("dev", "docs"):
+                  specs += deps
+          pins = []
+          for spec in specs:
+              m = re.match(r"^\s*([A-Za-z0-9._-]+)(\[[^\]]*\])?\s*[^;]*?>=\s*([^,;\s]+)", spec)
+              if m:
+                  pins.append("%s==%s" % (m.group(1), m.group(3)))
+          open("floors.txt", "w").write("\n".join(pins) + "\n")
+          print("\n".join(pins) or "(no floors declared)")
+      - name: Install at the floors
+        run: python -m pip install -c floors.txt -e ".[dev]"
+      - name: Run tests
+        run: python -m pytest -q -rs
 
   build:
     name: Build distribution
-    needs: test
+    needs: [test, floors]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -79,6 +119,34 @@ jobs:
           name: dist
           path: dist/
 
+  # A green test suite is not a green CLI: pytest imports src/ via pythonpath,
+  # never an installed distribution. Install the built wheel (never the
+  # checkout) into a fresh venv and smoke-test it the way a user would meet it.
+  wheel-smoke:
+    name: Installed-wheel smoke test (py${{ matrix.python-version }})
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Install the wheel into a fresh venv
+        run: |
+          python -m venv "$RUNNER_TEMP/smoke"
+          "$RUNNER_TEMP/smoke/bin/pip" install dist/*.whl
+      - name: Smoke-test the installed distribution
+        run: '"$RUNNER_TEMP/smoke/bin/python" tests/smoke_installed.py'
+
   # Docs are DEPLOYED by docs.yml. This job only GATES the release on a strict
   # docs BUILD: a release must never ship if the docs site is broken, but the
   # release path never deploys Pages itself -- the docs-deploy job at the end
@@ -99,7 +167,7 @@ jobs:
 
   github-release:
     name: Create GitHub Release
-    needs: [build, docs-gate]
+    needs: [build, docs-gate, wheel-smoke]
     runs-on: ubuntu-latest
     permissions:
       contents: write
