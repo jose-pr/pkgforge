@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import posixpath
 import typing
 
 from ..entry import DEFAULT, FileType, _or_default
@@ -62,7 +61,8 @@ class Debian(MultiArtifactFormat):
       which would re-copy any children ``--exclude`` dropped.
 
     Every entry is validated (path free of control characters; mode/owner/
-    group free of whitespace) before any artifact is built, so a
+    group free of whitespace) while the artifacts are built in memory; they
+    are written only after :meth:`render` returns, so a
     :class:`~pkgforge.dbdump.DumpError` leaves no partial output.
     """
 
@@ -70,24 +70,21 @@ class Debian(MultiArtifactFormat):
     ALIASES = ("deb",)
 
     def render(self, entries: Entries) -> typing.Dict[str, bytes]:
+        install_lines: typing.List[str] = []
+        perm_lines: typing.List[str] = []
+        dir_lines: typing.List[str] = []
         for path, entry in entries:
             _reject_control(path, "debian")
-            for field in ("mode", "owner", "group"):
-                value = _or_default(entry[field])
+            mode = _or_default(entry["mode"])
+            owner = _or_default(entry["owner"])
+            group = _or_default(entry["group"])
+            for field, value in (("mode", mode), ("owner", owner), ("group", group)):
                 if _WHITESPACE_RE.search(value):
                     raise DumpError(
                         f"debian: a DB entry's {field} contains whitespace, "
                         "which the permissions format cannot represent"
                     )
-
-        install_lines: typing.List[str] = []
-        perm_lines: typing.List[str] = []
-        dir_lines: typing.List[str] = []
-        for path, entry in entries:
             rel = path.lstrip("/")
-            mode = _or_default(entry["mode"])
-            owner = _or_default(entry["owner"])
-            group = _or_default(entry["group"])
             if entry["type"] == FileType.Directory:
                 dline = _dh_dest(rel)
                 # dh_installdirs, like dh_install, treats a line starting
@@ -99,7 +96,8 @@ class Debian(MultiArtifactFormat):
                     dline = "./" + dline
                 dir_lines.append(dline)
             else:
-                dest_dir = _dh_dest(posixpath.dirname(rel))
+                # rel is relative, so this equals posixpath.dirname(rel).
+                dest_dir = _dh_dest(rel.rpartition("/")[0].rstrip("/"))
                 install_lines.append(f"{_dh_src(rel)} {dest_dir}".rstrip())
             if mode != DEFAULT or owner != DEFAULT or group != DEFAULT:
                 perm_lines.append(f"{path} {mode} {owner} {group}")
