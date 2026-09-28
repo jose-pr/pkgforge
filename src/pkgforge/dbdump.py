@@ -20,7 +20,7 @@ from pathlib import Path
 
 import duho
 
-from .common import PkgForgeCmd, FileEntry
+from .common import DEFAULT, PkgForgeCmd, FileEntry, _or_default
 from .exclude import PathMatch, PathMatchStmt
 
 #: An entry that survived filtering: (db-path, FileEntry).
@@ -45,10 +45,11 @@ def rpmspecfile(path: str, entry: FileEntry) -> bytes:
     if entry["type"] == "directory":
         prefix += "%dir "
 
-    return (
-        f"{prefix}%attr({entry['mode']},{entry['owner']},{entry['group']}) "
-        f"{json.dumps(path)}\n"
-    ).encode()
+    mode = _or_default(entry["mode"])
+    owner = _or_default(entry["owner"])
+    group = _or_default(entry["group"])
+
+    return (f"{prefix}%attr({mode},{owner},{group}) {json.dumps(path)}\n").encode()
 
 
 # --------------------------------------------------------------------------
@@ -75,8 +76,10 @@ def _debian_artifacts(entries: Entries) -> typing.Dict[str, bytes]:
         if entry["type"] != "directory":
             dest_dir = os.path.dirname(rel)
             install_lines.append(f"{rel} {dest_dir}".rstrip())
-        mode, owner, group = entry["mode"], entry["owner"], entry["group"]
-        if mode not in ("-", "") or owner != "-" or group != "-":
+        mode = _or_default(entry["mode"])
+        owner = _or_default(entry["owner"])
+        group = _or_default(entry["group"])
+        if mode != DEFAULT or owner != DEFAULT or group != DEFAULT:
             perm_lines.append(f"{path} {mode} {owner} {group}")
 
     def _join(lines: typing.List[str]) -> bytes:

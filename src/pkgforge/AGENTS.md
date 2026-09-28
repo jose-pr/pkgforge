@@ -7,8 +7,9 @@ API. For the CLI overview and code layout, see the shipped `README.md`, or <http
 
 `pkgforge.__all__`: `PkgForgeCmd`, `PkgForge`, `PkgForgeError`, `DbProvider`,
 `FileEntry`, `FileEntryArgs`, `FileType`, `UsageError`, `__version__`,
-`apply_entry`, `entry_from_args`, `entry_from_path`, `resolve_entry`, `main`,
-`open_db`, `register_provider`, plus the leaf-command submodules themselves
+`apply_entry`, `entry_from_args`, `entry_from_path`, `normalize_mode`,
+`resolve_entry`, `main`, `open_db`, `register_provider`, plus the
+leaf-command submodules themselves
 (`compact`, `dbdump`, `initdb`, `install`, `scan` — importing `pkgforge` runs
 each module's `_register()` call, attaching it to the `PkgForge` subcommand
 tree).
@@ -57,7 +58,10 @@ tree).
   `AttributeError` on a plain dict.
   - **`entry_from_args(args: FileEntryArgs, **overwrite) -> FileEntry`** —
     build from a parsed CLI mixin. `type` is converted via `FileType` only
-    when `overwrite` does not itself supply `type`.
+    when `overwrite` does not itself supply `type`. `mode` is normalized via
+    `normalize_mode`; `owner`/`group` map Python 3.9's stripped `[]` (an
+    attached `--` argparse consumes before any converter runs) to `AUTO`,
+    and an explicit empty string to `DEFAULT`.
   - **`entry_from_path(path: Path, meta: Optional[dict[str, str]] = None) ->
     FileEntry`** — build by `lstat`-ing a real path; owner/group resolve via
     `pwd`/`grp` (fall back to `"-"` if those modules are unavailable, i.e.
@@ -70,15 +74,27 @@ tree).
     logger: Optional[logging.Logger] = None, usedefault: str = "-") -> None`**
     — if `chown=True`, `chown` first (raises `RuntimeError` if `pwd`/`grp` are
     unavailable; raises `UsageError` for an unknown owner/group), then
-    `chmod` unless `mode` is falsy or equals `usedefault`. Chown runs before
-    chmod because Linux clears a regular file's setuid/setgid bit on any
-    `chown()`, even to the same owner; if `chown=True` and the entry leaves
-    `mode` at `usedefault`, any setuid/setgid/sticky bit already on disk is
-    restored after the chown. A symlink's mode is never set on disk (skipped
-    via `lstat`; Linux ignores it) — only its owner/group, and only its
-    recorded `entry["mode"]`, are unaffected by this.
-- **`FileEntryArgs(duho.Cmd)`** — CLI mixin supplying `--mode/-m`,
-  `--group/-g`, `--owner/-o` (each default `"-"`), `--type/-t`
+    `chmod` unless `mode` is `"-"` or empty (an empty mode/owner/group is
+    treated like `"-"` everywhere this function reads them). Raises
+    `UsageError` if `mode` is still the unresolved `AUTO` sentinel (`"--"`) —
+    call `resolve_entry` first. Chown runs before chmod because Linux clears
+    a regular file's setuid/setgid bit on any `chown()`, even to the same
+    owner; if `chown=True` and the entry leaves `mode` at `usedefault`, any
+    setuid/setgid/sticky bit already on disk is restored after the chown. A
+    symlink's mode is never set on disk (skipped via `lstat`; Linux ignores
+    it) — only its owner/group, and only its recorded `entry["mode"]`, are
+    unaffected by this.
+  - **`normalize_mode(value: str | int | list) -> str`** — normalize a
+    `mode` value to an octal permission string. An `int` renders via
+    `mode_to_octal`; `"-"`/`""` mean `DEFAULT`; `"--"`, `"auto"` or Python
+    3.9's stripped `[]` mean `AUTO`; a string of 1-4 octal digits normalizes
+    (`"0644"` -> `"644"`). Anything else raises `UsageError`. `auto` is a
+    mode-only alias — `owner`/`group` get none, since `auto` can be a real
+    account name.
+- **`FileEntryArgs(duho.Cmd)`** — CLI mixin supplying `--mode/-m` (validated
+  at parse time: 1-4 octal digits, `-`, `--` or `auto`; an explicit empty
+  value exits 2; normalized, so `0644` is stored as `644`), `--group/-g`,
+  `--owner/-o` (each default `"-"`, no octal validation), `--type/-t`
   (`Optional[FileType]`, default `None`), `-O/--meta KEY=VALUE` (repeatable,
   merges into a `dict[str, str]`).
 - **`AUTO = "--"`** / **`DEFAULT = "-"`** — module-level sentinels: `AUTO`

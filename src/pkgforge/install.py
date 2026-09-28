@@ -26,6 +26,7 @@ from .common import (
     UsageError,
     apply_entry,
     entry_from_args,
+    normalize_mode,
     parsepath,
     resolve_entry,
 )
@@ -272,6 +273,8 @@ class Install(FileEntryArgs, PkgForgeCmd):
                 cloned["source"] = source
                 Install(**cloned)()
             return
+
+        self.mode = normalize_mode(self.mode)
 
         if (
             isinstance(self.source, Path)

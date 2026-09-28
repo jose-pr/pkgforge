@@ -27,6 +27,7 @@ from .common import (
     apply_entry,
     entry_from_args,
     entry_from_path,
+    normalize_mode,
     resolve_entry,
 )
 from .db import DbProvider, open_db, register_provider
@@ -50,6 +51,7 @@ __all__ = [
     "apply_entry",
     "entry_from_args",
     "entry_from_path",
+    "normalize_mode",
     "resolve_entry",
     "main",
     "open_db",

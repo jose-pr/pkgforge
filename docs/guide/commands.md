@@ -39,7 +39,7 @@ pkgforge install [options] SOURCE... DESTINATION
 
 | Option | Meaning |
 | --- | --- |
-| `-m, --mode` | octal mode to apply/record (`-` = leave default, `--` = from disk); ignored on disk for a symlink (recorded but not applied) |
+| `-m, --mode` | 1-4 octal digits (`0644` is stored as `644`), `-` (leave default), `--`/`auto` (resolve from the staged file); ignored on disk for a symlink (recorded but not applied). Any other value, or an explicit empty value, exits 2 before anything is staged. Write `--mode=--`, `-m--` or `-m auto` -- a detached `-m --` is read as end of options and exits 2 |
 | `-o, --owner` / `-g, --group` | owner / group to record |
 | `-t, --type` | `file` / `directory` / `symlink` (auto-detected from the source if unset) |
 | `-d` | shortcut for `--type directory` |

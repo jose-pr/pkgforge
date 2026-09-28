@@ -19,14 +19,16 @@ next write.
 
 from __future__ import annotations
 
+import argparse
 import contextlib
 import enum
 import json
 import logging
 import os
+import re
 import stat
 import typing
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 try:  # Unix-only; pkgforge targets Linux, but keep parsing/--help importable elsewhere.
     import grp
@@ -106,8 +108,71 @@ def mode_to_octal(mode: int) -> str:
     return format(mode & 0o7777, "o")
 
 
+def _normalize_field(value: typing.Union[str, typing.List[str]]) -> str:
+    """Map argparse's Python 3.9 ``[]`` artifact to AUTO, and an explicit
+    empty string to DEFAULT.
+
+    On Python 3.9, argparse strips an attached ``--`` (``--mode=--``,
+    ``-m--``, ``--owner=--``) to ``[]`` *before* any ``type=`` converter
+    runs, so this has to be checked wherever such a value can land, not only
+    inside a converter. Anything else passes through unchanged.
+    """
+    if value == []:
+        return AUTO
+    if value == "":
+        return DEFAULT
+    return value
+
+
+def normalize_mode(value: typing.Union[str, int, typing.List[str]]) -> str:
+    """Normalize a ``mode`` value to an octal permission string.
+
+    An ``int`` is rendered via :func:`mode_to_octal`. ``-``/``""`` mean
+    :data:`DEFAULT`; ``--``, ``auto`` (mode only -- ``owner``/``group`` get no
+    such alias, since ``auto`` can be a real account name) or Python 3.9's
+    stripped ``[]`` mean :data:`AUTO`. A string of 1-4 octal digits is
+    normalized (``"0644"`` -> ``"644"``). Anything else raises
+    :class:`UsageError`.
+    """
+    if isinstance(value, int):
+        return mode_to_octal(value)
+    value = _normalize_field(value)
+    if value == AUTO or value == "auto":
+        return AUTO
+    if value == DEFAULT:
+        return DEFAULT
+    if isinstance(value, str) and re.fullmatch(r"[0-7]{1,4}", value):
+        return mode_to_octal(int(value, 8))
+    raise UsageError(
+        f"invalid mode {value!r}: expected 1-4 octal digits, '-', '--' or 'auto'"
+    )
+
+
+def _parse_mode(text: str) -> str:
+    """CLI ``type=`` converter for ``--mode``: an explicit empty value is
+    rejected outright (unlike the Python API, where :func:`normalize_mode`
+    treats ``""`` as :data:`DEFAULT`), and anything else is normalized via
+    :func:`normalize_mode`, with :class:`UsageError` translated to argparse's
+    own error type so a bad value exits 2 before anything is staged.
+    """
+    if text == "":
+        raise argparse.ArgumentTypeError(
+            "mode must not be empty; use '-' for the default, or '--'/'auto' "
+            "to resolve from the staged file"
+        )
+    try:
+        return normalize_mode(text)
+    except UsageError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from None
+
+
+def _or_default(value: str) -> str:
+    """Treat a falsy field value (e.g. an empty string) as :data:`DEFAULT`."""
+    return value if value else DEFAULT
+
+
 class FileEntryArgs(Cmd):
-    mode: str = DEFAULT
+    mode: duho.Arg[str, duho.NS(type=_parse_mode)] = DEFAULT
     ("--mode", "-m")
     group: str = DEFAULT
     ("--group", "-g")
@@ -145,9 +210,9 @@ def entry_from_args(args: FileEntryArgs, **overwrite) -> FileEntry:
     else:
         type_ = FileType(args.type) if args.type else args.type
     entry: FileEntry = {
-        "mode": args.mode,
-        "owner": args.owner,
-        "group": args.group,
+        "mode": normalize_mode(args.mode),
+        "owner": _normalize_field(args.owner),
+        "group": _normalize_field(args.group),
         "type": type_,
         "meta": dict(args.meta),
     }
@@ -211,9 +276,14 @@ def apply_entry(
     mode is never set on disk -- Linux ignores it -- but it is still recorded
     in ``entry``.
     """
-    mode = entry["mode"]
-    owner = entry["owner"]
-    group = entry["group"]
+    mode = _or_default(entry["mode"])
+    owner = _or_default(entry["owner"])
+    group = _or_default(entry["group"])
+
+    if mode == AUTO:
+        raise UsageError(
+            "entry mode is unresolved (AUTO); call resolve_entry before apply_entry"
+        )
 
     is_symlink = stat.S_ISLNK(os.lstat(path).st_mode)
     restore_mode = None
@@ -229,7 +299,7 @@ def apply_entry(
             gid = -1 if group == usedefault else grp.getgrnam(group).gr_gid
         except KeyError:
             raise UsageError(f"unknown group {group!r}") from None
-        if not is_symlink and (not mode or mode == usedefault):
+        if not is_symlink and mode == usedefault:
             # The entry isn't setting an explicit mode, so chown() below
             # would otherwise silently drop any setuid/setgid/sticky bit
             # already on disk; capture it here to restore below.
@@ -240,23 +310,23 @@ def apply_entry(
             logger.debug("Setting owner/group for %s to %s:%s", path, uid, gid)
         os.chown(path, uid, gid, follow_symlinks=False)
 
-    if mode and mode != usedefault:
+    if mode != usedefault:
         if is_symlink:
             if logger:
                 logger.debug("Not setting mode on symlink %s (Linux ignores it)", path)
         else:
-            mode = int(mode, 8) if isinstance(mode, str) else mode
+            mode_int = int(mode, 8) if isinstance(mode, str) else mode
             if logger:
-                logger.debug("Setting mode for %s to %o", path, mode)
+                logger.debug("Setting mode for %s to %o", path, mode_int)
             if os.chmod in os.supports_follow_symlinks:
-                os.chmod(path, mode, follow_symlinks=False)
+                os.chmod(path, mode_int, follow_symlinks=False)
             else:
                 # Plain chmod(2): every glibc supports this. Passing
                 # follow_symlinks=False here is unsupported on Linux for ANY
                 # path (not just symlinks) below glibc 2.32, and CPython
                 # refuses it outright (NotImplementedError) regardless of
                 # glibc version, since it never advertises the capability.
-                os.chmod(path, mode)
+                os.chmod(path, mode_int)
     elif restore_mode is not None:
         if logger:
             logger.debug("Restoring mode %o for %s after chown", restore_mode, path)

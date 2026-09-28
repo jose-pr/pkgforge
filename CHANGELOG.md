@@ -36,6 +36,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `entry_from_args`, `entry_from_path`, `resolve_entry`, `apply_entry`, typed
   forms of the `FileEntry` helpers (entries are dicts; `.resolve_for`/`.apply`
   on an entry never worked).
+- `normalize_mode()`: normalizes a `mode` value (an `int`, an octal string, or
+  the `-`/`--`/`auto` sentinels) to the octal permission string the file DB
+  stores.
 - `PkgForgeError`, `UsageError` (a `ValueError`). Errors now print one
   `pkgforge: error: ...` line and exit 2 for a usage mistake or 1 for a
   runtime failure, instead of a Python traceback (`DUHO_TRACEBACK=1` adds the
@@ -52,6 +55,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `--chown` no longer strips an existing setuid/setgid bit from the staged
   file: owner/group are now applied before mode, and a setuid/setgid/sticky
   bit already on disk is restored if the entry leaves mode at its default.
+- `-m`/`--mode` (on both `install` and `scan`) is now validated before
+  anything is staged: it accepts 1-4 octal digits (normalized, so `0644` is
+  stored as `644`), `-`, `--` or `auto`, and rejects everything else,
+  including an explicit empty value, with exit 2. Previously a Python-literal
+  spelling like `0o644` was recorded verbatim and made rpm silently package
+  the file with mode 000, and `scan -m` accepted any string at all with no
+  check.
+- An empty `mode`, `owner` or `group` is now treated like `-` (the documented
+  default) everywhere it is read: applying the entry, and both the RPM and
+  Debian dump formats. Previously the RPM format emitted `%attr(,-,-)`, which
+  rpmbuild rejects, for an empty mode.
 
 ## [0.1.2] - 2026-08-16
 

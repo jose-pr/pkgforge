@@ -82,8 +82,17 @@ Two sentinel values let a command defer a field to the staged file:
 - `--` — **resolve from the file on disk**: read the actual value from the
   staged file when the entry is recorded.
 
-For example, `install -m -- ...` records whatever mode the source already has,
-while `install -m 644 ...` records and applies `644`.
+For example, `install --mode=-- ...` (or `-m--`, or `-m auto`) records whatever
+mode the staged file already has, while `install -m 644 ...` records and
+applies `644`. A detached `-m -- ...` is read by argparse as the end of
+options, not a value, and exits 2 -- write the sentinel attached, or use the
+`auto` alias (`-m` only: `owner`/`group` get no such alias, since `auto` can be
+a real account name).
+
+`-m` is validated before anything is staged: it accepts 1-4 octal digits
+(normalized, so `0644` is stored as `644`), `-`, `--` or `auto`. An explicit
+empty value (`-m ""`) also exits 2. Empty `mode`/`owner`/`group` fields already
+in a DB (e.g. written by an older pkgforge) are read back as `-`.
 
 ## Build root mapping
 

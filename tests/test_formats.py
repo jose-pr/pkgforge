@@ -12,6 +12,7 @@ from pkgforge.dbdump import (
     PER_ENTRY_FORMATS,
     DbDump,
     dump_formats,
+    rpmspecfile,
 )
 from pkgforge.install import _extract_tar, _is_tar_source
 
@@ -108,6 +109,24 @@ def test_debian_install_artifact():
     assert "etc/tool/conf etc/tool" in install
     # Directories are not install targets.
     assert "etc/tool " not in install.replace("etc/tool/conf", "")
+
+
+def test_rpmspecfile_empty_fields_render_default():
+    # An empty mode/owner/group renders as "-" (DEFAULT), not verbatim
+    # (rpmbuild rejects "%attr(,-,-)" with "Bad syntax").
+    entry = {"mode": "", "owner": "", "group": "", "type": "file", "meta": {}}
+    assert rpmspecfile("/x", entry) == b'%attr(-,-,-) "/x"\n'
+
+
+def test_debian_permissions_skip_empty_fields():
+    entries = [
+        (
+            "/etc/tool",
+            {"mode": "", "owner": "", "group": "", "type": "file", "meta": {}},
+        ),
+    ]
+    arts = MULTI_ARTIFACT_FORMATS["debian"](entries)
+    assert arts["permissions"] == b""
 
 
 def test_debian_permissions_artifact():

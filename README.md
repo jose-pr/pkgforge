@@ -98,7 +98,9 @@ etc/tool.conf etc           /etc/tool.conf 640 root adm
 
 Each entry records `mode` (octal string, e.g. `644`), `owner`, `group`, `type`
 (`file`/`directory`/`symlink`), and a `meta` map. Two sentinels defer a field to
-the staged file: `-` ("leave at OS default") and `--` ("resolve from disk").
+the staged file: `-` ("leave at OS default") and `--` ("resolve from disk",
+also spelled `auto` for `-m`). `-m` accepts only 1-4 octal digits or a
+sentinel and is validated before anything is staged.
 
 ## Exclude / filter syntax
 

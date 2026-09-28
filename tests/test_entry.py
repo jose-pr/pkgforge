@@ -11,6 +11,7 @@ compat aliases.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
 
@@ -21,10 +22,12 @@ from pkgforge.common import (
     FileEntry,
     FileEntryArgs,
     FileType,
+    UsageError,
     apply_entry,
     entry_from_args,
     entry_from_path,
     mode_to_octal,
+    normalize_mode,
     resolve_entry,
 )
 
@@ -220,3 +223,201 @@ def test_apply_entry_chown_default_mode_keeps_setuid(tmp_path):
     }
     apply_entry(entry, f, chown=True)
     assert (f.stat().st_mode & 0o7000) == 0o4000
+
+
+@pytest.mark.posix
+def test_apply_entry_empty_owner_is_default(tmp_path):
+    # An empty owner/group must be treated like DEFAULT ("-"), never passed
+    # to pwd.getpwnam("")/grp.getgrnam("").
+    f = tmp_path / "f"
+    f.write_text("x")
+
+    entry: FileEntry = {
+        "mode": DEFAULT,
+        "owner": "",
+        "group": "",
+        "type": "file",
+        "meta": {},
+    }
+    apply_entry(entry, f, chown=True)  # must not raise (no getpwnam("") lookup)
+
+
+def test_apply_entry_rejects_unresolved_auto_mode(tmp_path):
+    f = tmp_path / "f"
+    f.write_text("x")
+
+    entry: FileEntry = {
+        "mode": AUTO,
+        "owner": DEFAULT,
+        "group": DEFAULT,
+        "type": "file",
+        "meta": {},
+    }
+    with pytest.raises(UsageError, match="unresolved"):
+        apply_entry(entry, f)
+
+
+# --------------------------------------------------------------------------
+# normalize_mode / --mode parsing
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("644", "644"),
+        ("0644", "644"),
+        ("7", "7"),
+        ("0000", "0"),
+        ("-", DEFAULT),
+        ("--", AUTO),
+        ("auto", AUTO),
+    ],
+)
+def test_parse_mode_normalizes(value, expected):
+    assert normalize_mode(value) == expected
+
+
+@pytest.mark.parametrize("command", ["install", "scan"])
+@pytest.mark.parametrize(
+    "value",
+    ["0o644", "6_44", "17777", "u=rwx", "999", "", " 644", "00644"],
+)
+def test_mode_rejected_at_parse(command, value, tmp_path, cli):
+    db = tmp_path / "db.jsonl"
+    root = tmp_path / "root"
+    if command == "install":
+        src = tmp_path / "src"
+        src.write_text("hi")
+        argv = [
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "install",
+            "-m",
+            value,
+            str(src),
+            "dest",
+        ]
+    else:
+        argv = [
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "scan",
+            "-m",
+            value,
+            "some/path",
+        ]
+    result = cli(*argv)
+    assert result.rc == 2
+    assert not db.exists()
+
+
+@pytest.mark.parametrize(
+    "field,argv",
+    [
+        ("mode", ["--mode=--"]),
+        ("mode", ["-m--"]),
+        ("mode", ["-m", "auto"]),
+        ("owner", ["--owner=--"]),
+    ],
+)
+def test_mode_attached_auto_sentinel(field, argv):
+    # On Python 3.9, argparse strips an attached "--" to [] BEFORE any
+    # converter runs, so this goes through entry_from_args -- the one place
+    # both the 3.9 [] artifact and the 3.14 literal "--" normalize the same
+    # way -- rather than asserting on the raw parsed attribute. Uses the
+    # FileEntryArgs mixin directly (type defaults to None, unlike Install's
+    # DEFAULT sentinel), since resolving `type` itself is unrelated here.
+    parser = FileEntryArgs._parser_()
+    ns = parser.parse_args(argv)
+    entry = entry_from_args(ns)
+    assert entry[field] == AUTO
+
+
+def test_detached_mode_sentinel_exits_2():
+    # Guard: a detached "-m --" is argparse's own end-of-options marker and
+    # already exited 2 before this change; it must keep doing so.
+    from pkgforge.install import Install
+
+    parser = Install._parser_()
+    with pytest.raises(SystemExit) as excinfo:
+        parser.parse_args(["-m", "--", "src", "/dst"])
+    assert excinfo.value.code == 2
+
+
+def test_api_bad_mode_stages_nothing(tmp_path):
+    from pkgforge.install import Install
+
+    root = tmp_path / "root"
+    root.mkdir()
+    src = tmp_path / "src"
+    src.write_text("hi")
+    db = tmp_path / "db.jsonl"
+
+    inst = Install(
+        mode="0o644",
+        source=src,
+        destination=Path("/etc"),
+        buildroot=root,
+        db=db,
+        parents=True,
+    )
+    with pytest.raises(UsageError):
+        inst()
+    assert list(root.iterdir()) == []
+    assert not db.exists()
+
+
+@pytest.mark.posix
+def test_install_mode_normalized_and_resolved(tmp_path):
+    from pkgforge.install import Install
+
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "db.jsonl"
+
+    src_a = tmp_path / "src_a"
+    src_a.write_text("hi")
+    parser = Install._parser_()
+    parser.parse_args(
+        [
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-m",
+            "0644",
+            str(src_a),
+            "/a",
+        ]
+    )()
+
+    src_b = tmp_path / "src_b"
+    src_b.write_text("hi")
+    src_b.chmod(0o750)
+    parser.parse_args(
+        [
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "-p",
+            "--mode=--",
+            str(src_b),
+            "/b",
+        ]
+    )()
+
+    loaded = pkgforge.PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    assert loaded["/a/src_a"]["mode"] == "644"
+    assert loaded["/b/src_b"]["mode"] == "750"
+    assert loaded["/b/src_b"]["mode"] != []
+
+    from pkgforge.dbdump import rpmspecfile
+
+    assert rpmspecfile("/b/src_b", loaded["/b/src_b"]) == b'%attr(750,-,-) "/b/src_b"\n'
