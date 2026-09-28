@@ -7,8 +7,10 @@ staging: chmod, chown, hardlinks, "/"-rooted destinations) are marked
 
 from __future__ import annotations
 
+import importlib.metadata
 import json
 import os
+import runpy
 import stat
 import subprocess
 import sys
@@ -378,3 +380,58 @@ def test_install_source_is_destination_keeps_file(tmp_path, cli):
     assert target.read_text() == "keep me"
     assert stat.S_IMODE(target.stat().st_mode) == 0o600
     assert open_db(db, for_read=True).load()["/etc/b.conf"]["mode"] == "600"
+
+
+# --------------------------------------------------------------------------
+# in-process CLI surface (cross-platform)
+# --------------------------------------------------------------------------
+
+
+def test_help_lists_every_subcommand(cli):
+    from pkgforge.common import PkgForge
+
+    result = cli("--help")
+    assert result.rc == 0
+    text = result.out.decode()
+    for c in PkgForge._subcommands_:
+        assert c._parsername_ in text
+
+
+def test_unknown_subcommand_exits_2(cli):
+    result = cli("bogus")
+    assert result.rc == 2
+    assert result.err
+
+
+def test_decompress_path_kind_without_destination_exits_2(cli):
+    # -x takes the next token as its (optional) kind, so "SRC" is swallowed
+    # and "DST" is the only source left: the required destination is missing.
+    result = cli("install", "-x", "SRC", "DST")
+    assert result.rc == 2
+    assert result.err
+
+
+def test_print_completion_bash(cli):
+    result = cli("--print-completion", "bash")
+    assert result.rc == 0
+    assert b"complete -F" in result.out
+
+
+def test_python_m_runs_main(monkeypatch, capfdbinary):
+    monkeypatch.setattr(sys, "argv", ["pkgforge", "--help"])
+    capfdbinary.readouterr()
+    with pytest.raises(SystemExit) as excinfo:
+        runpy.run_module("pkgforge", run_name="__main__")
+    assert excinfo.value.code in (0, None)
+    out = capfdbinary.readouterr().out
+    assert b"usage" in out.lower()
+
+
+def test_version_matches_distribution(cli):
+    try:
+        version = importlib.metadata.version("pkgforge")
+    except importlib.metadata.PackageNotFoundError:
+        pytest.skip("pkgforge is not installed as a distribution")
+    result = cli("--version")
+    assert result.rc == 0
+    assert version in result.out.decode()
