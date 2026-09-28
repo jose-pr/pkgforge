@@ -623,6 +623,26 @@ def test_relative_pattern_statement_is_shared_not_copied(tmp_path):
     assert PathMatch([stmt], tmp_path)[0] is stmt
 
 
+def test_parse_structure():
+    # Pins parse()'s result shape across its construct-then-assign cleanup:
+    # a leading "!" negates the whole statement, each inline test is
+    # collected, and the trailing glob is whatever is left over.
+    stmt = PathMatchStmt.parse("!(?!type:file)(?meta:k=v)a/*")
+    assert stmt.negate is True
+    assert len(stmt.tests) == 2
+    assert stmt.pattern == "a/*"
+
+
+def test_pathtest_factory_alias():
+    # PathTest.GENERATORS/.factory stay as back-compat aliases after moving
+    # the registry off the Protocol body.
+    from pkgforge.exclude import PathTest
+
+    test = PathTest.factory("type", "file", False)
+    assert test(Path("/a"), {"type": "file", "meta": {}}) is True
+    assert test(Path("/a"), {"type": "directory", "meta": {}}) is False
+
+
 # --------------------------------------------------------------------------
 # dbdump rendering
 # --------------------------------------------------------------------------

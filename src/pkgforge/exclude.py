@@ -22,32 +22,48 @@ from .common import FileEntry, FileType, entry_from_path
 FilterTestRe = re.compile(r"^\(\?([^:())]+):([^()]+)\)")
 
 
-def filetypetest(type):
-    type = FileType(type)
-    return lambda x, e: e["type"] == type
+def filetypetest(name: str) -> PathTest:
+    ftype = FileType(name)
+    return lambda _path, e: e["type"] == ftype
 
 
-def metatest(meta: str):
-    k, v = meta.split("=", maxsplit=1)
-    return lambda x, e: e["meta"].get(k) == v
+def metatest(arg: str) -> PathTest:
+    k, v = arg.split("=", maxsplit=1)
+    return lambda _path, e: e["meta"].get(k) == v
 
 
 class PathTest(typing.Protocol):
-    GENERATORS = {"type": filetypetest, "meta": metatest}
+    """A single inline ``(?name:arg)`` test: ``__call__(path, entry) -> bool``."""
 
-    def __call__(self, path: Path, entry: FileEntry) -> bool:
-        raise NotImplementedError(self)
+    def __call__(self, path: Path, entry: FileEntry) -> bool: ...
 
-    @classmethod
-    def factory(cls, name: str, arg: str, inverse: bool):
-        test = cls.GENERATORS[name](arg)
-        if inverse:
 
-            def _test(path: Path, entry: FileEntry):
-                return not test(path, entry)
+#: Registered inline-test names -> a factory building a :class:`PathTest`
+#: from the test's argument text. Kept module-level (not a Protocol class
+#: attribute -- a Protocol's members must all be declared types) and
+#: exposed on :class:`PathTest` as back-compat aliases below.
+_TESTS: typing.Dict[str, typing.Callable[[str], PathTest]] = {
+    "type": filetypetest,
+    "meta": metatest,
+}
 
-            return _test
-        return test
+
+def _make_test(name: str, arg: str, inverse: bool) -> PathTest:
+    test = _TESTS[name](arg)
+    if inverse:
+
+        def _test(path: Path, entry: FileEntry) -> bool:
+            return not test(path, entry)
+
+        return _test
+    return test
+
+
+# Back-compat aliases: some callers reach the registry/factory through
+# PathTest itself. Assigned after the class body, not inside it, since a
+# Protocol's own members must all be explicitly-typed callables.
+PathTest.GENERATORS = _TESTS  # type: ignore[attr-defined]
+PathTest.factory = staticmethod(_make_test)  # type: ignore[attr-defined]
 
 
 class PathMatchStmt(NS):
@@ -55,21 +71,16 @@ class PathMatchStmt(NS):
     tests: typing.List[PathTest]
     pattern: str
 
-    def match(self, path: Path, fileentry: FileEntry):
+    def match(self, path: Path, fileentry: FileEntry) -> typing.Optional[bool]:
         """Evaluate this statement: ``True``/``False`` decide, ``None`` defers.
 
         A statement that does not apply returns ``None`` so the caller keeps
         evaluating later statements — never ``False``, which would veto them.
         """
-        matched = path.match(self.pattern) if self.pattern else True
-        for test in self.tests:
-            if not matched:
-                break
-            matched = matched and test(path, fileentry)
-
-        if matched:
+        if (not self.pattern or path.match(self.pattern)) and all(
+            test(path, fileentry) for test in self.tests
+        ):
             return not self.negate
-
         return None
 
     def rebased(self, root: Path) -> PathMatchStmt:
@@ -83,25 +94,24 @@ class PathMatchStmt(NS):
         pattern = Path(self.pattern)
         if not pattern.is_absolute():
             return self
-        rebased = PathMatchStmt()
-        rebased.negate = self.negate
-        rebased.tests = self.tests
         # relative_to(anchor) rather than "/" so a drive-anchored pattern is
         # handled too (the runtime is POSIX, but the grammar is unit-tested
         # everywhere and on Windows "/" is not a path's anchor).
-        rebased.pattern = os.fspath(Path(root, pattern.relative_to(pattern.anchor)))
-        return rebased
+        return PathMatchStmt(
+            negate=self.negate,
+            tests=self.tests,
+            pattern=os.fspath(Path(root, pattern.relative_to(pattern.anchor))),
+        )
 
     @classmethod
     def parse(cls, pattern: str) -> PathMatchStmt:
-        filter = PathMatchStmt()
-        filter.tests = []
+        tests: typing.List[PathTest] = []
 
         if pattern.startswith("!"):
-            filter.negate = True
+            negate = True
             pattern = pattern[1:]
         else:
-            filter.negate = False
+            negate = False
 
         while True:
             test = FilterTestRe.match(pattern)
@@ -114,20 +124,23 @@ class PathMatchStmt(NS):
                 inversed = True
             else:
                 inversed = False
-            filter.tests.append(PathTest.factory(name, arg, inversed))
+            tests.append(_make_test(name, arg, inversed))
             pattern = pattern[test.span()[1] :]
 
-        filter.pattern = pattern
-
-        return filter
+        return cls(negate=negate, tests=tests, pattern=pattern)
 
 
 class PathMatch(typing.List[PathMatchStmt]):
-    def __init__(self, stmts: typing.Iterable[PathMatchStmt], root: Path = None):
-        # Rebase absolute patterns onto `root` as COPIES: the incoming
-        # statements come from parsed argv and are shared between
-        # constructions (multi-source install builds one PathMatch per
-        # source), so an in-place rewrite would prefix them once per source.
+    def __init__(
+        self,
+        stmts: typing.Iterable[PathMatchStmt],
+        root: typing.Optional[Path] = None,
+    ):
+        # Rebase absolute patterns onto `root` as COPIES: see rebased()'s own
+        # docstring -- the incoming statements come from parsed argv and are
+        # shared between constructions (multi-source install builds one
+        # PathMatch per source), so an in-place rewrite would prefix them
+        # once per source.
         if root:
             stmts = [stmt.rebased(root) for stmt in stmts]
         super().__init__(stmts)
@@ -135,14 +148,14 @@ class PathMatch(typing.List[PathMatchStmt]):
     def match(
         self,
         path: Path,
-        entry: FileEntry = None,
-        _default: bool = None,
+        entry: typing.Optional[FileEntry] = None,
+        _default: typing.Optional[bool] = None,
         **overrides,
-    ):
+    ) -> typing.Optional[bool]:
         if not self:
             return True
         fileentry = entry_from_path(path) if not entry else entry
-        fileentry.update(overrides)
+        fileentry.update(typing.cast(FileEntry, overrides))
 
         for stmt in self:
             result = stmt.match(path, fileentry)
