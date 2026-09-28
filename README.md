@@ -131,6 +131,17 @@ python benchmarks/run.py        # benchmarks (add --save to record)
 mkdocs serve                    # docs preview at http://127.0.0.1:8000
 ```
 
+`tests/smoke_installed.py` is not collected by pytest. Run it with a
+*non-editable* install's interpreter (e.g. from a built wheel in a fresh venv)
+to check the installed CLI surface (`--version`, `--help`, completion, the
+example) and the shipped files (`AGENTS.md`, `README.md`, `py.typed`):
+
+```sh
+python -m build --wheel --outdir dist
+python -m venv /tmp/smoke && /tmp/smoke/bin/pip install dist/*.whl
+/tmp/smoke/bin/python tests/smoke_installed.py
+```
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
