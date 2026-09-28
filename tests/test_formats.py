@@ -121,6 +121,42 @@ def test_debian_install_artifact():
     assert "etc/tool " not in install.replace("etc/tool/conf", "")
 
 
+@pytest.mark.parametrize(
+    "path,expected",
+    [
+        ("/opt/café", b'"/opt/caf\xc3\xa9"'),
+        ("/usr/bin/x", b'"/usr/bin/x"'),  # plain, guard: unchanged from json.dumps
+        ("/with space", b'"/with space"'),  # space, guard
+        ("/a*?[x]", b'"/a*?[x]"'),  # glob, guard: never escaped
+        ('/quo"te', b'"/quo\\"te"'),  # quote
+        ("/back\\slash", b'"/back\\\\slash"'),  # backslash
+    ],
+    ids=["utf8", "plain", "space", "glob", "quote", "backslash"],
+)
+def test_rpmspecfile_quotes(path, expected):
+    from pkgforge.dbdump import _rpm_quote
+
+    assert _rpm_quote(path).encode("utf-8", "surrogateescape") == expected
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/a\nb", "/a\tb", "/a\x7fb", "/100%done", "/%{name}", "/%(id)"],
+    ids=["nl", "tab", "del", "pct", "pct_brace", "pct_paren"],
+)
+def test_rpmspecfile_rejects(path):
+    from pkgforge.dbdump import DumpError, _rpm_quote
+
+    with pytest.raises(DumpError):
+        _rpm_quote(path)
+
+
+def test_rpmspecfile_non_utf8_keeps_bytes():
+    entry = {"mode": "-", "owner": "-", "group": "-", "type": "file", "meta": {}}
+    line = rpmspecfile("/opt/caf\udce9", entry)
+    assert line == b'%attr(-,-,-) "/opt/caf\xe9"\n'
+
+
 def test_rpmspecfile_empty_fields_render_default():
     # An empty mode/owner/group renders as "-" (DEFAULT), not verbatim
     # (rpmbuild rejects "%attr(,-,-)" with "Bad syntax").

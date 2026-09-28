@@ -13,17 +13,50 @@ Two shapes of format are supported:
 from __future__ import annotations
 
 import contextlib
-import json
 import os
 import sys
 import typing
 from pathlib import Path
 
-from .common import DEFAULT, FileType, PkgForgeCmd, FileEntry, UsageError, _or_default
+from .common import (
+    DEFAULT,
+    FileType,
+    PkgForgeCmd,
+    PkgForgeError,
+    FileEntry,
+    UsageError,
+    _or_default,
+)
 from .exclude import ExcludeArgs, PathMatch
 
 #: An entry that survived filtering: (db-path, FileEntry).
 Entries = typing.List[typing.Tuple[str, FileEntry]]
+
+
+class DumpError(PkgForgeError, ValueError):
+    """A DB entry cannot be rendered in the chosen format.
+
+    Raised for a path (or, for ``debian``, a mode/owner/group) the target
+    format's own tooling cannot represent -- a control character, or (rpm
+    only) a ``%``. Caught by :func:`pkgforge.main`'s error boundary like any
+    :class:`~pkgforge.common.PkgForgeError`: one stderr line, exit 1. Nothing
+    is written to OUTPUT first: every entry is rendered before OUTPUT is
+    opened, so this leaves no partial file.
+    """
+
+
+#: Every C0 control character (0x00-0x1f) plus DEL (0x7f): rpm and debhelper
+#: both choke on these one way or another (a bare newline splits a line, a
+#: literal DEL is simply illegal), and neither format has an escape for them.
+_CONTROL_CHARS = frozenset(chr(c) for c in range(0x20)) | {"\x7f"}
+
+
+def _reject_control(path: str, fmt: str) -> None:
+    if any(c in _CONTROL_CHARS for c in path):
+        raise DumpError(
+            f"{fmt}: a DB entry's path contains a control character that "
+            "cannot be represented in this format"
+        )
 
 
 class PerEntryDumper(typing.Protocol):
@@ -37,6 +70,29 @@ class PerEntryDumper(typing.Protocol):
 # --------------------------------------------------------------------------
 
 
+def _rpm_quote(path: str) -> str:
+    """Quote ``path`` for an rpm ``%files``/``%attr`` line (rpm 4.19+).
+
+    rpm's ``%files -f`` parser macro-expands every line BEFORE it sees the
+    quoting: on rpm 4.19+ no spelling of ``%`` is literal inside or outside
+    double quotes, so a path containing one is refused outright rather than
+    escaped (below 4.19, ``%%`` ran the doubled-percent expansion and
+    ``%(cmd)`` ran ``cmd`` as a shell command -- there is no fix on that
+    range, only refusal; see ``rpm4_quoted_globs.md``). Glob characters
+    (``* ? [ ]``) are never escaped: rpm's own shell-globbing quoting rules
+    make a quoted glob character match only the literal path anyway.
+    """
+    _reject_control(path, "rpmspecfiles")
+    if "%" in path:
+        raise DumpError(
+            "rpmspecfiles: a DB entry's path contains '%', which rpm's "
+            "%files parser expands as a macro on every rpm version; write "
+            "this entry's %files line by hand"
+        )
+    escaped = path.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
 def rpmspecfile(path: str, entry: FileEntry) -> bytes:
     prefix = entry["meta"].get("rpmprefix") or ""
     if prefix:
@@ -48,7 +104,10 @@ def rpmspecfile(path: str, entry: FileEntry) -> bytes:
     owner = _or_default(entry["owner"])
     group = _or_default(entry["group"])
 
-    return (f"{prefix}%attr({mode},{owner},{group}) {json.dumps(path)}\n").encode()
+    quoted = _rpm_quote(path)
+    return f"{prefix}%attr({mode},{owner},{group}) {quoted}\n".encode(
+        "utf-8", "surrogateescape"
+    )
 
 
 # --------------------------------------------------------------------------

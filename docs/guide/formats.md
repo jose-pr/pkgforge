@@ -21,6 +21,20 @@ Emits one RPM `%files` line per entry:
 Directories get a `%dir` prefix; an entry's `meta.rpmprefix` (e.g.
 `%config(noreplace)`) is prepended.
 
+Each path is quoted for rpm's `%files -f` parser (targets rpm 4.19+, where
+no spelling of `%` is literal inside or outside quotes): a backslash and a
+double quote are escaped, and the whole path is written as UTF-8 (a
+non-UTF-8 name round-trips its original bytes). Glob characters
+(`* ? [ ]`) are never escaped -- rpm's own quoted-string globbing already
+matches only the literal name. A `%` anywhere in the path is refused
+outright (`DumpError`, `dbdump` exits 1): rpm macro-expands every `%files`
+line before it looks at quoting, so an unescaped `%` let a staged filename
+run as a macro -- including `%(...)`, which runs a shell command -- and
+there is no quoting that makes it literal on every rpm version. Rename or
+`--exclude` such a file, or write that one line by hand. A path containing
+a control character (including a tab) is refused the same way: rpm cannot
+represent it either.
+
 !!! warning
     Every directory entry becomes a `%dir` **ownership** claim -- the built
     RPM installs that directory with the recorded mode/owner/group (or the

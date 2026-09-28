@@ -343,7 +343,20 @@ tree).
 - **`PER_ENTRY_FORMATS: dict[str, PerEntryDumper]`** — one-line-per-entry
   formats, each `dumper(path, entry) -> bytes`. Built in: `"rpmspecfiles"`
   (RPM `%files` lines: `%attr(mode,owner,group) "path"`, `%dir` prefix for
-  directories, `meta["rpmprefix"]` prepended if set).
+  directories, `meta["rpmprefix"]` prepended if set). The path is quoted for
+  rpm's `%files -f` parser (targets rpm 4.19+): `\` and `"` are escaped, the
+  line is written as UTF-8 with `surrogateescape` (a non-UTF-8 name
+  round-trips its original bytes), and glob characters are never escaped
+  (rpm's own quoting already matches only the literal name). A `%` anywhere
+  in the path raises `DumpError` -- no version of rpm treats a quoted `%`
+  as literal, and `%(...)` runs a shell command -- as does any C0 control
+  character or DEL.
+- **`DumpError(PkgForgeError, ValueError)`** — a DB entry that a dump
+  format's own tooling cannot represent (a `%` or a control character for
+  `rpmspecfiles`; see `MULTI_ARTIFACT_FORMATS` below for `debian`). Caught by
+  `main()`'s error boundary like any `PkgForgeError` (one stderr line, exit
+  1). Every entry is rendered before OUTPUT is opened, so raising this
+  leaves no partial file.
 - **`MULTI_ARTIFACT_FORMATS: dict[str, Callable[[Entries], dict[str,
   bytes]]]`** — formats that render several named artifacts, each
   `render(entries) -> {filename: bytes}`. Built in: `"debian"` — `install`

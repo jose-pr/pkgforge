@@ -215,6 +215,31 @@ def test_dbdump_debian_onto_file_exits_2(tmp_path, cli):
     assert target.read_text(encoding="utf-8") == "existing"
 
 
+@pytest.mark.parametrize(
+    "row,ident",
+    [("/a\nb", "control character"), ("/o/%(echo PWNED >&2)", "'%'")],
+    ids=["ctrl", "pct"],
+)
+def test_dbdump_unrepresentable_exits_1_without_output(tmp_path, cli, row, ident):
+    # A row rpm cannot represent must stop the whole dump before OUTPUT is
+    # touched, and the message must never echo the untrusted path text back
+    # (only describe the problem) -- rpm's %(...) macro is a shell-command
+    # channel, so a message that reflected it verbatim would be one more
+    # place that content could resurface.
+    db = tmp_path / "files.jsonl"
+    open_db(db, for_read=False).add(
+        row, {"mode": "-", "owner": "-", "group": "-", "type": "file", "meta": {}}
+    )
+    out = tmp_path / "out.txt"
+    result = cli("--db", str(db), "dbdump", "-f", "rpmspecfiles", str(out))
+    assert result.rc == 1
+    err = result.err.decode()
+    assert ident in err
+    assert "Traceback" not in err
+    assert "PWNED" not in err
+    assert not out.exists()
+
+
 def test_dbdump_rpm_onto_directory_exits_2(tmp_path, cli):
     db = tmp_path / "files.jsonl"
     _seed_tool_entry(db)

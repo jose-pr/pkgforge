@@ -15,6 +15,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   file OUTPUT for `debian`, or a directory OUTPUT for `rpmspecfiles` now
   exits 2 with one line naming the problem (was exit 1 or a raw traceback,
   possibly after loading the whole DB).
+- `rpmspecfiles` escapes `\` and `"` for rpm 4.19+ and writes non-ASCII names
+  as UTF-8 (was `\uXXXX`, which rpmbuild could not find). A control
+  character in a path stops `dbdump` with an error naming the problem.
+
+### Added
+- `pkgforge.dbdump.DumpError`, raised for a DB entry a dump format's own
+  tooling cannot represent.
 
 ### Changed
 - `dbdump` writes entries sorted by path, so a staged tree gives
@@ -22,6 +29,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   order).
 
 ### Security
+- `rpmspecfiles` rejects a path containing `%`: rpmbuild expanded it, so a
+  staged `%(...)` name ran a shell command, and no quoting is literal on rpm
+  both before and after 4.19; write that `%files` line by hand.
 - Archives extracted with `bsdtar` (stdin, `.zip`, `.iso`, `.cpio`) no
   longer restore owners, setuid/setgid, group/other write, xattrs, ACLs or
   file flags as root; an archive holding a device node, FIFO or socket is
