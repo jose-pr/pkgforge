@@ -45,6 +45,25 @@ AUTO = "--"
 DEFAULT = "-"
 
 
+class PkgForgeError(Exception):
+    """Base class for pkgforge's own runtime failures.
+
+    Caught by :func:`pkgforge.main`'s error boundary: prints one
+    ``pkgforge: error: ...`` line to stderr and exits 1. Python-API callers
+    still see it raised normally.
+    """
+
+
+class UsageError(PkgForgeError, ValueError):
+    """An argument-shaped mistake (a bad or missing value the caller gave).
+
+    Caught by :func:`pkgforge.main`'s error boundary and mapped to exit 2,
+    like an argparse usage error. Subclasses :class:`ValueError` so existing
+    ``pytest.raises(ValueError, ...)`` tests, and any Python-API caller
+    catching ``ValueError``, keep working unchanged.
+    """
+
+
 def parsepath(path: str) -> typing.Optional[typing.Union[str, Path]]:
     """Parse a CLI path argument.
 
@@ -75,7 +94,10 @@ class FileType(str, enum.Enum):
         elif path.is_file():
             return cls.File
         else:
-            raise TypeError(path)
+            raise TypeError(
+                f"{path}: not a regular file, directory or symlink "
+                "(missing or special file)"
+            )
 
 
 def mode_to_octal(mode: int) -> str:
@@ -193,11 +215,17 @@ def apply_entry(
     if chown and (owner != usedefault or group != usedefault):
         if pwd is None or grp is None:
             raise RuntimeError("chown requires the Unix pwd/grp modules")
-        owner = -1 if owner == usedefault else pwd.getpwnam(owner).pw_uid
-        group = -1 if group == usedefault else grp.getgrnam(group).gr_gid
+        try:
+            uid = -1 if owner == usedefault else pwd.getpwnam(owner).pw_uid
+        except KeyError:
+            raise UsageError(f"unknown owner {owner!r}") from None
+        try:
+            gid = -1 if group == usedefault else grp.getgrnam(group).gr_gid
+        except KeyError:
+            raise UsageError(f"unknown group {group!r}") from None
         if logger:
-            logger.debug("Setting owner/group for %s to %s:%s", path, owner, group)
-        os.chown(path, owner, group, follow_symlinks=False)
+            logger.debug("Setting owner/group for %s to %s:%s", path, uid, gid)
+        os.chown(path, uid, gid, follow_symlinks=False)
 
 
 # Runtime back-compat aliases: FileEntry values are plain dicts (it is a

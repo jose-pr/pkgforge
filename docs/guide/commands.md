@@ -15,6 +15,12 @@ Global options are read from the command line or the environment:
 Global flags work either before or after the subcommand
 (`pkgforge --db X install …` or `pkgforge install --db X …`).
 
+**Exit status**: `0` success; `2` a usage mistake (a bad or missing argument
+value, e.g. a missing source or an unknown `--chown` owner); `1` any other
+failure (including a closed output pipe, e.g. `pkgforge dbdump ... | head`).
+On failure, one `pkgforge: error: ...` line goes to stderr; set
+`DUHO_TRACEBACK=1` to also print the traceback.
+
 ## `initdb`
 
 Create or reset (truncate) an empty file DB.

@@ -5,25 +5,45 @@ export with its signature, arguments, contract, and gotchas, so this module
 can be consumed without reading its source. Kept current with the public
 API. For the CLI overview and code layout, see the shipped `README.md`, or <https://github.com/jose-pr/pkgforge>.
 
-`pkgforge.__all__`: `PkgForgeCmd`, `PkgForge`, `DbProvider`, `FileEntry`,
-`FileEntryArgs`, `FileType`, `__version__`, `apply_entry`, `entry_from_args`,
-`entry_from_path`, `resolve_entry`, `main`, `open_db`, `register_provider`,
-plus the leaf-command submodules themselves (`compact`, `dbdump`, `initdb`,
-`install`, `scan` — importing `pkgforge` runs each module's `_register()`
-call, attaching it to the `PkgForge` subcommand tree).
+`pkgforge.__all__`: `PkgForgeCmd`, `PkgForge`, `PkgForgeError`, `DbProvider`,
+`FileEntry`, `FileEntryArgs`, `FileType`, `UsageError`, `__version__`,
+`apply_entry`, `entry_from_args`, `entry_from_path`, `resolve_entry`, `main`,
+`open_db`, `register_provider`, plus the leaf-command submodules themselves
+(`compact`, `dbdump`, `initdb`, `install`, `scan` — importing `pkgforge` runs
+each module's `_register()` call, attaching it to the `PkgForge` subcommand
+tree).
 
 ## Entry point
 
 - **`main(argv=None) -> int`** — build the parser and dispatch the selected
   subcommand (`duho.main(PkgForge, argv)`). Bound as the `pkgforge` console
-  script and `python -m pkgforge`.
+  script and `python -m pkgforge`. This is pkgforge's only error boundary:
+  a `UsageError` prints one `pkgforge: error: ...` line to stderr and returns
+  2; any other `PkgForgeError`, `OSError` or `subprocess.CalledProcessError`
+  prints the same and returns 1; a `BrokenPipeError` (a closed output pipe)
+  returns 1 silently; anything else propagates with its traceback. Set
+  `DUHO_TRACEBACK` (`1`/`true`/`yes`/`on`/`y`/`t`, case-insensitive,
+  whitespace-stripped) to also print the traceback before that one line.
+  Calling a command directly (not through `main()`) still raises the plain
+  exception — the boundary only wraps the CLI entry point.
 
 ## Core types (`common.py`)
 
+- **`PkgForgeError(Exception)`** — base class for pkgforge's own runtime
+  failures; caught by `main()` and mapped to exit 1.
+- **`UsageError(PkgForgeError, ValueError)`** — an argument-shaped mistake
+  (a bad or missing value); caught by `main()` and mapped to exit 2. Also a
+  `ValueError`, so existing `except ValueError`/`pytest.raises(ValueError)`
+  code keeps working. Raised by `install` for: a missing source, a `-`
+  (stdin) source without `-T`/`-D`, a symlink source/type with no target
+  (no `-O target=PATH`), an unresolvable stdin compression kind, a
+  `--decompress` value that looks like a path, and an unknown `--chown`
+  owner or group.
 - **`FileType(str, enum.Enum)`** — `File`, `Directory`, `Symlink`. Sentinel
   member `_AUTO = "--"` means "determine from the file on disk".
   `FileType.from_path(path) -> FileType` inspects a real path (raises
-  `TypeError` if it's none of the three).
+  `TypeError` if it's none of the three — missing or a special file such as
+  a FIFO or socket).
 - **`FileEntry(typing.TypedDict)`** — one DB record: `mode` (octal permission
   **string**, e.g. `"644"`, not a raw `st_mode` int), `owner`, `group`,
   `type`, `meta: dict[str, str]`. A `FileEntry` value is a **plain dict** at
@@ -49,7 +69,7 @@ call, attaching it to the `PkgForge` subcommand tree).
     logger: Optional[logging.Logger] = None, usedefault: str = "-") -> None`**
     — `chmod` (unless `mode` is falsy or equals `usedefault`) and, if
     `chown=True`, `chown` (raises `RuntimeError` if `pwd`/`grp` are
-    unavailable).
+    unavailable; raises `UsageError` for an unknown owner/group).
 - **`FileEntryArgs(duho.Cmd)`** — CLI mixin supplying `--mode/-m`,
   `--group/-g`, `--owner/-o` (each default `"-"`), `--type/-t`
   (`Optional[FileType]`, default `None`), `-O/--meta KEY=VALUE` (repeatable,

@@ -23,6 +23,7 @@ from .common import (
     PkgForgeCmd,
     FileEntryArgs,
     FileType,
+    UsageError,
     apply_entry,
     entry_from_args,
     parsepath,
@@ -202,7 +203,11 @@ class Install(FileEntryArgs, PkgForgeCmd):
             if str(src) == DEFAULT or not src:
                 target = self.meta.get("target")
                 if not target:
-                    raise ValueError(src)
+                    # __call__ already checks this right after type
+                    # resolution (before the destination is even computed);
+                    # this raise stays for a direct Python-API caller of
+                    # install() itself.
+                    raise UsageError("a symlink with no source needs -O target=PATH")
                 dst.symlink_to(target)
             else:
                 target = src.readlink()
@@ -268,6 +273,13 @@ class Install(FileEntryArgs, PkgForgeCmd):
                 Install(**cloned)()
             return
 
+        if (
+            isinstance(self.source, Path)
+            and not self.source.exists()
+            and not self.source.is_symlink()
+        ):
+            raise UsageError(f"source {self.source} does not exist")
+
         if self.type == DEFAULT:
             self._logger_.debug("Determining type from source")
             if self.source and self.source != DEFAULT:
@@ -277,16 +289,27 @@ class Install(FileEntryArgs, PkgForgeCmd):
         else:
             self.type = FileType(self.type)
 
+        if self.type == FileType.Symlink and (
+            str(self.source) == DEFAULT or not self.source
+        ):
+            # Checked here, right after type resolution: before the
+            # destination is computed, before any -p mkdir, and before
+            # install() reaches its own check. On Windows a "/"-rooted
+            # destination fails inside buildpath() (and -p would mkdir
+            # outside the build root) before install() ever runs.
+            if not self.meta.get("target"):
+                raise UsageError("a symlink with no source needs -O target=PATH")
+
         if self.decompress is True:
             # Bare -x means "infer the compression from the source suffix",
             # which stdin does not have (parsepath keeps "-" as a plain str).
             if not self.source or str(self.source) == DEFAULT:
-                raise ValueError("cannot infer compression from stdin; pass -x TYPE")
+                raise UsageError("cannot infer compression from stdin; pass -x TYPE")
             self.decompress = self.source.suffix[1:]
         elif isinstance(self.decompress, str) and _looks_like_path(self.decompress):
             # argparse gave -x the next positional (see _looks_like_path); say
             # so instead of trying to run that path as a decompressor.
-            raise ValueError(
+            raise UsageError(
                 f"--decompress got {self.decompress!r}, which looks like a path, "
                 "not a compression kind; write the kind (-x gz), or put a bare "
                 "-x after the source and destination to infer it"
@@ -294,7 +317,10 @@ class Install(FileEntryArgs, PkgForgeCmd):
 
         if not self.no_target_directory:
             if str(self.source) == DEFAULT:
-                raise ValueError(self.source)
+                raise UsageError(
+                    "a '-' (stdin) source needs -T (or -D) and an explicit "
+                    "destination file name"
+                )
             self.destination = self.destination / self.source.name
             if self.decompress:
                 self.destination = self.destination.with_name(

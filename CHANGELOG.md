@@ -29,6 +29,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `entry_from_args`, `entry_from_path`, `resolve_entry`, `apply_entry`, typed
   forms of the `FileEntry` helpers (entries are dicts; `.resolve_for`/`.apply`
   on an entry never worked).
+- `PkgForgeError`, `UsageError` (a `ValueError`). Errors now print one
+  `pkgforge: error: ...` line and exit 2 for a usage mistake or 1 for a
+  runtime failure, instead of a Python traceback (`DUHO_TRACEBACK=1` adds the
+  traceback back); a closed output pipe now exits 1 silently. An unknown
+  `--chown` owner or group now raises `UsageError` instead of a raw
+  `KeyError`.
 
 ### Fixed
 - The wheel and sdist never include files named `*.local.*` or `CLAUDE*`, even when built from a tree without `.gitignore`.
