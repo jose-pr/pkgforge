@@ -202,23 +202,29 @@ def _parse_filetype(text: str) -> typing.Union[FileType, str]:
 
 class FileEntryArgs(Cmd):
     mode: duho.Arg[str, duho.NS(type=_parse_mode)] = DEFAULT
+    "permission mode: 1-4 octal digits, '-' (leave default), '--' or 'auto' (resolve from the staged file)"
     ("--mode", "-m")
     group: str = DEFAULT
+    "group to record (default '-', the OS default)"
     ("--group", "-g")
     owner: str = DEFAULT
+    "owner to record (default '-', the OS default)"
     ("--owner", "-o")
     type: duho.Arg[
         typing.Optional[FileType],
         duho.NS(type=_parse_filetype, metavar="{file,directory,symlink}"),
     ] = None
+    "file, directory or symlink, in any case (auto-detected if unset, or given as '--')"
     ("--type", "-t")
     meta: duho.Arg[
         typing.Dict[str, str],
         duho.NS(
             action=duho.UpdateAction,
             type=lambda x: dict([x.split("=", maxsplit=1)]),
+            metavar="KEY=VALUE",
         ),
     ] = {}
+    "extra metadata KEY=VALUE (repeatable)"
     ("-O", "--meta")
 
 
@@ -427,17 +433,22 @@ class PkgForgeCmd(LoggingArgs, Cmd):
     to the :class:`PkgForge` root's subcommand tree via :meth:`_register`.
     """
 
-    db: duho.Arg[typing.Optional[Path], duho.NS(env="PKGFORGE_DB", type=_env_path)] = (
-        _env_path(os.environ.get("PKGFORGE_DB", ""))
-    )
+    db: duho.Arg[
+        typing.Optional[Path],
+        duho.NS(env="PKGFORGE_DB", type=_env_path, metavar="PATH"),
+    ] = _env_path(os.environ.get("PKGFORGE_DB", ""))
+    "file DB path (env PKGFORGE_DB); unset or '-' records to stdout"
     ("--db",)
     db_format: duho.Arg[
-        typing.Optional[str], duho.NS(env="PKGFORGE_DB_FORMAT", type=_env_str)
+        typing.Optional[str],
+        duho.NS(env="PKGFORGE_DB_FORMAT", type=_env_str, metavar="FORMAT"),
     ] = _env_str(os.environ.get("PKGFORGE_DB_FORMAT", ""))
+    "storage backend: jsonl, yaml, sqlite, or a register_provider name (env PKGFORGE_DB_FORMAT); else inferred from the --db suffix"
     ("--db-format",)
-    buildroot: duho.Arg[Path, duho.NS(env="PKGFORGE_ROOT", type=_env_root)] = _env_root(
-        os.environ.get("PKGFORGE_ROOT", "")
-    )
+    buildroot: duho.Arg[
+        Path, duho.NS(env="PKGFORGE_ROOT", type=_env_root, metavar="DIR")
+    ] = _env_root(os.environ.get("PKGFORGE_ROOT", ""))
+    "staging root that maps to '/' in the DB (env PKGFORGE_ROOT; default '.')"
     ("--buildroot", "-r")
 
     def __init__(self, **kwargs):
@@ -520,18 +531,14 @@ class PkgForgeCmd(LoggingArgs, Cmd):
 
 
 class PkgForge(PkgForgeCmd, Cli):
-    """The pkgforge application root (the ``pkgforge`` command).
-
-    Stages files into a build root and records their intended install
-    metadata (mode / owner / group / type) in a file DB (JSON Lines by
-    default; YAML/SQLite backends), which can then
-    be dumped into packaging manifests (e.g. an RPM file list).
-
-    Extends :class:`PkgForgeCmd` (for the shared ``--db``/``--buildroot`` options
-    and the DB helpers) and :class:`~duho.Cli` (for the app-root layer:
-    ``--version``, completion, and the subcommand tree).
+    """Stage files into a build root and record their intended install
+    metadata (mode, owner, group, type) in a file DB. Dump that DB into
+    packaging manifests (RPM %files, Debian install/permissions).
     """
 
+    # Extends PkgForgeCmd (the shared --db/--buildroot options and the DB
+    # helpers) and duho.Cli (the app-root layer: --version, completion, and
+    # the subcommand tree).
     _version_ = duho.AUTO
     _distribution_ = "pkgforge"
     _completion_ = True

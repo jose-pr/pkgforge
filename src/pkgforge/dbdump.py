@@ -116,12 +116,15 @@ class DbDump(PkgForgeCmd):
 
     exclude: duho.Arg[
         typing.List[PathMatchStmt],
-        duho.Append(PathMatchStmt.parse),
+        duho.Append(PathMatchStmt.parse, metavar="STMT"),
     ] = []
+    "exclude paths matching STMT (repeatable); see the exclude-pattern guide for the grammar"
     ("--exclude", "-X")
     format: str
+    "output format: rpmspecfiles, debian"
     ("--format", "-f")
     output: Path = Path("-")
+    "output file (per-entry formats) or directory (multi-artifact formats); '-' for stdout"
     ("output",)
 
     def _surviving_entries(self) -> Entries:

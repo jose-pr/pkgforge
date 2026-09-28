@@ -40,12 +40,15 @@ class ScanCmd(FileEntryArgs, PkgForgeCmd):
     ("--type", "-t")
     exclude: duho.Arg[
         typing.List[PathMatchStmt],
-        duho.Append(PathMatchStmt.parse),
+        duho.Append(PathMatchStmt.parse, metavar="STMT"),
     ] = []
+    "exclude paths matching STMT (repeatable); see the exclude-pattern guide for the grammar"
     ("--exclude", "-X")
     missing: bool = False
+    "only record entries absent from the DB, leaving existing ones untouched"
     ("--missing",)
     path: str
+    "path under the build root to scan"
     ("path",)
 
     def __call__(self):

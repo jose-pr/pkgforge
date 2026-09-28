@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- `--help` describes every option, names the `PKGFORGE_*` variables and the
+  DB and dump formats, and no longer shows developer notes.
 - An unknown `--db-format` or `PKGFORGE_DB_FORMAT` exits 2 with one line
   naming the valid formats, before anything is staged (was a traceback and
   exit 1, after `install` had staged the file), also when `--db` is unset

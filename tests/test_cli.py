@@ -7,6 +7,7 @@ staging: chmod, chown, hardlinks, "/"-rooted destinations) are marked
 
 from __future__ import annotations
 
+import argparse
 import importlib.metadata
 import json
 import logging
@@ -514,6 +515,38 @@ def test_verbose_flag_reaches_command_logger(tmp_path, cli):
     )
     assert result.rc == 0
     assert logger.getEffectiveLevel() == logging.WARNING
+
+
+def test_every_option_has_help():
+    from pkgforge.common import PkgForge
+
+    def _check(parser):
+        for action in parser._actions:
+            if isinstance(action, argparse._HelpAction):
+                continue
+            if isinstance(action, argparse._SubParsersAction):
+                continue
+            assert action.help not in (None, ""), (parser.prog, action.dest)
+
+    root = parser = PkgForge._parser_()
+    _check(root)
+    subparsers_action = next(
+        a for a in root._actions if isinstance(a, argparse._SubParsersAction)
+    )
+    for subparser in subparsers_action.choices.values():
+        _check(subparser)
+
+
+def test_install_help_shows_decompress_order():
+    from pkgforge.install import Install
+    from pkgforge.dbdump import DbDump
+
+    install_text = " ".join(Install._parser_().format_help().split())
+    assert "-x KIND SRC DST" in install_text
+
+    dbdump_text = " ".join(DbDump._parser_().format_help().split())
+    assert "rpmspecfiles" in dbdump_text
+    assert "debian" in dbdump_text
 
 
 def test_version_names_pkgforge(cli):

@@ -34,6 +34,11 @@ def test_root_parser_builds_and_help_renders():
     text = parser.format_help()
     for name in {c._parsername_ for c in PkgForge._subcommands_}:
         assert name in text
+    assert ":class:" not in text
+    assert "``" not in text
+    for var in ("PKGFORGE_DB", "PKGFORGE_DB_FORMAT", "PKGFORGE_ROOT"):
+        assert var in text
+    assert "jsonl" in text
 
 
 def test_command_loggers_under_pkgforge(tmp_path, caplog):

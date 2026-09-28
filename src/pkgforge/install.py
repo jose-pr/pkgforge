@@ -98,26 +98,36 @@ class Install(FileEntryArgs, PkgForgeCmd):
     _logger_name_ = "pkgforge.install"
 
     noentry: bool = False
+    "stage the file but do not record a DB entry"
     ("--noentry",)
     chown: bool = False
+    "apply the recorded owner/group with chown (off by default)"
     ("--chown",)
     type: duho.Arg[
         typing.Union[FileType, str],
         duho.NS(type=_parse_filetype, metavar="{file,directory,symlink}"),
     ] = DEFAULT
+    "file, directory or symlink, in any case (auto-detected from the source if unset, or given as '--')"
     ("--type", "-t")
     exclude: duho.Arg[
         typing.List[PathMatchStmt],
-        duho.Append(PathMatchStmt.parse),
+        duho.Append(PathMatchStmt.parse, metavar="STMT"),
     ] = []
+    "exclude paths matching STMT when copying a directory source (repeatable); see the exclude-pattern guide for the grammar"
     ("--exclude", "-X")
     parents: bool
+    "create missing parent directories of the destination"
     ("--parents", "-p")
     no_target_directory: bool
+    "treat destination as the final path, not a directory"
     ("--no-target-directory", "-T")
-    decompress: duho.Arg[typing.Union[str, bool], duho.NS(nargs="?")] = False
+    decompress: duho.Arg[
+        typing.Union[str, bool], duho.NS(nargs="?", metavar="KIND")
+    ] = False
+    "decompress the source (gz/xz/bz2); KIND is optional: write -x KIND SRC DST, or a bare -x after the paths to infer it from the suffix"
     ("-x", "--decompress")
     remove_source: bool = False
+    "delete the source after staging (files or directories)"
     ("--remove-source",)
     #: One or more sources. Declared as a plain ``List[Path]``, not a
     #: ``Union[List[Path], Path]``: duho resolves a union by composing its
@@ -129,8 +139,10 @@ class Install(FileEntryArgs, PkgForgeCmd):
         typing.List[Path],
         duho.NS(type=parsepath, nargs="+"),
     ] = []
+    "one or more files, directories or archives to stage"
     ("source",)
     destination: Path
+    "destination path under the build root"
     ("destination",)
 
     def __init__(self, **kwargs):
