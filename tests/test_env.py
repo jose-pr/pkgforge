@@ -160,7 +160,7 @@ def test_buildpath_roundtrip(tmp_path):
 
 
 def test_scan_str_buildroot(tmp_path):
-    # F74: buildroot is annotated Path, but a str buildroot from the Python
+    # buildroot is annotated Path, but a str buildroot from the Python
     # API must not TypeError (self.buildroot / ... on a str used to).
     from pkgforge.scan import ScanCmd
 
