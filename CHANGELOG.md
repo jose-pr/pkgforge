@@ -26,6 +26,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   as before; only a direct `import pkgforge.db` (or `.dbdump`) expecting a
   plain module, rather than a package, would need updating.
 - `DbProvider.format` is renamed to `DbProvider.NAME`.
+- `pkgforge.install` is a package: `TAR_SUFFIXES`, `ARCHIVE_SUFFIXES` and
+  `BSDTAR_EXTRACT_FLAGS` moved to `pkgforge.install.archive`;
+  `pkgforge.install.Install` is unchanged.
 
 ### Removed
 - `pkgforge.common`: import `PkgForgeError`/`UsageError` from `pkgforge.errors`;

@@ -23,7 +23,8 @@ from pathlib import Path
 import pytest
 
 from pkgforge.errors import PkgForgeError
-from pkgforge.install import BSDTAR_EXTRACT_FLAGS, Install, _extract_bsdtar
+from pkgforge.install import Install
+from pkgforge.install.archive import BSDTAR_EXTRACT_FLAGS, _extract_bsdtar
 
 #: The tarfile route needs PEP 706's extraction filter (3.9.17+, 3.10.12+,
 #: 3.11.4+, 3.12+); without it pkgforge routes to bsdtar or refuses, so tests of
@@ -656,7 +657,7 @@ def test_tar_special_file_rejected(tmp_path):
 
 @pytest.mark.posix
 def test_extract_tar_refuses_without_filter(tmp_path, monkeypatch):
-    import pkgforge.install as install_mod
+    import pkgforge.install.archive as install_mod
 
     monkeypatch.setattr(install_mod, "_TARFILE_HAS_FILTER", False)
     archive = tmp_path / "pkg.tar"
@@ -671,7 +672,7 @@ def test_extract_tar_refuses_without_filter(tmp_path, monkeypatch):
 
 @pytest.mark.posix
 def test_tar_routes_to_bsdtar_without_filter(tmp_path, monkeypatch):
-    import pkgforge.install as install_mod
+    import pkgforge.install.archive as install_mod
 
     monkeypatch.setattr(install_mod, "_TARFILE_HAS_FILTER", False)
     calls = []
@@ -705,7 +706,7 @@ def test_tar_routes_to_bsdtar_without_filter(tmp_path, monkeypatch):
 
 @pytest.mark.posix
 def test_tar_refused_without_filter_or_bsdtar(tmp_path, monkeypatch):
-    import pkgforge.install as install_mod
+    import pkgforge.install.archive as install_mod
 
     monkeypatch.setattr(install_mod, "_TARFILE_HAS_FILTER", False)
     monkeypatch.setattr(shutil, "which", lambda name: None)
@@ -793,7 +794,7 @@ def test_tar_as_root_drops_owner(tmp_path):
     ],
 )
 def test_archive_dir_name(suffix):
-    from pkgforge.install import _archive_dir_name
+    from pkgforge.install.archive import _archive_dir_name
 
     assert _archive_dir_name(f"foo-1.0{suffix}") == "foo-1.0"
 
@@ -801,7 +802,7 @@ def test_archive_dir_name(suffix):
 def test_archive_dir_name_bare_suffix_unchanged():
     # A source literally named ".tgz" (nothing before the suffix) keeps its
     # name -- never returns an empty string.
-    from pkgforge.install import _archive_dir_name
+    from pkgforge.install.archive import _archive_dir_name
 
     assert _archive_dir_name(".tgz") == ".tgz"
 
@@ -871,7 +872,7 @@ def test_install_directory_source_keeps_dotted_name(tmp_path):
 def test_install_tar_routes_through_tarfile_guard(tmp_path, monkeypatch):
     # Guard: a plain .tar.gz source still goes through the stdlib tarfile
     # path, not bsdtar, after the naming rework.
-    import pkgforge.install as install_mod
+    import pkgforge.install.archive as install_mod
 
     calls = []
     monkeypatch.setattr(install_mod, "_extract_tar", lambda src, dst: calls.append(src))

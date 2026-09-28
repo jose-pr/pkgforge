@@ -17,7 +17,7 @@ from pkgforge.dbdump import (
     RpmSpecFiles,
     UnsupportedOutputError,
 )
-from pkgforge.install import _extract_tar, _is_tar_source
+from pkgforge.install.archive import _extract_tar, _is_tar_source
 
 #: The tarfile route needs PEP 706's extraction filter (3.9.17+, 3.10.12+,
 #: 3.11.4+, 3.12+); without it pkgforge routes to bsdtar or refuses, so tests of

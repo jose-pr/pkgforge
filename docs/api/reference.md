@@ -65,6 +65,6 @@ and dump helpers are importable.
 
 ## Extraction helpers
 
-::: pkgforge.install._is_tar_source
+::: pkgforge.install.archive._is_tar_source
 
-::: pkgforge.install._extract_tar
+::: pkgforge.install.archive._extract_tar

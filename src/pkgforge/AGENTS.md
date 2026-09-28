@@ -445,7 +445,12 @@ or all of them with `logging.getLogger("pkgforge")` (a bare `--loglevel
 pkgforge:LEVEL` has no effect on a CLI-dispatched command; see `PkgForgeCmd`
 above).
 
-- **`install.Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd)`** (`pkgforge install`) —
+- **`install.Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd, install.staging._Staging)`**
+  (`pkgforge install`) — `install` is a package: `install/__init__.py` (the
+  `Install` class itself), `install/decompress.py` (the `-x`/`--decompress`
+  KIND table), `install/archive.py` (the tar-family/bsdtar extraction policy),
+  `install/staging.py` (the `_Staging` mixin: `Install`'s own file/symlink/
+  directory staging methods, plus `install()` itself) —
   stage a source (file / directory / symlink / tar-family archive /
   decompress-on-copy) into the build root, apply mode/ownership, and record
   the entry. `-D` = `-Tp` shortcut, `-d` = `--type directory` shortcut.
