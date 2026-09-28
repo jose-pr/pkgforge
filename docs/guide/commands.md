@@ -36,7 +36,13 @@ pkgforge --db files.jsonl initdb
 
 ## `install`
 
-Stage a source into the build root and record its entry.
+Stage a source into the build root and record its entry. A directory or
+archive install stages the whole tree but records **one** entry, for the
+destination itself: follow it with `pkgforge scan --missing DEST` to
+record its contents too (see `scan` below), or the tree's files never
+reach the `rpmspecfiles`/`debian` output at all (`rpmspecfiles` renders
+the one entry as `%dir`; `debian` skips directory entries in `install`
+entirely).
 
 ```bash
 pkgforge install [options] SOURCE... DESTINATION

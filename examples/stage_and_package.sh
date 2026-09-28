@@ -29,8 +29,13 @@ pkgforge install -p -m 755 -o root -g root "$work/src/tool" /usr/bin
 echo "== install config (0640 root:adm, %config on rpm) =="
 pkgforge install -p -m 640 -o root -g adm -O rpmprefix=%config "$work/src/tool.conf" /etc
 
-echo "== install a directory tree =="
-pkgforge install -p -d -m 755 "$work/src/share" /usr/share/tool
+echo "== install a directory tree (records only its own entry) =="
+pkgforge install -p -D -d -m 755 -o root -g root "$work/src/share" /usr/share/tool
+# A tree install stages every file but records one DB entry, for the
+# destination itself: "scan --missing" is what records the contents (here,
+# with real attributes -- --mode=-- resolves each file's mode from disk).
+# Skipping this step leaves data.txt out of both manifests below.
+pkgforge scan --missing --mode=-- -o root -g root /usr/share/tool
 
 echo
 echo "== file DB =="

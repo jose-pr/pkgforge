@@ -33,6 +33,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   with one message, not a traceback.
 
 ### Fixed
+- `examples/stage_and_package.sh` stages its tree at `/usr/share/tool` and
+  records its files.
 - A directory install whose source contains the build root, destination or
   file DB skips them (their parents are created empty) instead of
   recursing into `RecursionError`.

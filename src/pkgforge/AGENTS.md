@@ -425,6 +425,11 @@ value as of import. An empty value counts as unset for all three.
 - `chown` (owner/group) requires the Unix `pwd`/`grp` stdlib modules; both
   import guarded to `None` off POSIX, so `.apply(chown=True, ...)` raises
   `RuntimeError` there. Parser/`--help` construction still works everywhere.
+- A tree or archive install records **one** entry, for the destination
+  itself; `scan --missing --mode=-- -o OWNER -g GROUP <dest>` records its
+  contents, honouring `-X`, with real (not default) attributes -- skip it
+  and `rpmspecfiles` gets only a `%dir` line and `debian`'s `install`
+  artifact gets no files for the tree.
 - A `PathMatchStmt`/`PathMatch` result of `None` is not "no match" — it
   means "keep evaluating"; only `PathMatch.match`'s exhausted fallthrough
   (`_default`) is a real default.

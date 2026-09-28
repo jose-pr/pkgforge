@@ -963,3 +963,70 @@ def test_install_exclude_directory_source_still_excludes_guard(tmp_path, caplog)
     assert (staged / "keep.txt").exists()
     assert not (staged / "drop.la").exists()
     assert not any("has no effect" in r.message for r in caplog.records)
+
+
+# --------------------------------------------------------------------------
+# The example records the tree it stages
+# --------------------------------------------------------------------------
+
+
+def test_install_directory_records_one_entry_guard(tmp_path):
+    # Guard: a bare directory (or archive) install records exactly one
+    # entry for the destination -- the whole point the example, and its
+    # follow-up "scan --missing", document.
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+    src = tmp_path / "share"
+    src.mkdir()
+    (src / "data.txt").write_text("data")
+    (src / "sub").mkdir()
+    (src / "sub" / "nested.txt").write_text("nested")
+
+    inst = Install._parser_().parse_args(
+        [
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-D",
+            "-d",
+            str(src),
+            "/usr/share/tool",
+        ]
+    )
+    inst()
+
+    assert (root / "usr" / "share" / "tool" / "data.txt").exists()
+    assert (root / "usr" / "share" / "tool" / "sub" / "nested.txt").exists()
+    assert list(inst.loaddb().keys()) == ["/usr/share/tool"]
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
+def test_example_records_tree_contents():
+    repo_root = Path(__file__).resolve().parents[1]
+    script = repo_root / "examples" / "stage_and_package.sh"
+    env = dict(os.environ)
+    env["PATH"] = os.pathsep.join(
+        [os.path.dirname(sys.executable), env.get("PATH", "")]
+    )
+
+    proc = subprocess.run(
+        ["bash", str(script)],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+    )
+    assert proc.returncode == 0, proc.stderr.decode()
+    out = proc.stdout.decode()
+
+    rpm_section = out.split("== rpm %files ==", 1)[1].split(
+        "== debian artifacts ==", 1
+    )[0]
+    assert "/usr/share/tool/data.txt" in rpm_section
+
+    debian_install_section = out.split("-- debian/install --", 1)[1].split(
+        "-- debian/permissions --", 1
+    )[0]
+    assert "usr/share/tool/data.txt" in debian_install_section
