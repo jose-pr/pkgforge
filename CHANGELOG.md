@@ -53,6 +53,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   entry)` instead (`from pkgforge.dbdump import RpmSpecFiles`).
 
 ### Fixed
+- README links and badges work on PyPI and in the installed `pkgforge/README.md`.
+
+### Fixed
 - `dbdump ... -` writes through `sys.stdout` instead of a raw file
   descriptor: it now works when `sys.stdout` is redirected (or otherwise not
   backed by a real file descriptor), and keeps its place after text the

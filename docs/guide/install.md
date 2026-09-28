@@ -40,10 +40,13 @@ a stale entry at each member's path instead of failing.
 ```bash
 git clone https://github.com/jose-pr/pkgforge
 cd pkgforge
-python -m venv .venv && . .venv/bin/activate
+python -m venv .venv/3.14-posix-$(uname -m) && . .venv/3.14-posix-$(uname -m)/bin/activate
 pip install -e ".[dev]"
 pytest -q
 ```
+
+Name the venv `<version>-<os>-<arch>` (`<os>` is `posix`/`nt`/`darwin`) if you
+keep more than one interpreter around, e.g. to also test the `>=3.9` floor.
 
 ## Invocation
 

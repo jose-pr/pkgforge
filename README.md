@@ -1,9 +1,10 @@
 # pkgforge
 
+[![PyPI](https://img.shields.io/pypi/v/pkgforge.svg)](https://pypi.org/project/pkgforge/)
+[![Python](https://img.shields.io/pypi/pyversions/pkgforge.svg)](https://pypi.org/project/pkgforge/)
 [![CI](https://github.com/jose-pr/pkgforge/actions/workflows/test.yml/badge.svg)](https://github.com/jose-pr/pkgforge/actions/workflows/test.yml)
 [![Docs](https://img.shields.io/badge/docs-mkdocs--material-blue)](https://jose-pr.github.io/pkgforge/)
-[![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://pypi.org/project/pkgforge/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/jose-pr/pkgforge/blob/main/LICENSE)
 
 Stage files into a *build root* and record their intended install metadata
 (mode, owner, group, type, and free-form key/value `meta`) in a *file DB*
@@ -45,8 +46,8 @@ pkgforge dbdump -f rpmspecfiles rpm-files.txt
 pkgforge dbdump -f debian debian/
 ```
 
-See [`examples/stage_and_package.sh`](examples/stage_and_package.sh) for a
-runnable end-to-end walkthrough.
+See [`examples/stage_and_package.sh`](https://github.com/jose-pr/pkgforge/blob/main/examples/stage_and_package.sh)
+for a runnable end-to-end walkthrough.
 
 ## Commands
 
@@ -150,11 +151,26 @@ for the full per-command table and worked examples.
 Full docs at **<https://jose-pr.github.io/pkgforge/>** — command reference,
 file-DB model, exclude grammar, dump formats, and the API reference.
 
+## API overview
+
+pkgforge is primarily a CLI; the modules below are its importable surface.
+See the full contract in `pkgforge/AGENTS.md`, shipped inside the installed
+package, or the [API reference](https://jose-pr.github.io/pkgforge/api/reference/).
+
+| Module | Purpose |
+| --- | --- |
+| `pkgforge` | the `main` entry point, `__version__`, and the errors (`PkgForgeError`, `UsageError`) |
+| `pkgforge.entry` | `FileEntry`/`FileType` records and their mode/owner/group resolution |
+| `pkgforge.command` | `PkgForgeCmd`/`PkgForge`, the build-root and DB helpers every command shares |
+| `pkgforge.db` | the file-DB backend registry (`jsonl`/`yaml`/`sqlite`, plus your own) |
+| `pkgforge.dbdump` | the packaging-manifest format registry (`rpmspecfiles`/`debian`, plus your own) |
+| `pkgforge.exclude` | the `--exclude` match grammar shared by `install`/`scan`/`dbdump` |
+
 ## Development
 
 ```sh
 git clone https://github.com/jose-pr/pkgforge && cd pkgforge
-python -m venv .venv && . .venv/bin/activate
+python -m venv .venv/3.14-posix-$(uname -m) && . .venv/3.14-posix-$(uname -m)/bin/activate
 pip install -e ".[dev,docs]"
 
 black src tests benchmarks      # format (Python 3.10+)
@@ -162,6 +178,20 @@ pytest -q                       # tests
 python benchmarks/run.py        # benchmarks (add --save to record; see `benchmarks/README.md`)
 mkdocs serve                    # docs preview at http://127.0.0.1:8000
 ```
+
+Name the venv `<version>-<os>-<arch>` (`<os>` is `posix`/`nt`/`darwin`) if you
+keep more than one interpreter around, e.g. to also test the `>=3.9` floor.
+
+### Releasing
+
+This project follows [Semantic Versioning](https://semver.org/) and keeps a
+[`CHANGELOG.md`](https://github.com/jose-pr/pkgforge/blob/main/CHANGELOG.md).
+Pushing a tag matching `v*` triggers the release workflow: test gate → build
+(checking the tag names the version built) → a strict docs build as a gate →
+GitHub release → publish. The release workflow never deploys the docs site
+itself: for a final release its last job dispatches the docs workflow at the
+tag, which owns every Pages deploy. Before 1.0, a MINOR version bump means
+the documented API broke; everything else (fixes, additions) is a PATCH.
 
 `tests/smoke_installed.py` is not collected by pytest. Run it with a
 *non-editable* install's interpreter (e.g. from a built wheel in a fresh venv)
@@ -176,4 +206,4 @@ python -m venv /tmp/smoke && /tmp/smoke/bin/pip install dist/*.whl
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](https://github.com/jose-pr/pkgforge/blob/main/LICENSE).

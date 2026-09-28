@@ -198,3 +198,19 @@ def test_meta_rpmprefix_example(tmp_path, monkeypatch, cli):
     assert dump.rc == 0, dump.err
     lines = dump.out.decode().splitlines()
     assert any(l.startswith("%config(noreplace) %attr(640,") for l in lines), lines
+
+
+def _strip_code(text: str) -> str:
+    """Remove fenced code blocks, then inline code spans (which may wrap lines)."""
+    text = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
+    return re.sub(r"`[^`]*`", "", text, flags=re.DOTALL)
+
+
+@pytest.mark.parametrize("page", [README, HEADER], ids=["readme", "header"])
+def test_shipped_docs_links_absolute(page):
+    text = _strip_code(page.read_text(encoding="utf-8"))
+    targets = re.findall(r"\]\(([^)]*)\)", text)
+    if page is README:
+        assert targets  # the README must actually hold markdown links
+    bad = [t for t in targets if not (t.startswith("https://") or t.startswith("#"))]
+    assert not bad, bad
