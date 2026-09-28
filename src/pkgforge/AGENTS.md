@@ -229,7 +229,11 @@ tree).
 
 Each is a `duho.Cmd` subclass self-registered onto `PkgForge`; use them via
 the CLI (`pkgforge <name> ...`) rather than instantiating directly unless
-you're embedding the CLI layer itself:
+you're embedding the CLI layer itself. Each declares `_logger_name_ =
+"pkgforge.<command>"`: control one with `--loglevel pkgforge.<command>:LEVEL`
+or all of them with `logging.getLogger("pkgforge")` (a bare `--loglevel
+pkgforge:LEVEL` has no effect on a CLI-dispatched command; see `PkgForgeCmd`
+above).
 
 - **`install.Install(FileEntryArgs, PkgForgeCmd)`** (`pkgforge install`) —
   stage a source (file / directory / symlink / tar-family archive /

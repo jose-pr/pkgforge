@@ -27,6 +27,27 @@ pkgforge dbdump -f rpmspecfiles rpm-files.txt
 pkgforge dbdump -f debian debian/
 ```
 
+## Logging
+
+Every command logs under its own logger, `pkgforge.<command>` (`pkgforge.install`,
+`pkgforge.scan`, `pkgforge.dbdump`, `pkgforge.initdb`, `pkgforge.compact`), so
+`logging.getLogger("pkgforge")` controls all of them from Python.
+
+- `-v, --verbose` (repeatable) raises the running command's own log level;
+  `-q, --quiet` (repeatable) lowers it. They offset each other in one combined
+  count.
+- `--loglevel LEVEL` sets the running command's level directly; `--loglevel
+  pkgforge.<command>:LEVEL[,...]` targets one or more loggers by name (e.g.
+  `--loglevel pkgforge.scan:WARNING`). A bare `--loglevel pkgforge:LEVEL` does
+  **not** change a command's output: the CLI always sets the dispatched
+  command's own logger level explicitly, and that explicit level wins over
+  anything inherited from the `pkgforge` parent logger.
+- A malformed `--loglevel` value (an unknown level name, or the wrong
+  `NAME:LEVEL` separator) exits 2 with a usage error, before the command runs.
+- Log color follows the standard `NO_COLOR`/`FORCE_COLOR` convention and
+  whether stderr is a terminal, so output redirected to a file or a CI log is
+  always plain text.
+
 ## Design notes for unattended use
 
 - **No prompts.** Commands never wait for input. `install` reading from `-`

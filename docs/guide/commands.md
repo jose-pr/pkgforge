@@ -11,6 +11,9 @@ Global options are read from the command line or the environment:
 | `--db PATH` | `PKGFORGE_DB` | file DB to read/write (`-` for stdout/stdin) |
 | `--db-format FMT` | `PKGFORGE_DB_FORMAT` | backend: `jsonl` / `yaml` / `sqlite` (else inferred from the `--db` suffix) |
 | `--buildroot DIR` | `PKGFORGE_ROOT` | staging root that maps to `/` in the DB |
+| `-v, --verbose` | | raise the running command's log level (repeatable) |
+| `-q, --quiet` | | lower the running command's log level (repeatable) |
+| `--loglevel [NAME:]LEVEL[,...]` | | set a logger's level directly; `NAME` is a logger name (e.g. `pkgforge.scan`), omitted for the running command |
 
 Global flags work either before or after the subcommand
 (`pkgforge --db X install …` or `pkgforge install --db X …`). An empty

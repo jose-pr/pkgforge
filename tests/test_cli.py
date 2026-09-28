@@ -549,6 +549,71 @@ def test_install_help_shows_decompress_order():
     assert "debian" in dbdump_text
 
 
+def test_loglevel_help_grammar(cli):
+    result = cli("--help")
+    assert result.rc == 0
+    text = result.out.decode()
+    assert "[NAME:]LEVEL" in text
+    assert "--verbose" in text
+    assert "--quiet" in text
+    assert "KEY=VALUE" not in text
+
+
+@pytest.mark.parametrize("value", ["bogus", "pkgforge.initdb=DEBUG"])
+def test_malformed_loglevel_exits_2(tmp_path, cli, value):
+    result = cli("--loglevel", value, "--db", str(tmp_path / "x.jsonl"), "initdb")
+    assert result.rc == 2
+    err = result.err.decode()
+    assert "invalid log level" in err
+    assert "Traceback" not in err
+
+
+@pytest.mark.parametrize(
+    ("flag", "expected"),
+    [
+        ("--verbose", logging.DEBUG),
+        ("--quiet", logging.WARNING),
+        ("--loglevel=WARNING", logging.WARNING),
+    ],
+)
+def test_long_and_bare_level_flags(tmp_path, cli, flag, expected):
+    logger = logging.getLogger("pkgforge.initdb")
+    result = cli(flag, "--db", str(tmp_path / "x.jsonl"), "initdb")
+    assert result.rc == 0
+    assert logger.getEffectiveLevel() == expected
+
+
+@pytest.mark.posix
+def test_no_color_stderr_is_plain(tmp_path, monkeypatch):
+    root = tmp_path / "root"
+    (root / "usr").mkdir(parents=True)
+    (root / "usr" / "a").write_text("x")
+
+    env = {**os.environ, "PYTHONPATH": str(SRC_DIR), "NO_COLOR": "1"}
+    env.pop("FORCE_COLOR", None)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pkgforge",
+            "-r",
+            str(root),
+            "--db",
+            str(tmp_path / "f.jsonl"),
+            "scan",
+            "/usr",
+        ],
+        cwd=tmp_path,
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+    err = result.stderr.decode()
+    assert "Scanning" in err
+    assert "\x1b[" not in err
+
+
 def test_version_names_pkgforge(cli):
     try:
         importlib.metadata.version("pkgforge")
