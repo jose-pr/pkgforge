@@ -10,6 +10,7 @@ from __future__ import annotations
 import importlib.metadata
 import json
 import os
+import re
 import runpy
 import stat
 import subprocess
@@ -18,6 +19,7 @@ from pathlib import Path
 
 import pytest
 
+import pkgforge
 from pkgforge.db import open_db
 
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
@@ -415,6 +417,39 @@ def test_print_completion_bash(cli):
     result = cli("--print-completion", "bash")
     assert result.rc == 0
     assert b" -F _duho_complete_" in result.out
+
+
+def test_prog_name_is_pkgforge():
+    from pkgforge.common import PkgForge
+
+    parser = PkgForge._parser_()
+    assert parser.prog == "pkgforge"
+    assert parser.format_usage().startswith("usage: pkgforge")
+
+
+@pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])
+def test_completion_binds_pkgforge(cli, shell):
+    result = cli("--print-completion", shell)
+    assert result.rc == 0
+    text = result.out.decode()
+    assert "PkgForge" not in text
+    if shell == "bash":
+        last_line = text.rstrip().splitlines()[-1]
+        assert re.search(r"-F _duho_complete_pkgforge_[0-9a-f]+ pkgforge$", last_line)
+    elif shell == "zsh":
+        assert text.startswith("#compdef pkgforge")
+    else:
+        assert "complete -c 'pkgforge'" in text
+
+
+def test_version_names_pkgforge(cli):
+    try:
+        importlib.metadata.version("pkgforge")
+    except importlib.metadata.PackageNotFoundError:
+        pytest.skip("pkgforge is not installed as a distribution")
+    result = cli("--version")
+    assert result.rc == 0
+    assert result.out.decode().strip() == f"pkgforge {pkgforge.__version__}"
 
 
 def test_python_m_runs_main(monkeypatch, capfdbinary):

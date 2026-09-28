@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- Usage, errors, `--version` and completion name the command `pkgforge` (was
+  `PkgForge`), so completion binds. Regenerate installed ones.
+
 ### Changed
 - The documentation site is now rebuilt from `main` whenever the docs change,
   and from the release tag after each final release. A pre-release tag leaves

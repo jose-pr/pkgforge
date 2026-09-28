@@ -501,3 +501,8 @@ class PkgForge(PkgForgeCmd, Cli):
     _version_ = duho.AUTO
     _distribution_ = "pkgforge"
     _completion_ = True
+    # Without this, duho falls back to the class name ("PkgForge") for the
+    # prog name: usage, errors, --version and completion would all say
+    # "PkgForge" instead of the invoked command, and shell completion (which
+    # binds by exact, case-sensitive name) would never fire on bash/zsh/fish.
+    _parsername_ = "pkgforge"

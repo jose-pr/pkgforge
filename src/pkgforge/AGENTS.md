@@ -131,7 +131,10 @@ tree).
 - **`PkgForge(PkgForgeCmd, duho.Cli)`** — the application root (the
   `pkgforge` command). Adds `--version`/completion via `duho.Cli`
   (`_version_ = duho.AUTO`, `_distribution_ = "pkgforge"`,
-  `_completion_ = True`).
+  `_completion_ = True`). `_parsername_ = "pkgforge"` names usage, errors,
+  `--version` and the generated shell-completion scripts; without it duho
+  falls back to the class name (`PkgForge`), which shell completion cannot
+  bind to (case-sensitive lookup on bash/zsh/fish).
 
 ## DB backends (`db.py`)
 
