@@ -8,6 +8,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 - The `dev` extra installs `black` on Python 3.10 and later.
+- The sdist no longer includes `benchmarks/`.
+
+### Fixed
+- The wheel and sdist never include files named `*.local.*` or `CLAUDE*`, even when built from a tree without `.gitignore`.
 
 ## [0.1.2] - 2026-08-16
 
