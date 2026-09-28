@@ -313,13 +313,25 @@ above).
   than mutating it in place.
   Archive extraction (both the stdlib `tarfile` path for a real tar-family
   path and the `bsdtar` fallback for stdin -- any format, since `tarfile`
-  needs a real path -- and other formats) never restores an archive's
-  ownership, setuid/setgid bit, group/other write bit, extended attributes,
-  ACLs or file flags, even when running as root; a device node, FIFO or
-  socket found in the archive is refused with `PkgForgeError` naming it and
-  the kind, and nothing from that extraction is left on disk. `bsdtar`
-  always runs with `--no-same-owner --no-same-permissions --no-xattrs
-  --no-acls --no-fflags` (libarchive 3.3+).
+  needs a real path -- other formats, and an interpreter whose `tarfile`
+  has no extraction filter) never restores an archive's ownership,
+  setuid/setgid bit, group/other write bit, extended attributes, ACLs or
+  file flags, even when running as root; a device node, FIFO or socket
+  found in the archive is refused with `PkgForgeError` naming it and the
+  kind, and nothing from that extraction is left on disk. `bsdtar` always
+  runs with `--no-same-owner --no-same-permissions --no-xattrs --no-acls
+  --no-fflags` (libarchive 3.3+). The `tarfile` path uses a private staging
+  filter, not stdlib's `'data'`/`'tar'`: a symlink member's target is kept
+  exactly as stored (absolute or climbing above the destination included),
+  but a write through any symlink between the destination and a member's
+  own parent is refused, even one resolving back inside the destination; a
+  hardlink member's target is resolved against the destination and must
+  stay inside it (`tar_filter` itself never checks a hardlink's target at
+  all). Re-extracting the same archive over an existing tree replaces a
+  stale entry at each member's path instead of failing. Requires PEP 706
+  (Python 3.9.17+/3.10.12+/3.11.4+, or 3.12+); without it a tar-family
+  source routes to `bsdtar` too, and extraction is refused outright (exit
+  1) if `bsdtar` isn't installed either, rather than extracting unfiltered.
   A failed install leaves `DESTINATION` exactly as it was: file, stream and
   decompress staging write a sibling temp next to it and `os.replace` it in
   only after the entry is applied, removing the temp on any failure.

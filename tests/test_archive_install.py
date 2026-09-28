@@ -315,3 +315,303 @@ def test_bsdtar_as_root_rejects_char_device(tmp_path):
 
     assert not (root / "opt" / "app").exists()
     assert inst.loaddb() == {}
+
+
+# --------------------------------------------------------------------------
+# Tar extraction filter: absolute/climbing symlinks kept, escapes refused,
+# re-extraction stays idempotent
+# --------------------------------------------------------------------------
+
+
+def _write_tar(path: Path, build) -> None:
+    with tarfile.open(path, mode="w") as tf:
+        build(tf)
+
+
+def _add_file(tf, name, data=b"x", mode=0o644):
+    ti = tarfile.TarInfo(name=name)
+    ti.size = len(data)
+    ti.mode = mode
+    tf.addfile(ti, io.BytesIO(data))
+
+
+def _add_symlink(tf, name, target):
+    ti = tarfile.TarInfo(name=name)
+    ti.type = tarfile.SYMTYPE
+    ti.linkname = target
+    tf.addfile(ti)
+
+
+def _add_hardlink(tf, name, target):
+    ti = tarfile.TarInfo(name=name)
+    ti.type = tarfile.LNKTYPE
+    ti.linkname = target
+    tf.addfile(ti)
+
+
+def test_tar_keeps_absolute_and_climbing_symlinks(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+    archive = tmp_path / "pkg.tar"
+
+    def _build(tf):
+        _add_symlink(tf, "lib/abs", "/usr/lib/libfoo.so.1")
+        _add_symlink(tf, "lib/climb", "../../../../usr/lib/libfoo.so.1")
+
+    _write_tar(archive, _build)
+
+    common = ["--db", str(db), "--buildroot", str(root), "-p", "-d", "-D"]
+    for _ in range(2):
+        Install._parser_().parse_args(common + [str(archive), "/opt/app"])()
+        staged = root / "opt" / "app"
+        assert os.readlink(staged / "lib" / "abs") == "/usr/lib/libfoo.so.1"
+        assert (
+            os.readlink(staged / "lib" / "climb") == "../../../../usr/lib/libfoo.so.1"
+        )
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "dotdot",
+        "outside_dirlink",
+        "inside_dirlink",
+        "outside_hardlink",
+        "absolute_hardlink",
+    ],
+)
+def test_tar_rejects_member_escape(tmp_path, kind):
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+    archive = tmp_path / "pkg.tar"
+    outside = tmp_path / "outside.txt"
+    outside.write_text("original")
+
+    if kind == "dotdot":
+
+        def _build(tf):
+            _add_file(tf, "../../../escaped.txt", b"pwned")
+
+    elif kind == "outside_dirlink":
+
+        def _build(tf):
+            _add_symlink(tf, "e", str(tmp_path))
+            _add_file(tf, "e/outside.txt", b"pwned")
+
+    elif kind == "inside_dirlink":
+
+        def _build(tf):
+            ti = tarfile.TarInfo(name="sub")
+            ti.type = tarfile.DIRTYPE
+            ti.mode = 0o755
+            tf.addfile(ti)
+            _add_symlink(tf, "dl", "sub")
+            _add_file(tf, "dl/x", b"data")
+
+    elif kind == "outside_hardlink":
+
+        def _build(tf):
+            _add_hardlink(tf, "h", "../../../outside.txt")
+
+    else:  # absolute_hardlink
+
+        def _build(tf):
+            _add_hardlink(tf, "h", "/outside.txt")
+
+    _write_tar(archive, _build)
+
+    inst = Install._parser_().parse_args(
+        [
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-d",
+            "-D",
+            str(archive),
+            "/opt/app",
+        ]
+    )
+    with pytest.raises(PkgForgeError):
+        inst()
+
+    assert outside.read_text() == "original"
+
+
+def test_tar_absolute_hardlink_to_member(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+    archive = tmp_path / "pkg.tar"
+    # An absolute-looking hardlink target names ANOTHER ARCHIVE MEMBER by
+    # its own (relative) name, not a real host path -- "/a" refers to the
+    # member "a" once the leading "/" is stripped, and must be accepted.
+
+    def _build(tf):
+        _add_file(tf, "a", b"content")
+        _add_hardlink(tf, "h", "/a")
+
+    _write_tar(archive, _build)
+
+    Install._parser_().parse_args(
+        [
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-d",
+            "-D",
+            str(archive),
+            "/opt/app",
+        ]
+    )()
+
+    staged = root / "opt" / "app"
+    assert (staged / "h").read_text() == "content"
+    assert os.stat(staged / "h").st_ino == os.stat(staged / "a").st_ino
+
+
+def test_tar_special_file_rejected(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+    archive = tmp_path / "pkg.tar"
+
+    def _build(tf):
+        ti = tarfile.TarInfo(name="p")
+        ti.type = tarfile.FIFOTYPE
+        tf.addfile(ti)
+
+    _write_tar(archive, _build)
+
+    inst = Install._parser_().parse_args(
+        [
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-d",
+            "-D",
+            str(archive),
+            "/opt/app",
+        ]
+    )
+    with pytest.raises(PkgForgeError, match="p"):
+        inst()
+    assert not (root / "opt" / "app").exists()
+
+
+def test_extract_tar_refuses_without_filter(tmp_path, monkeypatch):
+    import pkgforge.install as install_mod
+
+    monkeypatch.setattr(install_mod, "_TARFILE_HAS_FILTER", False)
+    archive = tmp_path / "pkg.tar"
+    _write_tar(archive, lambda tf: _add_file(tf, "a", b"x"))
+    dst = tmp_path / "dst"
+    dst.mkdir()
+
+    with pytest.raises(PkgForgeError, match="extraction filter"):
+        install_mod._extract_tar(archive, dst)
+    assert not (dst / "a").exists()
+
+
+def test_tar_routes_to_bsdtar_without_filter(tmp_path, monkeypatch):
+    import pkgforge.install as install_mod
+
+    monkeypatch.setattr(install_mod, "_TARFILE_HAS_FILTER", False)
+    calls = []
+    monkeypatch.setattr(
+        install_mod, "_extract_bsdtar", lambda src, dst: calls.append((src, dst))
+    )
+
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+    archive = tmp_path / "pkg.tar"
+    _write_tar(archive, lambda tf: _add_file(tf, "a", b"x"))
+
+    Install._parser_().parse_args(
+        [
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-d",
+            "-D",
+            str(archive),
+            "/opt/app",
+        ]
+    )()
+
+    assert len(calls) == 1
+    assert calls[0][0] == archive
+
+
+def test_tar_refused_without_filter_or_bsdtar(tmp_path, monkeypatch):
+    import pkgforge.install as install_mod
+
+    monkeypatch.setattr(install_mod, "_TARFILE_HAS_FILTER", False)
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+    archive = tmp_path / "pkg.tar"
+    _write_tar(archive, lambda tf: _add_file(tf, "a", b"x"))
+
+    inst = Install._parser_().parse_args(
+        [
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-d",
+            "-D",
+            str(archive),
+            "/opt/app",
+        ]
+    )
+    with pytest.raises(PkgForgeError, match="bsdtar"):
+        inst()
+    assert not (root / "opt" / "app").exists()
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="root-only")
+def test_tar_as_root_drops_owner(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+    archive = tmp_path / "pkg.tar"
+
+    def _build(tf):
+        ti = tarfile.TarInfo(name="owned")
+        ti.size = 1
+        ti.uid = 4321
+        ti.gid = 4321
+        tf.addfile(ti, io.BytesIO(b"x"))
+
+    _write_tar(archive, _build)
+
+    Install._parser_().parse_args(
+        [
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-d",
+            "-D",
+            str(archive),
+            "/opt/app",
+        ]
+    )()
+
+    st = os.stat(root / "opt" / "app" / "owned")
+    assert st.st_uid == 0

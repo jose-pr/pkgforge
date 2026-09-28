@@ -351,21 +351,120 @@ def _copy_ignore(
     return _ignore
 
 
+def _inside(path: str, root: str) -> bool:
+    """True if realpath ``path`` is ``root`` itself or strictly below it."""
+    return path == root or path.startswith(root + os.sep)
+
+
+def _parent_has_symlink(dest_path: str, name: str) -> bool:
+    """True if any path component between ``dest_path`` and ``name``'s own
+    parent directory is itself a symlink -- even one that resolves back
+    inside ``dest_path``. Matches ``bsdtar``'s own policy: it refuses to
+    write through any such component, not only one that escapes."""
+    current = dest_path
+    for part in os.path.dirname(name).split("/"):
+        if not part or part == ".":
+            continue
+        current = os.path.join(current, part)
+        if os.path.islink(current):
+            return True
+    return False
+
+
+def _staging_filter(member: tarfile.TarInfo, dest_path: str) -> tarfile.TarInfo:
+    """Extraction filter for :func:`_extract_tar`, replacing stdlib's own
+    ``'data'``/``'tar'`` filters with a policy that matches ``bsdtar``'s
+    default instead.
+
+    A **symlink** member's target is kept exactly as stored -- absolute or
+    climbing above the destination included, ordinary content for a build
+    root -- but the member's own placement is refused (before anything is
+    touched) if any path component between the destination and its parent
+    is itself a symlink, even one that resolves back inside the
+    destination: writing through it is refused the same way ``bsdtar``
+    refuses it. A **hardlink** member's target, unlike a symlink's, names
+    another *archive member's* already-extracted path, so a leading ``/``
+    is stripped (making it relative, like a member's own name) before the
+    resolved target is required to stay inside the destination, else
+    :class:`tarfile.LinkOutsideDestinationError`; the stripped value is
+    carried forward on the returned member, never the original -- an
+    unstripped absolute linkname reaches ``os.path.join(dest_path,
+    linkname)`` during the actual link creation unchanged (``os.path.join``
+    *discards* ``dest_path`` for an absolute second argument), which would
+    hardlink straight to that real host path if one happens to exist there,
+    entirely bypassing containment. ``tarfile.tar_filter`` itself never
+    checks or rewrites a hardlink's target at all. A device, FIFO or socket
+    member raises :class:`tarfile.SpecialFileError`, the same as the
+    ``'data'`` filter this replaces.
+
+    Once a member's placement is confirmed safe, any non-directory already
+    at its own path is removed before ``tar_filter`` runs: re-extracting
+    the same archive over an earlier run (or a hardlink replacing another
+    member's stale output) must not fail with ``FileExistsError``, and must
+    not let ``tar_filter``'s own realpath check chase a stale symlink an
+    earlier run left at that exact path.
+
+    ``tarfile.tar_filter`` clears setuid/setgid/sticky and group/other
+    write, but -- unlike ``'data'`` -- leaves the archive's recorded
+    owner/group in place (restored as root); this filter always nulls them
+    on the way out.
+    """
+    name = member.name.replace(os.sep, "/").lstrip("/")
+    dest_real = os.path.realpath(dest_path)
+    parent_real = os.path.realpath(os.path.join(dest_path, os.path.dirname(name)))
+
+    if _parent_has_symlink(dest_path, name) or not _inside(parent_real, dest_real):
+        raise tarfile.OutsideDestinationError(
+            member, os.path.join(parent_real, os.path.basename(name))
+        )
+
+    if member.isdev():
+        raise tarfile.SpecialFileError(member)
+
+    if member.islnk():
+        linkname = member.linkname.replace(os.sep, "/").lstrip("/")
+        link_real = os.path.realpath(os.path.join(dest_path, linkname))
+        if not _inside(link_real, dest_real):
+            raise tarfile.LinkOutsideDestinationError(member, link_real)
+        member = member.replace(linkname=linkname, deep=False)
+
+    if not member.isdir():
+        target = os.path.join(parent_real, os.path.basename(name))
+        if os.path.lexists(target) and not os.path.isdir(target):
+            os.remove(target)
+
+    filtered = tarfile.tar_filter(member, dest_path)
+    return filtered.replace(uid=None, gid=None, uname=None, gname=None, deep=False)
+
+
 def _extract_tar(path: typing.Union[str, os.PathLike], dst: Path) -> None:
     """Extract the tar-family archive at ``path`` into ``dst`` using stdlib
-    :mod:`tarfile`.
+    :mod:`tarfile` and :func:`_staging_filter`.
 
-    Uses the safe ``data`` extraction filter where the interpreter supports it
-    (guards against absolute paths / traversal / special files); older
-    interpreters without ``filter=`` extract without it. Path-only: a stdin
-    (``-``) source is never tar-family-typed (:func:`_is_tar_source` only
-    runs on a real path) and stages through ``bsdtar`` instead.
+    Path-only: a stdin (``-``) source is never tar-family-typed
+    (:func:`_is_tar_source` only runs on a real path) and stages through
+    ``bsdtar`` instead. Refuses outright, with :class:`PkgForgeError`
+    naming ``path``, when this interpreter's :mod:`tarfile` has no
+    extraction filter at all (:data:`_TARFILE_HAS_FILTER`; PEP 706, needs
+    3.9.17+/3.10.12+/3.11.4+) -- the caller routes such an interpreter to
+    ``bsdtar`` instead, but a direct caller of this function must not
+    silently fall through to an unfiltered ``extractall``. A
+    :class:`tarfile.FilterError` (raised by :func:`_staging_filter` itself,
+    or by ``tarfile.tar_filter``) or the bare ``KeyError`` tarfile's own
+    hardlink resolution raises for an unknown/refused earlier member is
+    re-raised as :class:`PkgForgeError` naming ``path``.
     """
-    kwargs = {}
-    with tarfile.open(name=os.fspath(path), mode="r:*") as tar:
-        if _TARFILE_HAS_FILTER:
-            kwargs["filter"] = "data"
-        tar.extractall(os.fspath(dst), **kwargs)
+    if not _TARFILE_HAS_FILTER:
+        raise PkgForgeError(
+            f"refusing to extract {path}: this Python's tarfile has no "
+            "extraction filter (PEP 706; needs 3.9.17+/3.10.12+/3.11.4+); "
+            "install bsdtar, or use a newer Python"
+        )
+    try:
+        with tarfile.open(name=os.fspath(path), mode="r:*") as tar:
+            tar.extractall(os.fspath(dst), filter=_staging_filter)
+    except (tarfile.FilterError, KeyError) as exc:
+        raise PkgForgeError(f"refusing to extract {path}: {exc}") from exc
 
 
 class Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
@@ -591,9 +690,12 @@ class Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
             os.chmod(tmp, 0o777 & ~_umask())
             try:
                 # Prefer stdlib tarfile for the tar family (no external
-                # binary, cross-platform, safe `data` filter); fall back to
-                # bsdtar for stdin and formats tarfile can't open (e.g. iso).
-                if src != DEFAULT and _is_tar_source(src):
+                # binary, cross-platform, staging filter) when this
+                # interpreter has an extraction filter at all; fall back to
+                # bsdtar for stdin, formats tarfile can't open (e.g. iso),
+                # and an interpreter with no filter (_extract_tar itself
+                # would refuse rather than extract unfiltered).
+                if src != DEFAULT and _is_tar_source(src) and _TARFILE_HAS_FILTER:
                     self._logger_.debug("Extracting %s via tarfile", src)
                     _extract_tar(src, tmp)
                 else:

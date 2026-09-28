@@ -11,8 +11,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   longer restore owners, setuid/setgid, group/other write, xattrs, ACLs or
   file flags as root; an archive holding a device node, FIFO or socket is
   refused (exit 1).
+- Without tarfile's extraction filter (Python before 3.9.17, 3.10.12 or
+  3.11.4), a tar archive now routes to `bsdtar`, or is refused (exit 1),
+  instead of extracting with no path/symlink/special-file checks at all.
+
+### Changed
+- A tar archive writing through any symlink, even one inside the
+  destination, is refused (exit 1), as `bsdtar` already did; a hardlink
+  member naming another archive member by an absolute-looking path (e.g.
+  `/a`) links to that member, never to a real host path that happens to
+  exist there; escaping members or links, and device nodes or FIFOs, exit 1
+  with one message, not a traceback.
 
 ### Fixed
+- Tar archives holding absolute symlinks, or symlinks that climb above the
+  destination, extract with their targets kept exactly as written (instead
+  of `tarfile.AbsoluteLinkError`/`LinkOutsideDestinationError`), and
+  re-extract cleanly over an earlier run instead of failing.
 - Re-running a directory install whose source holds symlinks no longer
   fails with `shutil.Error`; a stale symlink left at the destination
   (including a directory-source's own symlink retargeted between runs) is
