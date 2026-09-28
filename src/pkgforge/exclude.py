@@ -407,8 +407,8 @@ class PathMatch(typing.List[PathMatchStmt]):
 class ExcludeArgs(duho.Cmd):
     """Mixin supplying ``--exclude``/``-X`` -- shared by every command that
     filters paths against a :class:`PathMatch` (``install``, ``scan``,
-    ``dbdump``), so the load-bearing ``duho.Append`` shape (see
-    ``.agents/AGENTS.md``) is declared exactly once.
+    ``dbdump``), so the load-bearing ``duho.Append`` shape below is
+    declared exactly once.
     """
 
     # A collection field must use `duho.Append`, not a bare `List[...]`
