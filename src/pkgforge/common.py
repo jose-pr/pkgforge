@@ -19,6 +19,7 @@ next write.
 
 from __future__ import annotations
 
+import contextlib
 import enum
 import json
 import logging
@@ -68,7 +69,7 @@ class FileType(str, enum.Enum):
     @classmethod
     def from_path(cls, path: Path) -> FileType:
         if path.is_symlink():
-            return FileType.Symlink
+            return cls.Symlink
         elif path.is_dir():
             return cls.Directory
         elif path.is_file():
@@ -138,15 +139,11 @@ def entry_from_path(
     stat = path.lstat()
     owner = group = DEFAULT
     if pwd is not None:
-        try:
+        with contextlib.suppress(KeyError):
             owner = pwd.getpwuid(stat.st_uid).pw_name
-        except KeyError:
-            owner = DEFAULT
     if grp is not None:
-        try:
+        with contextlib.suppress(KeyError):
             group = grp.getgrgid(stat.st_gid).gr_name
-        except KeyError:
-            group = DEFAULT
 
     return {
         # Store mode as an octal permission string so the DB round-trips and
@@ -245,6 +242,10 @@ class PkgForgeCmd(LoggingArgs, Cmd):
 
     def _provider(self, *, for_read: bool = False):
         """Resolve the DB storage provider for the configured --db/--db-format."""
+        # Function-local: db.py imports common only under TYPE_CHECKING today,
+        # so a module-top import here would be safe now, but db.py is expected
+        # to import common's exceptions at runtime later; keeping this local
+        # avoids introducing a cycle then.
         from .db import open_db
 
         return open_db(self.db, self.db_format, for_read=for_read)
@@ -267,9 +268,10 @@ class PkgForgeCmd(LoggingArgs, Cmd):
         self._provider().init()
 
     def _write_entry(self, buildpath: Path, entry: typing.Optional[FileEntry]):
-        path = buildpath if isinstance(buildpath, str) else os.fspath(buildpath)
+        path = os.fspath(buildpath)
         if self._no_file_db():
             # No file: emit the record as a JSON Lines line to stdout.
+            # Function-local for the same reason as _provider() above (Q2).
             from .db import _record
 
             print(json.dumps(_record(path, entry), sort_keys=True))
@@ -285,9 +287,6 @@ class PkgForgeCmd(LoggingArgs, Cmd):
 
     def remove_entry(self, buildpath: Path):
         self._write_entry(buildpath, None)
-
-    def __call__(self):
-        raise NotImplementedError(self)
 
     @classmethod
     def _register(cls):
@@ -310,8 +309,3 @@ class PkgForge(PkgForgeCmd, Cli):
     _version_ = duho.AUTO
     _distribution_ = "pkgforge"
     _completion_ = True
-
-    def __call__(self):
-        # No subcommand given: argparse (required subparsers) handles the error,
-        # but keep a clear failure if reached directly.
-        raise NotImplementedError(self)
