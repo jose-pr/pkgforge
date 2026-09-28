@@ -19,7 +19,7 @@ import sys
 import typing
 from pathlib import Path
 
-from .common import DEFAULT, FileType, PkgForgeCmd, FileEntry, _or_default
+from .common import DEFAULT, FileType, PkgForgeCmd, FileEntry, UsageError, _or_default
 from .exclude import ExcludeArgs, PathMatch
 
 #: An entry that survived filtering: (db-path, FileEntry).
@@ -114,11 +114,47 @@ class DbDump(ExcludeArgs, PkgForgeCmd):
     _logger_name_ = "pkgforge.dbdump"
 
     format: str
-    "output format: rpmspecfiles, debian"
+    "output format: one of the registered formats (built in: debian, rpmspecfiles)"
     ("--format", "-f")
     output: Path = Path("-")
-    "output file (per-entry formats) or directory (multi-artifact formats); '-' for stdout"
+    (
+        "OUTPUT: a file for a per-entry format (e.g. rpmspecfiles), or a "
+        "directory for a multi-artifact format (e.g. debian, created if "
+        "missing); '-' for stdout (concatenated, sectioned, for a "
+        "multi-artifact format)"
+    )
     ("output",)
+
+    def _check_target(self) -> None:
+        """Validate ``--format``/OUTPUT before anything reads the DB.
+
+        Checked against the live registries at call time (never
+        ``duho.Choice``, which would freeze the choices at import and reject
+        a format a third party registers later): an unknown format, or an
+        OUTPUT of the wrong shape for the chosen format, both exit 2 with one
+        line naming the problem instead of surfacing whatever the DB load
+        happens to raise first (e.g. a JSON parse error for an unrelated
+        format typo).
+        """
+        known = (
+            self.format in PER_ENTRY_FORMATS or self.format in MULTI_ARTIFACT_FORMATS
+        )
+        if not known:
+            raise UsageError(
+                f"unknown format {self.format!r}; choose from {', '.join(dump_formats())}"
+            )
+        if str(self.output) == DEFAULT:
+            return
+        if self.format in MULTI_ARTIFACT_FORMATS:
+            if self.output.exists() and not self.output.is_dir():
+                raise UsageError(
+                    f"{self.format} writes several files; OUTPUT must be a "
+                    f"directory or '-', got existing file {self.output}"
+                )
+        elif self.output.is_dir():
+            raise UsageError(
+                f"{self.format} writes one file; OUTPUT is a directory: {self.output}"
+            )
 
     def _surviving_entries(self) -> Entries:
         reason = self._no_db_reason()
@@ -178,6 +214,7 @@ class DbDump(ExcludeArgs, PkgForgeCmd):
                 yield f
 
     def __call__(self):
+        self._check_target()
         entries = self._surviving_entries()
 
         if self.format in PER_ENTRY_FORMATS:
@@ -200,10 +237,6 @@ class DbDump(ExcludeArgs, PkgForgeCmd):
                     (self.output / name).write_bytes(data)
                     self._logger_.info("Wrote %s", self.output / name)
             return
-
-        raise SystemExit(
-            f"unknown format {self.format!r}; choose from {', '.join(dump_formats())}"
-        )
 
 
 DbDump._register()

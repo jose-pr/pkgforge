@@ -177,6 +177,56 @@ def test_dbdump_unknown_format_fails(tmp_path, cli):
     assert b"rpmspecfiles" in result.err
 
 
+def test_dbdump_unknown_format_checked_before_db_load(tmp_path, cli):
+    # A corrupt DB must never be the reported reason for a plain format typo:
+    # the format is checked before anything is loaded.
+    db = tmp_path / "files.jsonl"
+    db.write_text("{bad\n", encoding="utf-8")
+    result = cli("--db", str(db), "dbdump", "-f", "nope", "-")
+    assert result.rc == 2
+    err = result.err.decode()
+    assert "unknown format 'nope'" in err
+    assert "rpmspecfiles" in err
+    assert "Traceback" not in err
+
+
+def test_dbdump_registered_format_accepted(tmp_path, cli, monkeypatch):
+    # Guard: the format check must stay a runtime registry lookup, not a
+    # duho.Choice frozen at import, so a format registered later still works.
+    from pkgforge.dbdump import PER_ENTRY_FORMATS, rpmspecfile
+
+    db = tmp_path / "files.jsonl"
+    _seed_tool_entry(db)
+    monkeypatch.setitem(PER_ENTRY_FORMATS, "custom", rpmspecfile)
+    result = cli("--db", str(db), "dbdump", "-f", "custom", "-")
+    assert result.rc == 0
+    assert b"/usr/bin/tool" in result.out
+
+
+def test_dbdump_debian_onto_file_exits_2(tmp_path, cli):
+    db = tmp_path / "files.jsonl"
+    _seed_tool_entry(db)
+    target = tmp_path / "out"
+    target.write_text("existing", encoding="utf-8")
+
+    result = cli("--db", str(db), "dbdump", "-f", "debian", str(target))
+    assert result.rc == 2
+    assert "directory" in result.err.decode()
+    assert target.read_text(encoding="utf-8") == "existing"
+
+
+def test_dbdump_rpm_onto_directory_exits_2(tmp_path, cli):
+    db = tmp_path / "files.jsonl"
+    _seed_tool_entry(db)
+    target = tmp_path / "outdir"
+    target.mkdir()
+
+    result = cli("--db", str(db), "dbdump", "-f", "rpmspecfiles", str(target))
+    assert result.rc == 2
+    assert result.err
+    assert list(target.iterdir()) == []
+
+
 @pytest.mark.parametrize("case", ["unset", "dash", "missing"])
 def test_dbdump_warns_without_db(tmp_path, cli, caplog, case):
     argv = []

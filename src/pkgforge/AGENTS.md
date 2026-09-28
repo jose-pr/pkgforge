@@ -505,7 +505,12 @@ above).
   render surviving (post-`--exclude`) DB entries via the format registry
   above. Logs a WARNING (exit code and output unchanged: an empty manifest,
   exit 0) when `--db` is unset, `-`, or names a file that does not exist,
-  and when the DB has entries but none survive `--exclude`.
+  and when the DB has entries but none survive `--exclude`. `--format`/OUTPUT
+  are validated before the DB is read (an unknown format, a file OUTPUT for a
+  multi-artifact format, or a directory OUTPUT for a per-entry format all
+  raise `UsageError`, exit 2), so a format typo never surfaces as whatever
+  the DB load happens to raise first; the check is a runtime registry lookup
+  (never `duho.Choice`), so a format registered after import still works.
 - **`initdb.InitDb(PkgForgeCmd)`** (`pkgforge initdb`) — create or truncate
   an empty DB; a no-op, now with a WARNING, for an unset/stdout DB. A `--db`
   naming a file that doesn't exist yet is not this case -- creating it is

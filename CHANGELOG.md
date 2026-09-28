@@ -11,6 +11,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   descriptor: it now works when `sys.stdout` is redirected (or otherwise not
   backed by a real file descriptor), and keeps its place after text the
   caller already printed but had not yet flushed.
+- `dbdump` checks `-f`/OUTPUT before reading the DB: an unknown format, a
+  file OUTPUT for `debian`, or a directory OUTPUT for `rpmspecfiles` now
+  exits 2 with one line naming the problem (was exit 1 or a raw traceback,
+  possibly after loading the whole DB).
 
 ### Security
 - Archives extracted with `bsdtar` (stdin, `.zip`, `.iso`, `.cpio`) no
