@@ -72,6 +72,24 @@ def _isolated_env(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture(autouse=True)
+def _clear_name_caches():
+    """Clear the per-process uid/gid -> name memoization around every test.
+
+    ``pkgforge.common._user_name``/``_group_name`` cache real lookups for the
+    whole process; without this, a test that fakes ``pkgforge.common.pwd``/
+    ``grp`` after an earlier test already cached the real name for the same
+    uid/gid would see the stale cached value instead of its fake.
+    """
+    from pkgforge.common import _group_name, _user_name
+
+    _user_name.cache_clear()
+    _group_name.cache_clear()
+    yield
+    _user_name.cache_clear()
+    _group_name.cache_clear()
+
+
+@pytest.fixture(autouse=True)
 def restore_pkgforge_log_levels():
     """Snapshot/restore every ``pkgforge``/``pkgforge.*`` logger's level.
 

@@ -69,7 +69,11 @@ tree).
   - **`resolve_entry(entry: FileEntry, path: Path, lookupval: str = "--",
     **overwrite) -> FileEntry`** — replace every field of `entry` equal to
     `lookupval` (default the `AUTO` sentinel) with the on-disk value for
-    `path`.
+    `path`, from a single `lstat`. A `pwd`/`grp` name lookup only happens for
+    `owner`/`group` fields that actually equal `lookupval` -- an entry with
+    an explicit owner/group never pays for one. uid/gid -> name lookups are
+    memoized per process (`functools.lru_cache`, negative results included),
+    so repeated ids across a large tree cost one real lookup each.
   - **`apply_entry(entry: FileEntry, path: Path, chown: bool = False, *,
     logger: Optional[logging.Logger] = None, usedefault: str = "-") -> None`**
     — if `chown=True`, `chown` first (raises `RuntimeError` if `pwd`/`grp` are

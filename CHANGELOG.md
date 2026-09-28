@@ -16,6 +16,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   instead of extracting with no path/symlink/special-file checks at all.
 
 ### Changed
+- `scan` and `install` look up user and group names only for fields set to
+  `--`, and cache each lookup for the process's life.
 - `install -X` with an archive source exits 2 instead of extracting every
   member: extract it and install the directory with `-X`. `-X` with only
   file or symlink sources logs a warning.

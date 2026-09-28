@@ -372,3 +372,142 @@ def test_scan_db_outside_root_changes_nothing(tmp_path):
 
     recorded = {k.replace("\\", "/") for k in inst.loaddb()}
     assert recorded == {"/usr", "/usr/a"}
+
+
+# --------------------------------------------------------------------------
+# scan looks up user/group names only for fields set to AUTO, and caches
+# each lookup for the process's life.
+# --------------------------------------------------------------------------
+
+
+class _CountingLookup:
+    """Wraps a real ``pwd``/``grp``-shaped module, counting calls to one
+    named function while still returning its real result."""
+
+    def __init__(self, real, funcname: str):
+        self._real = real
+        self._funcname = funcname
+        self.calls = 0
+
+    def __getattr__(self, name):
+        real_attr = getattr(self._real, name)
+        if name != self._funcname:
+            return real_attr
+
+        def _counted(*args, **kwargs):
+            self.calls += 1
+            return real_attr(*args, **kwargs)
+
+        return _counted
+
+
+@pytest.mark.posix
+def test_scan_default_makes_no_name_lookups(tmp_path, monkeypatch, cli):
+    import grp
+    import pwd
+
+    import pkgforge.common as common
+
+    fake_pwd = _CountingLookup(pwd, "getpwuid")
+    fake_grp = _CountingLookup(grp, "getgrgid")
+    monkeypatch.setattr(common, "pwd", fake_pwd)
+    monkeypatch.setattr(common, "grp", fake_grp)
+
+    root = tmp_path / "root"
+    (root / "usr" / "share" / "app").mkdir(parents=True)
+    for i in range(50):
+        (root / "usr" / "share" / "app" / f"f{i}").write_text("x")
+    db = tmp_path / "files.jsonl"
+
+    assert (
+        cli("--db", str(db), "--buildroot", str(root), "scan", "/usr/share/app").rc == 0
+    )
+    assert fake_pwd.calls == 0
+    assert fake_grp.calls == 0
+
+
+@pytest.mark.posix
+def test_scan_auto_owner_looks_up_each_id_once(tmp_path, monkeypatch, cli):
+    import grp
+    import pwd
+
+    import pkgforge.common as common
+
+    fake_pwd = _CountingLookup(pwd, "getpwuid")
+    fake_grp = _CountingLookup(grp, "getgrgid")
+    monkeypatch.setattr(common, "pwd", fake_pwd)
+    monkeypatch.setattr(common, "grp", fake_grp)
+
+    root = tmp_path / "root"
+    (root / "usr" / "share" / "app").mkdir(parents=True)
+    for i in range(20):
+        (root / "usr" / "share" / "app" / f"f{i}").write_text("x")
+    db = tmp_path / "files.jsonl"
+
+    assert (
+        cli(
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "scan",
+            "--owner=--",
+            "--group=--",
+            "/usr/share/app",
+        ).rc
+        == 0
+    )
+    # Every staged file shares the same uid/gid (the test runner's), so at
+    # most one real lookup per distinct id, however many files are scanned.
+    assert fake_pwd.calls <= 1
+    assert fake_grp.calls <= 1
+
+    recorded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    assert recorded
+    for entry in recorded.values():
+        assert entry["owner"] not in ("-", "--")
+        assert entry["group"] not in ("-", "--")
+
+
+@pytest.mark.posix
+def test_scan_exclude_does_not_repeat_lookups(tmp_path, monkeypatch, cli):
+    import grp
+    import pwd
+
+    import pkgforge.common as common
+
+    fake_pwd = _CountingLookup(pwd, "getpwuid")
+    fake_grp = _CountingLookup(grp, "getgrgid")
+    monkeypatch.setattr(common, "pwd", fake_pwd)
+    monkeypatch.setattr(common, "grp", fake_grp)
+
+    root = tmp_path / "root"
+    (root / "usr" / "share" / "app").mkdir(parents=True)
+    for i in range(20):
+        (root / "usr" / "share" / "app" / f"f{i}").write_text("x")
+    db = tmp_path / "files.jsonl"
+
+    # The glob matches every file (an inline type test forces PathMatch to
+    # build an entry for it), but the test itself never excludes a file, so
+    # every file is still recorded -- exercising both the lookup inside
+    # PathMatch.match and the one scan makes to actually record the entry.
+    assert (
+        cli(
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "scan",
+            "--owner=--",
+            "--group=--",
+            "-X",
+            "(?type:directory)*",
+            "/usr/share/app",
+        ).rc
+        == 0
+    )
+    assert fake_pwd.calls <= 1
+    assert fake_grp.calls <= 1
+
+    recorded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    assert len(recorded) == 20

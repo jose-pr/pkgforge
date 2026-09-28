@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import enum
+import functools
 import json
 import logging
 import os
@@ -88,17 +89,53 @@ class FileType(str, enum.Enum):
 
     @classmethod
     def from_path(cls, path: Path) -> FileType:
-        if path.is_symlink():
-            return cls.Symlink
-        elif path.is_dir():
-            return cls.Directory
-        elif path.is_file():
-            return cls.File
-        else:
+        try:
+            st = path.lstat()
+        except FileNotFoundError:
             raise TypeError(
                 f"{path}: not a regular file, directory or symlink "
                 "(missing or special file)"
-            )
+            ) from None
+        return _file_type(path, st)
+
+
+def _file_type(path: Path, st: os.stat_result) -> FileType:
+    """Classify an already-``lstat``-ed ``path`` from ``st.st_mode`` alone --
+    no extra syscall beyond the one ``lstat`` the caller already made."""
+    mode = st.st_mode
+    if stat.S_ISLNK(mode):
+        return FileType.Symlink
+    elif stat.S_ISDIR(mode):
+        return FileType.Directory
+    elif stat.S_ISREG(mode):
+        return FileType.File
+    else:
+        raise TypeError(
+            f"{path}: not a regular file, directory or symlink "
+            "(missing or special file)"
+        )
+
+
+@functools.lru_cache(maxsize=None)
+def _user_name(uid: int) -> str:
+    """``uid`` -> account name, memoized per process. :data:`DEFAULT` when
+    ``pwd`` is unavailable (non-POSIX) or the uid has no passwd entry --
+    that negative result is cached too, same as a real name."""
+    if pwd is None:
+        return DEFAULT
+    with contextlib.suppress(KeyError):
+        return pwd.getpwuid(uid).pw_name
+    return DEFAULT
+
+
+@functools.lru_cache(maxsize=None)
+def _group_name(gid: int) -> str:
+    """``gid`` -> group name, memoized per process. See :func:`_user_name`."""
+    if grp is None:
+        return DEFAULT
+    with contextlib.suppress(KeyError):
+        return grp.getgrgid(gid).gr_name
+    return DEFAULT
 
 
 def mode_to_octal(mode: int) -> str:
@@ -272,42 +309,54 @@ def entry_from_args(args: FileEntryArgs, **overwrite) -> FileEntry:
     return entry
 
 
+def _resolve_stat(
+    entry: FileEntry, path: Path, st: os.stat_result, lookupval: str = AUTO
+) -> FileEntry:
+    """Replace each of ``entry``'s ``mode``/``type``/``owner``/``group``
+    fields equal to ``lookupval`` with the value from an already-``lstat``-ed
+    ``st`` for ``path``. Shared by :func:`entry_from_path` (which resolves
+    every field) and :func:`resolve_entry` (which resolves only the caller's
+    AUTO-valued fields) -- ``mode``/``type`` come from ``st`` alone (no extra
+    syscall); ``owner``/``group`` only pay for a (memoized) ``pwd``/``grp``
+    lookup when the field actually needs resolving.
+    """
+    resolved: FileEntry = {**entry}
+    if resolved["mode"] == lookupval:
+        # Stored as an octal permission string so the DB round-trips and
+        # dumps (e.g. %attr(644,...)) are correct; apply_entry() reads it
+        # back via int(mode, 8).
+        resolved["mode"] = mode_to_octal(st.st_mode)
+    if resolved["type"] == lookupval:
+        resolved["type"] = _file_type(path, st)
+    if resolved["owner"] == lookupval:
+        resolved["owner"] = _user_name(st.st_uid)
+    if resolved["group"] == lookupval:
+        resolved["group"] = _group_name(st.st_gid)
+    return resolved
+
+
 def entry_from_path(
     path: Path, meta: typing.Optional[typing.Dict[str, str]] = None
 ) -> FileEntry:
     """Build a :class:`FileEntry` by ``lstat``-ing a real path on disk."""
-    stat = path.lstat()
-    owner = group = DEFAULT
-    if pwd is not None:
-        with contextlib.suppress(KeyError):
-            owner = pwd.getpwuid(stat.st_uid).pw_name
-    if grp is not None:
-        with contextlib.suppress(KeyError):
-            group = grp.getgrgid(stat.st_gid).gr_name
-
-    return {
-        # Store mode as an octal permission string so the DB round-trips and
-        # dumps (e.g. %attr(644,...)) are correct; apply_entry() reads it back
-        # via int(mode, 8).
-        "mode": mode_to_octal(stat.st_mode),
-        "owner": owner,
-        "group": group,
-        "type": FileType.from_path(path),
+    base: FileEntry = {
+        "mode": AUTO,
+        "owner": AUTO,
+        "group": AUTO,
+        "type": AUTO,
         "meta": {} if meta is None else meta,
     }
+    return _resolve_stat(base, path, path.lstat(), lookupval=AUTO)
 
 
 def resolve_entry(
     entry: FileEntry, path: Path, lookupval: str = AUTO, **overwrite
 ) -> FileEntry:
-    """Replace every field of ``entry`` equal to ``lookupval`` with the on-disk value."""
-    resolved: FileEntry = {**entry}
-    ondisk = entry_from_path(path)
-    for k, v in resolved.items():
-        if v == lookupval:
-            resolved[k] = ondisk[k]
+    """Replace every field of ``entry`` equal to ``lookupval`` with the
+    on-disk value -- a single ``lstat``, and a ``pwd``/``grp`` name lookup
+    only for ``owner``/``group`` fields that actually equal ``lookupval``."""
+    resolved = _resolve_stat(entry, path, path.lstat(), lookupval)
     resolved.update(overwrite)
-
     return resolved
 
 
