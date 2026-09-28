@@ -9,6 +9,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 - The `dev` extra installs `black` on Python 3.10 and later.
 - The sdist no longer includes `benchmarks/`.
+- `pyyaml` is declared as `>=6.0,<7`; it was unbounded.
+- Building from source requires `hatchling` 1.27 or later.
+- The `docs` extra is bounded to mkdocs 1.x, mkdocs-material 9.x and mkdocstrings below 2.
+- `twine` and `hatchling` are no longer in the `dev` extra; install them directly if you used them from it.
+
+### Added
+- Python 3.14 classifier.
 
 ### Fixed
 - The wheel and sdist never include files named `*.local.*` or `CLAUDE*`, even when built from a tree without `.gitignore`.

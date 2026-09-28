@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
@@ -19,20 +19,20 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Operating System :: POSIX",
     "Topic :: System :: Software Distribution",
     "Typing :: Typed",
 ]
-# duho is pinned to the 0.5 series. 0.4 introduced the argument model
-# `Install.source` is now declared against (a collection may not be a union
-# member) and the repeatable-option shape that makes `--exclude` work through
-# argv, so 0.3.x cannot run this code at all. The suite also passes on 0.4.x,
-# but 0.5 is the series actually exercised, so that is what is declared.
-dependencies = ["duho>=0.5.0,<0.6", "pyyaml"]
+dependencies = ["duho>=0.5.0,<0.6", "pyyaml>=6.0,<7"]
 
 [project.optional-dependencies]
 dev = ["black>=26.1,<27; python_version >= '3.10'", "build", "pytest"]
-docs = ["mkdocs", "mkdocs-material", "mkdocstrings[python]"]
+docs = [
+    "mkdocs>=1.6,<2",
+    "mkdocs-material>=9.5,<10",
+    "mkdocstrings[python]>=0.26,<2",
+]
 
 [project.scripts]
 pkgforge = "pkgforge:main"
