@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import contextlib
 import posixpath
+import re
 import sys
 import typing
 from pathlib import Path
@@ -48,11 +49,12 @@ class DumpError(PkgForgeError, ValueError):
 #: Every C0 control character (0x00-0x1f) plus DEL (0x7f): rpm and debhelper
 #: both choke on these one way or another (a bare newline splits a line, a
 #: literal DEL is simply illegal), and neither format has an escape for them.
-_CONTROL_CHARS = frozenset(chr(c) for c in range(0x20)) | {"\x7f"}
+_CONTROL_RE = re.compile("[\x00-\x1f\x7f]")
+_WHITESPACE_RE = re.compile(r"\s")
 
 
 def _reject_control(path: str, fmt: str) -> None:
-    if any(c in _CONTROL_CHARS for c in path):
+    if _CONTROL_RE.search(path):
         raise DumpError(
             f"{fmt}: a DB entry's path contains a control character that "
             "cannot be represented in this format"
@@ -120,6 +122,9 @@ def rpmspecfile(path: str, entry: FileEntry) -> bytes:
 #: included, so escaping them also makes a literal ``${`` read as literal
 #: (``$\{``), with no separate ``$`` handling needed on the source side.
 _DH_GLOB_CHARS = "\\*?[]{}"
+_DH_SRC_TABLE = str.maketrans(
+    {**{c: "\\" + c for c in _DH_GLOB_CHARS}, " ": "${Space}"}
+)
 
 
 def _dh_src(rel: str) -> str:
@@ -131,15 +136,7 @@ def _dh_src(rel: str) -> str:
     treats a line starting with ``#`` as a comment. A bare ``$`` is left
     alone -- see :func:`_dh_dest`.
     """
-    out = []
-    for c in rel:
-        if c in _DH_GLOB_CHARS:
-            out.append("\\" + c)
-        elif c == " ":
-            out.append("${Space}")
-        else:
-            out.append(c)
-    text = "".join(out)
+    text = rel.translate(_DH_SRC_TABLE)
     if text.startswith("#"):
         text = "\\" + text
     return text
@@ -183,7 +180,7 @@ def _debian_artifacts(entries: Entries) -> typing.Dict[str, bytes]:
         _reject_control(path, "debian")
         for field in ("mode", "owner", "group"):
             value = _or_default(entry[field])
-            if any(c.isspace() for c in value):
+            if _WHITESPACE_RE.search(value):
                 raise DumpError(
                     f"debian: a DB entry's {field} contains whitespace, "
                     "which the permissions format cannot represent"
