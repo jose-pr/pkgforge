@@ -56,9 +56,9 @@ class ScanCmd(FileEntryArgs, PkgForgeCmd):
             self._logger_.warning(
                 "scan records each path's on-disk type; --type is ignored"
             )
+        scanpath = self._rootpath(self.path, follow_final=True)
         db = self.loaddb() if self.missing else {}
         baseentry = entry_from_args(self, type=AUTO)
-        scanpath = self.localpath(self.path)
         filter = PathMatch(self.exclude, scanpath)
         self._logger_.info("Scanning %s", scanpath)
 

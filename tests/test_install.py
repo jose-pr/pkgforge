@@ -1454,3 +1454,204 @@ def test_install_d_conflicts_with_type(tmp_path):
         )
     assert excinfo.value.code == 2
     assert not (root / "out").exists()
+
+
+# --------------------------------------------------------------------------
+# Build-root containment: DESTINATION must resolve inside --buildroot
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.posix
+@pytest.mark.parametrize(
+    "dest",
+    ["/../esc", "../esc", "" + "/../esc"],
+    ids=["abs_dotdot", "rel_dotdot", "empty_prefix"],
+)
+def test_install_dotdot_escape_refused(tmp_path, cli, dest):
+    # A '..' that climbs above --buildroot -- spelled directly, as a
+    # relative destination, or produced by an empty shell variable
+    # ("$EMPTY/../esc" with EMPTY="") -- must be refused before anything is
+    # written, not silently normalized to a path beside the build root.
+    root = tmp_path / "root"
+    root.mkdir()
+    src = tmp_path / "f"
+    src.write_text("x")
+    db = tmp_path / "files.jsonl"
+
+    result = cli(
+        "--db", str(db), "--buildroot", str(root), "install", "-D", str(src), dest
+    )
+    assert result.rc == 2
+    assert not (tmp_path / "esc").exists()
+    assert not db.exists()
+
+
+@pytest.mark.posix
+def test_install_inner_dotdot_normalized(tmp_path):
+    # An in-root '..' is legitimate and stays inside --buildroot; it must be
+    # normalized, both on disk and in the recorded key, not refused.
+    root = tmp_path / "root"
+    root.mkdir()
+    src = tmp_path / "f"
+    src.write_text("x")
+    db = tmp_path / "files.jsonl"
+
+    parser = Install._parser_()
+    inst = parser.parse_args(
+        [
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "-D",
+            str(src),
+            "/usr/share/../lib/x",
+        ]
+    )
+    inst()
+
+    staged = root / "usr" / "lib" / "x"
+    assert staged.read_text() == "x"
+    assert "/usr/lib/x" in inst.loaddb()
+
+
+@pytest.mark.posix
+def test_install_symlinked_parent_escape_refused(tmp_path, cli):
+    # pkgforge's own directory staging can leave an absolute symlink inside
+    # the build root (copytree(symlinks=True)); a later install must not
+    # follow it onto a sibling directory outside --buildroot.
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "usr" / "share").mkdir(parents=True)
+    sibling = tmp_path / "sibling"
+    sibling.mkdir()
+    (root / "usr" / "share" / "alt").symlink_to(sibling)
+    src = tmp_path / "f"
+    src.write_text("x")
+    db = tmp_path / "files.jsonl"
+
+    result = cli(
+        "--db",
+        str(db),
+        "--buildroot",
+        str(root),
+        "install",
+        "-D",
+        str(src),
+        "/usr/share/alt/f2",
+    )
+    assert result.rc == 2
+    assert list(sibling.iterdir()) == []
+
+
+@pytest.mark.posix
+def test_install_directory_onto_escape_symlink_refused(tmp_path, cli):
+    # A Directory-typed install onto an in-root symlink is refused too: the
+    # leaf is followed here because it names an existing directory the
+    # merge would write into.
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "usr" / "share").mkdir(parents=True)
+    sibling = tmp_path / "sibling"
+    sibling.mkdir()
+    (root / "usr" / "share" / "alt").symlink_to(sibling)
+    srcdir = tmp_path / "srcdir"
+    srcdir.mkdir()
+    (srcdir / "payload").write_text("x")
+    db = tmp_path / "files.jsonl"
+
+    result = cli(
+        "--db",
+        str(db),
+        "--buildroot",
+        str(root),
+        "install",
+        "-d",
+        "-T",
+        str(srcdir),
+        "/usr/share/alt",
+    )
+    assert result.rc == 2
+    assert list(sibling.iterdir()) == []
+
+
+@pytest.mark.posix
+def test_install_T_victim_outside_root_survives(tmp_path, cli):
+    # The containment check runs in _resolve(), before any staging -- an
+    # escaping -T destination must be refused BEFORE the pre-existing target
+    # is ever unlinked.
+    root = tmp_path / "root"
+    root.mkdir()
+    victim = tmp_path / "victim"
+    victim.write_text("original")
+    src = tmp_path / "f"
+    src.write_text("new")
+    db = tmp_path / "files.jsonl"
+
+    result = cli(
+        "--db",
+        str(db),
+        "--buildroot",
+        str(root),
+        "install",
+        "-T",
+        str(src),
+        "/../victim",
+    )
+    assert result.rc == 2
+    assert victim.read_text() == "original"
+
+
+@pytest.mark.posix
+def test_install_relative_inroot_symlink_ok(tmp_path):
+    # Regression: a relative in-root link (e.g. lib64 -> usr/lib64) must
+    # keep working.
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "usr" / "lib64").mkdir(parents=True)
+    (root / "lib64").symlink_to("usr/lib64")
+    src = tmp_path / "f"
+    src.write_text("x")
+    db = tmp_path / "files.jsonl"
+
+    Install._parser_().parse_args(
+        ["--db", str(db), "--buildroot", str(root), "-D", str(src), "/lib64/libx.so"]
+    )()
+
+    assert (root / "usr" / "lib64" / "libx.so").read_text() == "x"
+
+
+@pytest.mark.posix
+def test_install_symlinked_buildroot_ok(tmp_path):
+    # Regression: a --buildroot that is itself a symlink must keep working.
+    real_root = tmp_path / "real_root"
+    real_root.mkdir()
+    root = tmp_path / "root_link"
+    root.symlink_to(real_root)
+    src = tmp_path / "f"
+    src.write_text("x")
+    db = tmp_path / "files.jsonl"
+
+    Install._parser_().parse_args(
+        ["--db", str(db), "--buildroot", str(root), "-D", str(src), "/etc/f"]
+    )()
+
+    assert (real_root / "etc" / "f").read_text() == "x"
+
+
+@pytest.mark.posix
+def test_install_directory_to_root_ok(tmp_path):
+    # DESTINATION "/" means the build root itself: a directory source
+    # merges straight into it.
+    root = tmp_path / "root"
+    root.mkdir()
+    srcdir = tmp_path / "srcdir"
+    srcdir.mkdir()
+    (srcdir / "payload").write_text("x")
+    db = tmp_path / "files.jsonl"
+
+    Install._parser_().parse_args(
+        ["--db", str(db), "--buildroot", str(root), "-d", "-T", str(srcdir), "/"]
+    )()
+
+    assert (root / "payload").read_text() == "x"

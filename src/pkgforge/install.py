@@ -673,12 +673,9 @@ class Install(FileEntryArgs, PkgForgeCmd):
         if not self.destination.is_absolute() and not self.buildroot:
             raise ValueError(self.destination)
 
-        dest = self.destination
-        if self.buildroot:
-            if dest.is_absolute():
-                dest = Path(self.buildroot, *dest.parts[1:])
-            else:
-                dest = self.buildroot / dest
+        dest = self._rootpath(
+            self.destination, follow_final=(self.type == FileType.Directory)
+        )
 
         if not self.parents and not dest.parent.is_dir():
             raise UsageError(
@@ -719,6 +716,14 @@ class Install(FileEntryArgs, PkgForgeCmd):
         replaced onto ``dest`` -- so a failed chmod/chown/record leaves an
         earlier good ``dest`` exactly as it was, never a partial temp.
         """
+        # Re-checked here, right before any mkdir: a multi-source __call__
+        # resolves every clone (and its containment check) before staging
+        # any of them, so an earlier clone's own staging -- e.g. an absolute
+        # in-root symlink left by copytree(symlinks=True) -- can plant a new
+        # escape between this clone's own _resolve() and this call.
+        dest = self._rootpath(
+            self.buildpath(dest), follow_final=(self.type == FileType.Directory)
+        )
         if self.parents:
             dest.parent.mkdir(parents=True, exist_ok=True)
 

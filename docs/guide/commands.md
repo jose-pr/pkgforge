@@ -10,7 +10,7 @@ Global options are read from the command line or the environment:
 | --- | --- | --- |
 | `--db PATH` | `PKGFORGE_DB` | file DB to read/write (`-` for stdout/stdin) |
 | `--db-format FMT` | `PKGFORGE_DB_FORMAT` | backend: `jsonl` / `yaml` / `sqlite` (else inferred from the `--db` suffix) |
-| `--buildroot DIR` | `PKGFORGE_ROOT` | staging root that maps to `/` in the DB |
+| `--buildroot DIR` | `PKGFORGE_ROOT` | staging root that maps to `/` in the DB; DESTINATION/PATH must resolve inside it |
 | `-v, --verbose` | | raise the running command's log level (repeatable) |
 | `-q, --quiet` | | lower the running command's log level (repeatable) |
 | `--loglevel [NAME:]LEVEL[,...]` | | set a logger's level directly; `NAME` is a logger name (e.g. `pkgforge.scan`), omitted for the running command |
@@ -66,6 +66,12 @@ KIND is optional and consumes the next token: write `-x KIND SRC DST`,
 kind and is rejected. An unknown kind, or a bare `-x` whose source suffix
 names none of the kinds above, exits 2 before anything is staged.
 
+DESTINATION must resolve inside `--buildroot`: a `..` that climbs above the
+root, or a symlinked path component that leads outside it, exits 2 before
+anything is staged, instead of writing or recording outside it. An in-root
+`..` (e.g. `/usr/share/../lib/x`) is normalized both on disk and in the
+recorded key.
+
 With several SOURCEs, two that resolve to the same non-directory destination
 (e.g. sharing a basename, or forced onto one path with `-T`/`-D`) exit 2
 before anything is staged; directory (and archive) sources sharing a
@@ -85,7 +91,8 @@ pkgforge scan [--missing] [-X PATTERN] PATH
 `--missing` only fills in entries absent from the DB (leaving existing ones
 untouched); `-X/--exclude` skips matching paths. See
 [Exclude grammar](exclude.md). `scan` always records each entry's type from
-the file on disk; it has no `--type` option of its own.
+the file on disk; it has no `--type` option of its own. PATH must resolve
+inside `--buildroot`, the same as `install`'s DESTINATION.
 
 ## `compact`
 

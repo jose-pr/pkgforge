@@ -25,6 +25,7 @@ import enum
 import json
 import logging
 import os
+import posixpath
 import re
 import stat
 import typing
@@ -468,6 +469,53 @@ class PkgForgeCmd(LoggingArgs, Cmd):
 
     def buildpath(self, localpath: Path) -> Path:
         return Path("/", localpath.relative_to(self.buildroot))
+
+    def _rootpath(
+        self, path: typing.Union[str, os.PathLike], *, follow_final: bool = False
+    ) -> Path:
+        """Resolve a ``/``-rooted DESTINATION/PATH to a path under
+        ``--buildroot``, refusing one that would climb above it.
+
+        A literal ``..`` that climbs above the root is refused -- checked on
+        the root-relative form, since normalizing the ``/``-rooted form
+        first (``posixpath.normpath("/../x")`` collapses to ``/``) would
+        silently hide the escape instead of rejecting it. An in-root ``..``
+        (``/usr/share/../lib/x``) is normalized in the returned path, never
+        left for the caller to record verbatim.
+
+        A symlinked path component is refused the same way: after building
+        the local path, ``realpath`` of its parent (non-strict, so this runs
+        before any mkdir/unlink -- it resolves the existing prefix without
+        raising for a path that doesn't exist yet) must stay under the
+        build root's own realpath. The leaf itself is checked too, but only
+        when ``follow_final`` is true and it already names a directory --
+        the case where the caller is about to walk or write *into* it, not
+        merely replace it. A leaf that is a dangling symlink, or a symlink
+        to a file, therefore has only its parent checked, and is recorded
+        as the link itself rather than its (possibly out-of-root) target.
+
+        Not a sandbox against a concurrent writer (no ``openat2``/TOCTOU
+        guarantees) -- that isn't needed for a single build process, though
+        ``install`` re-checks right before its own mkdir, since an earlier
+        source in the same multi-source invocation can plant a new symlink
+        after this method already ran for a later one.
+        """
+        root = Path(self.buildroot)
+        real_root = os.path.realpath(root)
+
+        rel = posixpath.normpath(
+            PurePosixPath(os.fspath(path)).as_posix().lstrip("/") or "."
+        )
+        if rel == ".." or rel.startswith("../"):
+            raise UsageError(f"{path}: resolves outside --buildroot")
+        if rel == ".":
+            return root
+
+        local = Path(root, rel)
+        check = local if (follow_final and os.path.isdir(local)) else local.parent
+        if os.path.commonpath([real_root, os.path.realpath(check)]) != real_root:
+            raise UsageError(f"{path}: a symlink leads outside --buildroot")
+        return local
 
     def _no_file_db(self) -> bool:
         """True when there is no real DB file to operate on (unset / stdout)."""

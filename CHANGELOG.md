@@ -7,6 +7,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- `install` and `scan` exit 2 when DESTINATION or PATH leaves the build root
+  through a `..` that climbs above it, or a symlinked path component leading
+  outside it, instead of writing or recording outside `--buildroot`. An
+  in-root `..` is normalized (`/usr/share/../lib/x` records `/usr/lib/x`).
 - `-d` with `-t`/`--type` exits 2 instead of `-d` silently overriding `-t`
   and turning a file source into a bsdtar-style directory extraction.
 - `install` checks `--chown`'s owner/group names, the `--db` directory and

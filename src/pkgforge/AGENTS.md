@@ -141,6 +141,12 @@ tree).
   unset or `"-"`, DB-writing methods emit one JSON Lines record to stdout
   instead of touching a file. `_register()` (classmethod) attaches the class
   to `PkgForge`'s subcommand tree.
+  A DESTINATION (`install`) or PATH (`scan`) must resolve inside
+  `--buildroot`: a `..` that climbs above the root, or a symlinked
+  component that leads outside it, raises `UsageError` before anything is
+  written or recorded; an in-root `..` (`/usr/share/../lib/x`) is
+  normalized in the path that is actually staged and recorded
+  (`/usr/lib/x`), never left verbatim.
 - **`PkgForge(PkgForgeCmd, duho.Cli)`** — the application root (the
   `pkgforge` command). Adds `--version`/completion via `duho.Cli`
   (`_version_ = duho.AUTO`, `_distribution_ = "pkgforge"`,

@@ -101,3 +101,9 @@ in a DB (e.g. written by an older pkgforge) are read back as `-`.
 `/tmp/stage/etc/app.conf` and records it under the key `/etc/app.conf`. This
 keeps the DB independent of where the staging happened, so a dump produces
 absolute target paths a packager expects.
+
+DESTINATION/PATH must resolve inside `--buildroot`: a `..` that climbs above
+it, or a symlinked path component leading outside it, is refused before
+anything is written or recorded, instead of silently landing (or reading and
+writing) outside the build root. An in-root `..` (e.g.
+`/usr/share/../lib/x`) is normalized, both on disk and in the recorded key.

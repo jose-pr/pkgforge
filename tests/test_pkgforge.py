@@ -211,6 +211,56 @@ def test_scan_default_buildroot_does_not_crash(tmp_path, monkeypatch):
     assert {k.replace("\\", "/") for k in recorded} == {"/sub/f"}
 
 
+def test_scan_dotdot_escape_refused(tmp_path, cli):
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "sib").mkdir()
+    db = tmp_path / "files.jsonl"
+
+    result = cli("--db", str(db), "--buildroot", str(root), "scan", "/../sib")
+    assert result.rc == 2
+    assert not db.exists()
+
+
+@pytest.mark.posix
+def test_scan_staged_absolute_link_ok(tmp_path):
+    # PATH is the link itself: an absolute (likely out-of-root) target must
+    # not be followed -- only the leaf's parent is checked for a link that
+    # doesn't name an existing directory.
+    from pkgforge.scan import ScanCmd
+
+    root = tmp_path / "root"
+    (root / "usr" / "bin").mkdir(parents=True)
+    link = root / "usr" / "bin" / "app.link"
+    link.symlink_to("/usr/bin/app")
+    db = tmp_path / "files.jsonl"
+
+    parser = ScanCmd._parser_()
+    inst = parser.parse_args(
+        ["--db", str(db), "--buildroot", str(root), "/usr/bin/app.link"]
+    )
+    inst()
+
+    recorded = inst.loaddb()
+    assert recorded["/usr/bin/app.link"]["type"] == "symlink"
+
+
+def test_scan_root_path_ok(tmp_path):
+    # PATH "/" means the build root itself.
+    from pkgforge.scan import ScanCmd
+
+    root = tmp_path / "root"
+    (root / "usr").mkdir(parents=True)
+    (root / "usr" / "a").write_text("x")
+    db = tmp_path / "files.jsonl"
+
+    parser = ScanCmd._parser_()
+    inst = parser.parse_args(["--db", str(db), "--buildroot", str(root), "/"])
+    inst()
+
+    assert "/usr/a" in inst.loaddb()
+
+
 @pytest.mark.posix
 def test_install_remove_source_directory(tmp_path):
     # Regression: --remove-source on a directory must rmtree, not unlink.
