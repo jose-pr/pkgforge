@@ -479,3 +479,136 @@ def test_register_provider_accepted_as_db_format(restore_registries, tmp_path):
     register_provider("custom", _TsvDb)
     inst = InitDb(db=tmp_path / "x.jsonl", db_format="custom")
     assert inst.db_format == "custom"
+
+
+# --------------------------------------------------------------------------
+# UTF-8 text I/O, newline repair on append, and DbError
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("fmt", ["jsonl", "yaml"])
+def test_append_repairs_missing_newline(tmp_path, fmt, make_entry):
+    path = tmp_path / f"f.{fmt}"
+    if fmt == "jsonl":
+        path.write_bytes(
+            b'{"path": "/old", "mode": "644", "owner": "-", "group": "-", '
+            b'"type": "file", "meta": {}}'
+        )
+    else:
+        path.write_bytes(b"/old: null")  # a tombstone, no trailing newline
+
+    p = open_db(path, fmt)
+    p.add("/new", make_entry(mode="600"))
+
+    db = open_db(path, fmt, for_read=True).load()
+    assert db["/new"]["mode"] == "600"
+    if fmt == "jsonl":
+        assert db["/old"]["mode"] == "644"
+    else:
+        assert db["/old"] is None
+
+
+def test_jsonl_error_names_file_and_line(tmp_path):
+    from pkgforge.db import DbError
+
+    path = tmp_path / "f.jsonl"
+    path.write_text(
+        '{"path": "/a", "mode": "644", "owner": "-", "group": "-", '
+        '"type": "file", "meta": {}}\n'
+        '{"path": "/b", "mode": "644", "owner": "-", "group": "-", '
+        '"type": "file", "meta": {}}\n'
+        '{"path": "/c", not valid json\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(DbError) as excinfo:
+        open_db(path, "jsonl", for_read=True).load()
+    assert f"{path}:3:" in str(excinfo.value)
+
+
+def test_yaml_error_names_file(tmp_path):
+    from pkgforge.db import DbError
+
+    path = tmp_path / "f.yaml"
+    path.write_text("a:\n  b: [1, 2\n", encoding="utf-8")  # unterminated flow seq
+    with pytest.raises(DbError) as excinfo:
+        open_db(path, "yaml", for_read=True).load()
+    assert str(path) in str(excinfo.value)
+
+
+def _write_malformed(tmp_path: Path, kind: str):
+    if kind == "yaml_list":
+        path = tmp_path / "f.yaml"
+        path.write_text("- a\n- b\n", encoding="utf-8")
+        fmt = "yaml"
+    elif kind == "yaml_scalar":
+        path = tmp_path / "f.yaml"
+        path.write_text("just a scalar\n", encoding="utf-8")
+        fmt = "yaml"
+    elif kind == "jsonl_array":
+        path = tmp_path / "f.jsonl"
+        path.write_text("[1, 2, 3]\n", encoding="utf-8")
+        fmt = "jsonl"
+    else:  # latin1_bytes
+        path = tmp_path / "f.jsonl"
+        path.write_bytes(b'{"path": "/x", "mode": "\xe9"}\n')
+        fmt = "jsonl"
+    return path, fmt
+
+
+@pytest.mark.parametrize(
+    "kind", ["yaml_list", "yaml_scalar", "jsonl_array", "latin1_bytes"]
+)
+def test_malformed_db_raises(tmp_path, kind):
+    from pkgforge.db import DbError
+
+    path, fmt = _write_malformed(tmp_path, kind)
+    with pytest.raises(DbError) as excinfo:
+        open_db(path, fmt, for_read=True).load()
+    assert str(path) in str(excinfo.value)
+
+
+@pytest.mark.posix
+@pytest.mark.parametrize("fmt", ["jsonl", "yaml"])
+def test_utf8_db_under_ascii_locale(tmp_path, fmt):
+    db_path = tmp_path / f"f.{fmt}"
+    if fmt == "jsonl":
+        db_path.write_bytes(
+            b'{"group": "-", "meta": {}, "mode": "-", "owner": "-", '
+            b'"path": "/etc/caf\xc3\xa9.conf", "type": "file"}\n'
+        )
+    else:
+        db_path.write_bytes(b"/etc/caf\xc3\xa9.conf:\n  type: file\n")
+
+    script = (
+        "import locale, sys\n"
+        "enc = locale.getpreferredencoding(False)\n"
+        "if 'utf' in enc.lower():\n"
+        "    print('LOCALE_STILL_UTF8:' + enc)\n"
+        "    sys.exit(0)\n"
+        "import pathlib\n"
+        "from pkgforge.db import open_db\n"
+        f"path = pathlib.Path({str(db_path)!r})\n"
+        f"p = open_db(path, {fmt!r}, for_read=True)\n"
+        "db = p.load()\n"
+        "assert '/etc/caf\\u00e9.conf' in db, sorted(db)\n"
+        "p.compact()\n"
+        f"p2 = open_db(path, {fmt!r}, for_read=True)\n"
+        "db2 = p2.load()\n"
+        "assert '/etc/caf\\u00e9.conf' in db2, sorted(db2)\n"
+        "print('OK')\n"
+    )
+    env = {
+        **os.environ,
+        "PYTHONPATH": str(SRC_DIR),
+        "LC_ALL": "en_GB.iso885915",
+        "PYTHONUTF8": "0",
+        "PYTHONCOERCECLOCALE": "0",
+    }
+    result = subprocess.run(
+        [sys.executable, "-c", script], env=env, capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr
+    out = result.stdout.strip()
+    if out.startswith("LOCALE_STILL_UTF8"):
+        pytest.skip(f"could not apply a non-UTF-8 locale ({out})")
+    assert out == "OK", result.stdout

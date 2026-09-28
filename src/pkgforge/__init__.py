@@ -30,7 +30,7 @@ from .common import (
     normalize_mode,
     resolve_entry,
 )
-from .db import DbProvider, open_db, register_provider
+from .db import DbError, DbProvider, open_db, register_provider
 from . import compact, dbdump, initdb, install, scan
 
 try:  # resolve the installed distribution version, if any
@@ -42,6 +42,7 @@ __all__ = [
     "PkgForgeCmd",
     "PkgForge",
     "PkgForgeError",
+    "DbError",
     "DbProvider",
     "FileEntry",
     "FileEntryArgs",

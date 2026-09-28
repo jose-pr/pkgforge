@@ -44,6 +44,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `scan --drop-stale` records a removal for each DB entry below PATH whose
   file is gone from the build root, so `dbdump` stops listing deleted
   files. Entries matching `-X` are kept. Needs a `--db` file.
+- `pkgforge.DbError`: a malformed `jsonl`/`yaml` file DB fails with one
+  clear line naming the file (and, for `jsonl`, the line) instead of a
+  traceback.
 
 ### Fixed
 - `scan` no longer records the file DB (or a SQLite DB's
@@ -277,6 +280,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   interpreter that lacks it fails with one clear line instead of an
   `ImportError` from inside the stdlib. The `yaml` backend now imports
   PyYAML lazily too, with the same one-line error if it's ever missing.
+- `jsonl`/`yaml` DBs are read and written as UTF-8 under any locale;
+  before, a DB containing literal (non-ASCII-escaped) UTF-8 -- a hand edit
+  or a third-party writer -- could be mis-decoded under a non-UTF-8 locale,
+  and `compact` would then make that damage permanent.
+- An append to a `jsonl`/`yaml` DB whose last line lacks a trailing newline
+  (a hand edit, a `printf`/`echo -n` writer, a torn write) starts a new
+  line instead of fusing the new record onto the old one and silently
+  corrupting the DB.
 
 ## [0.1.2] - 2026-08-16
 

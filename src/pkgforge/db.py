@@ -29,6 +29,20 @@ from .common import PkgForgeError
 if typing.TYPE_CHECKING:
     from .common import FileEntry
 
+
+class DbError(PkgForgeError, ValueError):
+    """A file DB's on-disk content could not be used as one.
+
+    Raised for a parse error, non-UTF-8 bytes, a JSON Lines line or YAML
+    top-level document that is not a mapping (jsonl: or ``null``, its
+    tombstone spelling), or a field with a value of the wrong type. Caught by
+    :func:`pkgforge.main`'s error boundary like any
+    :class:`~pkgforge.common.PkgForgeError` (one stderr line, exit 1); also a
+    :class:`ValueError`, so an existing ``except ValueError`` caller keeps
+    working unchanged.
+    """
+
+
 #: A loaded DB: build path -> entry, or ``None`` for a removed path.
 Db = typing.Dict[str, "typing.Optional[FileEntry]"]
 
@@ -101,6 +115,25 @@ def _jsonl_line(path: str, entry: typing.Optional[FileEntry]) -> str:
     return json.dumps({"path": path, **_fields(entry)}, sort_keys=True) + "\n"
 
 
+def _append_text(path: Path, text: str) -> None:
+    """Append ``text`` to ``path`` as UTF-8, first repairing a missing
+    trailing newline on the file's existing content.
+
+    An append-log DB written or touched by something other than pkgforge (a
+    hand edit, a ``printf``/``echo -n`` generator, a torn write) can lack a
+    final newline; appending straight onto it would otherwise fuse the new
+    record onto the old last line, silently corrupting the DB. Opening
+    ``"a+b"`` (rather than checking ``st_size`` separately) keeps the repair
+    and the append itself inside one open handle.
+    """
+    with path.open("a+b") as fh:
+        if fh.seek(0, os.SEEK_END):
+            fh.seek(-1, os.SEEK_END)
+            if fh.read(1) != b"\n":
+                fh.write(b"\n")
+        fh.write(text.encode("utf-8"))
+
+
 class DbProvider(abc.ABC):
     """Storage backend for a file DB, bound to a filesystem ``path``."""
 
@@ -144,32 +177,47 @@ class JsonlDb(DbProvider):
         if not self.path.exists():
             return {}
         db: Db = {}
-        for line in self.path.read_text().splitlines():
+        try:
+            text = self.path.read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            raise DbError(f"{self.path}: {exc}") from exc
+        for lineno, line in enumerate(text.splitlines(), 1):
             line = line.strip()
             if not line:
                 continue
-            rec = json.loads(line)
-            path = rec.pop("path")
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise DbError(
+                    f"{self.path}:{lineno}: invalid JSON Lines record: "
+                    f"{exc.msg} (column {exc.colno})"
+                ) from exc
+            if not isinstance(rec, dict):
+                raise DbError(
+                    f"{self.path}:{lineno}: invalid JSON Lines record: not an object"
+                )
+            try:
+                path = rec.pop("path")
+            except KeyError:
+                raise DbError(
+                    f'{self.path}:{lineno}: invalid JSON Lines record: missing "path"'
+                ) from None
             db[path] = None if rec.pop("_removed", False) else rec
         return db
 
-    def _append(self, line: str) -> None:
-        with self.path.open("a") as fh:
-            fh.write(line)
-
     def add(self, path: str, entry: FileEntry) -> None:
-        self._append(_jsonl_line(path, entry))
+        _append_text(self.path, _jsonl_line(path, entry))
 
     def remove(self, path: str) -> None:
-        self._append(_jsonl_line(path, None))
+        _append_text(self.path, _jsonl_line(path, None))
 
     def compact(self) -> None:
         db = self.load()
         lines = [_jsonl_line(p, e) for p, e in db.items() if e is not None]
-        self.path.write_text("".join(lines))
+        self.path.write_text("".join(lines), encoding="utf-8")
 
     def init(self) -> None:
-        self.path.write_text("")
+        self.path.write_text("", encoding="utf-8")
 
 
 @functools.lru_cache(maxsize=None)
@@ -219,15 +267,28 @@ class YamlDb(DbProvider):
         loader, _ = _yaml_io()
         import yaml
 
-        return yaml.load(self.path.read_text(), Loader=loader) or {}
+        try:
+            with self.path.open(encoding="utf-8") as fh:
+                data = yaml.load(fh, Loader=loader)
+        except UnicodeDecodeError as exc:
+            raise DbError(f"{self.path}: {exc}") from exc
+        except yaml.YAMLError as exc:
+            raise DbError(f"{self.path}: {exc}") from exc
+        if data is None:
+            return {}
+        if not isinstance(data, dict):
+            raise DbError(
+                f"{self.path}: invalid YAML file DB: top-level document is "
+                "not a mapping"
+            )
+        return data
 
     def _append(self, path: str, entry: typing.Optional[FileEntry]) -> None:
         _, dumper = _yaml_io()
         import yaml
 
         value = None if entry is None else _fields(entry)
-        with self.path.open("a") as fh:
-            fh.write(yaml.dump({path: value}, Dumper=dumper))
+        _append_text(self.path, yaml.dump({path: value}, Dumper=dumper))
 
     def add(self, path: str, entry: FileEntry) -> None:
         self._append(path, entry)
@@ -241,10 +302,11 @@ class YamlDb(DbProvider):
         import yaml
 
         live = {p: _fields(e) for p, e in db.items() if e is not None}
-        self.path.write_text(yaml.dump(live, Dumper=dumper) if live else "")
+        text = yaml.dump(live, Dumper=dumper) if live else ""
+        self.path.write_text(text, encoding="utf-8")
 
     def init(self) -> None:
-        self.path.write_text("")
+        self.path.write_text("", encoding="utf-8")
 
 
 # --------------------------------------------------------------------------

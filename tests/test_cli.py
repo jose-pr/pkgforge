@@ -115,6 +115,18 @@ def test_dbdump_unknown_format_fails(tmp_path, cli):
     assert b"rpmspecfiles" in result.err
 
 
+def test_malformed_db_is_one_line_error(tmp_path, cli):
+    db = tmp_path / "files.jsonl"
+    db.write_text('{"path": "/a", not valid json\n', encoding="utf-8")
+
+    result = cli("--db", str(db), "dbdump", "-f", "rpmspecfiles", "-")
+    assert result.rc == 1
+    err = result.err.decode()
+    assert "Traceback" not in err
+    lines = [line for line in err.splitlines() if line]
+    assert len(lines) == 1
+
+
 # --------------------------------------------------------------------------
 # --db-format validation (checked before the command runs)
 # --------------------------------------------------------------------------

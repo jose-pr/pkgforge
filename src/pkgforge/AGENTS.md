@@ -5,10 +5,10 @@ export with its signature, arguments, contract, and gotchas, so this module
 can be consumed without reading its source. Kept current with the public
 API. For the CLI overview and code layout, see the shipped `README.md`, or <https://github.com/jose-pr/pkgforge>.
 
-`pkgforge.__all__`: `PkgForgeCmd`, `PkgForge`, `PkgForgeError`, `DbProvider`,
-`FileEntry`, `FileEntryArgs`, `FileType`, `UsageError`, `__version__`,
-`apply_entry`, `entry_from_args`, `entry_from_path`, `normalize_mode`,
-`resolve_entry`, `main`, `open_db`, `register_provider`, plus the
+`pkgforge.__all__`: `PkgForgeCmd`, `PkgForge`, `PkgForgeError`, `DbError`,
+`DbProvider`, `FileEntry`, `FileEntryArgs`, `FileType`, `UsageError`,
+`__version__`, `apply_entry`, `entry_from_args`, `entry_from_path`,
+`normalize_mode`, `resolve_entry`, `main`, `open_db`, `register_provider`, plus the
 leaf-command submodules themselves
 (`compact`, `dbdump`, `initdb`, `install`, `scan` — importing `pkgforge` runs
 each module's `_register()` call, attaching it to the `PkgForge` subcommand
@@ -166,6 +166,16 @@ tree).
 
 ## DB backends (`db.py`)
 
+- **`DbError(PkgForgeError, ValueError)`** — the `jsonl`/`yaml` backends'
+  on-disk content could not be read as one: a JSON/YAML parse error, non-UTF-8
+  bytes, a JSON Lines line or YAML top-level document that is not a mapping,
+  or (once loaded) a field of the wrong type. The message names the DB file
+  (and, for `jsonl`, the line number). Caught by `main()`'s error boundary
+  like any `PkgForgeError` (one stderr line, exit 1); also a `ValueError`, so
+  an existing `except ValueError` caller is unaffected. `jsonl`/`yaml` text
+  I/O is always UTF-8, regardless of locale; an append to a DB whose last
+  line lacks a trailing newline (e.g. a hand edit) repairs it first instead
+  of fusing the new record onto the old one.
 - **`Db`** — type alias `dict[str, FileEntry | None]` (a loaded DB; `None`
   marks a removed path).
 - **`DbProvider(abc.ABC)`** — storage backend bound to a filesystem `path`
