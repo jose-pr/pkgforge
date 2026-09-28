@@ -324,6 +324,135 @@ def test_bsdtar_as_root_rejects_char_device(tmp_path):
 
 
 # --------------------------------------------------------------------------
+# bsdtar's own extraction pins path/symlink containment for the formats
+# (zip, iso, cpio, stdin) that never go through the tarfile staging filter
+# --------------------------------------------------------------------------
+
+
+def _zip_from_tar_build(archive: Path, tmp_path: Path, build) -> None:
+    """Build tar-format bytes via ``build(tf)``, then convert to a real
+    ``.zip`` via ``bsdtar`` -- the fixture format for every test below,
+    since tarfile can only write tar-family archives."""
+    raw = tmp_path / f"{archive.stem}-raw.tar"
+    _write_tar(raw, build)
+    subprocess.run(
+        ["bsdtar", "-c", "-f", os.fspath(archive), "--format", "zip", f"@{raw}"],
+        check=True,
+    )
+
+
+@pytest.mark.posix
+@pytest.mark.skipif(shutil.which("bsdtar") is None, reason="bsdtar not available")
+def test_bsdtar_rejects_dotdot_member(tmp_path):
+    # Confirms (rather than assumes) that bsdtar itself refuses a
+    # destination-climbing member name for the formats -- zip, iso, cpio,
+    # stdin -- that never go through _staging_filter's own dotdot check.
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+    outside = tmp_path / "escaped.txt"
+    archive = tmp_path / "pkg.zip"
+    _zip_from_tar_build(
+        archive, tmp_path, lambda tf: _add_file(tf, "../../../escaped.txt", b"pwned")
+    )
+
+    inst = Install._parser_().parse_args(
+        [
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-d",
+            "-D",
+            str(archive),
+            "/opt/app",
+        ]
+    )
+    with pytest.raises(subprocess.CalledProcessError):
+        inst()
+
+    assert not outside.exists()
+    assert not (root / "opt" / "app").exists()
+
+
+@pytest.mark.posix
+@pytest.mark.skipif(shutil.which("bsdtar") is None, reason="bsdtar not available")
+def test_bsdtar_absolute_member_lands_inside_dest(tmp_path):
+    # Confirms bsdtar strips a leading "/" from an absolute member name
+    # (as it does for the tar-family path) rather than honoring it as a
+    # real host path.
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+    outside = tmp_path / "escaped_abs.txt"
+    archive = tmp_path / "pkg.zip"
+    _zip_from_tar_build(
+        archive, tmp_path, lambda tf: _add_file(tf, os.fspath(outside), b"pwned")
+    )
+
+    Install._parser_().parse_args(
+        [
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-d",
+            "-D",
+            str(archive),
+            "/opt/app",
+        ]
+    )()
+
+    assert not outside.exists()
+    staged = root / "opt" / "app"
+    nested = list(staged.rglob("escaped_abs.txt"))
+    assert len(nested) == 1
+    assert nested[0].read_bytes() == b"pwned"
+
+
+@pytest.mark.posix
+@pytest.mark.skipif(shutil.which("bsdtar") is None, reason="bsdtar not available")
+def test_bsdtar_refuses_write_through_symlink_escape(tmp_path):
+    # Confirms bsdtar itself refuses to write a later member through an
+    # earlier member's symlink pointing outside the destination.
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    archive = tmp_path / "pkg.zip"
+
+    def _build(tf):
+        ti = tarfile.TarInfo(name="e")
+        ti.type = tarfile.SYMTYPE
+        ti.linkname = os.fspath(outside)
+        tf.addfile(ti)
+        _add_file(tf, "e/pwned.txt", b"pwned")
+
+    _zip_from_tar_build(archive, tmp_path, _build)
+
+    inst = Install._parser_().parse_args(
+        [
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-d",
+            "-D",
+            str(archive),
+            "/opt/app",
+        ]
+    )
+    with pytest.raises(subprocess.CalledProcessError):
+        inst()
+
+    assert list(outside.iterdir()) == []
+
+
+# --------------------------------------------------------------------------
 # Tar extraction filter: absolute/climbing symlinks kept, escapes refused,
 # re-extraction stays idempotent
 # --------------------------------------------------------------------------
