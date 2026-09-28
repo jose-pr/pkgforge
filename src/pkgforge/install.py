@@ -482,9 +482,10 @@ class Install(FileEntryArgs, PkgForgeCmd):
                 _ignore = None
             # copytree stamps the top directory's own stat (mode, mtime)
             # once it finishes, unconditionally -- a copystat here first
-            # would only be overwritten by that one, so there is none.
-            # ignore_dangling_symlinks is not passed: it only has any effect
-            # when symlinks=False, so it would be a silent no-op here.
+            # would only be overwritten by that one, so there is none. The
+            # dangling-symlink flag copytree also accepts is not passed
+            # either: it only has any effect when symlinks=False, so it
+            # would be a silent no-op here (symlinks=True below).
             shutil.copytree(
                 src,
                 dst,
