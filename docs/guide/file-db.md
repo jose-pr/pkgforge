@@ -135,8 +135,8 @@ in a DB (e.g. written by an older pkgforge) are read back as `-`.
 ## Build root mapping
 
 `--buildroot` is the staging directory that maps to `/` in the DB. Installing
-`app.conf` to `/etc` under `--buildroot /tmp/stage` stages the file at
-`/tmp/stage/etc/app.conf` and records it under the key `/etc/app.conf`. This
+`app.conf` to `/etc` under `--buildroot build/root` stages the file at
+`build/root/etc/app.conf` and records it under the key `/etc/app.conf`. This
 keeps the DB independent of where the staging happened, so a dump produces
 absolute target paths a packager expects.
 

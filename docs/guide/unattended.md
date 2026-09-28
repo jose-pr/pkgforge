@@ -2,16 +2,14 @@
 
 pkgforge is built to run non-interactively inside a build pipeline. The
 environment variables are the primary configuration mechanism — set them once
-and every command picks them up:
+and every command picks them up. A typical staging sequence in a build
+script:
 
 ```bash
-export PKGFORGE_ROOT=/tmp/stage
-export PKGFORGE_DB="$PKGFORGE_ROOT.files.jsonl"
-```
+work="$(mktemp -d)"
+export PKGFORGE_ROOT="$work/stage" PKGFORGE_DB="$work/files.jsonl"
+mkdir -p "$PKGFORGE_ROOT"
 
-A typical staging sequence in a build script:
-
-```bash
 pkgforge initdb
 
 # stage binaries, config, and a whole tree
@@ -79,6 +77,10 @@ pkgforge --print-completion zsh > "${fpath[1]}/_pkgforge"
   EOF (an empty stdin, e.g. `/dev/null` or an empty pipe, stages an empty
   file); a terminal or closed stdin is a usage error, not a wait, and a `-`
   source needs `-T`/`-D` (an explicit destination file name).
+- **Private build root.** The build root is a private directory the pipeline
+  creates (`mktemp -d`), never a fixed path in a shared, world-writable
+  directory such as `/tmp` — a predictable, pre-existing path lets another
+  local user plant a symlink inside it before the run.
 - **Resilient defaults.** `--buildroot` defaults to the current directory and
   `--db` to `PKGFORGE_DB`; a missing, unset or `-` DB reads as empty rather
   than erroring (exit codes are unchanged), and `dbdump`/`initdb`/`compact`

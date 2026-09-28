@@ -34,14 +34,17 @@ symlinks); the CLI and `--help` import cleanly on any platform.
 ## At a glance
 
 ```bash
-export PKGFORGE_ROOT=/tmp/stage PKGFORGE_DB=/tmp/files.jsonl
+work="$(mktemp -d)"
+export PKGFORGE_ROOT="$work/stage" PKGFORGE_DB="$work/files.jsonl"
+mkdir -p "$PKGFORGE_ROOT"
 
 pkgforge initdb
-pkgforge install -p -m 644 -o root -g root ./app.conf /etc
-pkgforge install -D -d -m 755 -o root -g root ./share /usr/share/app
-pkgforge scan --missing --mode=-- -o root -g root /usr/share/app
-pkgforge dbdump -f rpmspecfiles -          # RPM %files to stdout
-pkgforge dbdump -f debian ./debian         # debian/{install,permissions,dirs}
+pkgforge install -p -m 755 -o root -g root ./build/tool /usr/bin
+pkgforge install -p -m 640 -o root -g adm -O rpmprefix=%config ./tool.conf /etc
+pkgforge install -D -d -m 755 -o root -g root ./share /usr/share/tool
+pkgforge scan --missing --mode=-- -o root -g root /usr/share/tool
+pkgforge dbdump -f rpmspecfiles rpm-files.txt
+pkgforge dbdump -f debian debian/
 ```
 
 See the [Guide](guide/install.md) for the full command and format reference.

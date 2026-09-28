@@ -106,6 +106,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Without tarfile's extraction filter (Python before 3.9.17, 3.10.12 or
   3.11.4), a tar archive now routes to `bsdtar`, or is refused (exit 1),
   instead of extracting with no path/symlink/special-file checks at all.
+- The quick start and unattended guide build in a private `mktemp -d` root,
+  not `/tmp/stage`; scripts copied from the old docs should do the same.
 
 ### Changed
 - `scan -m` applies to regular files only. Directories take the new

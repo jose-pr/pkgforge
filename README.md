@@ -32,7 +32,9 @@ socket in the archive is refused.
 ## Quick start
 
 ```sh
-export PKGFORGE_ROOT=/tmp/stage PKGFORGE_DB=/tmp/files.jsonl
+work="$(mktemp -d)"
+export PKGFORGE_ROOT="$work/stage" PKGFORGE_DB="$work/files.jsonl"
+mkdir -p "$PKGFORGE_ROOT"
 
 pkgforge initdb
 pkgforge install -p -m 755 -o root -g root ./build/tool /usr/bin
