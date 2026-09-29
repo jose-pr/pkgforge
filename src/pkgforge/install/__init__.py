@@ -12,6 +12,9 @@ import shutil
 import typing
 from pathlib import Path
 
+#: Recognized `--method`/`PKGFORGE_INSTALL_METHOD` values.
+_INSTALL_METHODS = ("copy", "link", "move")
+
 try:  # Unix-only; see entry.py's identical guard.
     import grp
     import pwd
@@ -41,6 +44,19 @@ from .decompress import _DECOMPRESSORS, _SUFFIX_TO_KIND, _looks_like_path, _reso
 from .staging import _Staging, _detect_source_type, _require_stdin
 
 
+def _env_method(value: str) -> str:
+    """Env-var/CLI value -> an install method (one of :data:`_INSTALL_METHODS`).
+
+    Empty means unset, the same as :meth:`PkgForgeCmd.db`'s own env fields:
+    giving this a non-``str`` ``type=`` converter (even though it's just an
+    ``str -> str`` identity otherwise) is what makes duho's "empty env value
+    means unset" rule apply to it -- a bare ``str``-typed field would keep an
+    explicitly-empty ``PKGFORGE_INSTALL_METHOD=`` as a real, choices-checked
+    value instead of falling through to the default.
+    """
+    return value if value else "copy"
+
+
 class Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd, _Staging):
     """Install a source into the build root and record its file entry."""
 
@@ -53,6 +69,25 @@ class Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd, _Staging):
     chown: bool = False
     "apply the recorded owner/group with chown (off by default)"
     ("--chown",)
+    method: duho.Arg[
+        str,
+        duho.NS(
+            env="PKGFORGE_INSTALL_METHOD",
+            type=_env_method,
+            choices=_INSTALL_METHODS,
+            metavar="METHOD",
+        ),
+    ] = _env_method(os.environ.get("PKGFORGE_INSTALL_METHOD", ""))
+    (
+        "how to stage a file or directory source: copy (default) or, to "
+        "avoid re-copying a build output you already have on disk, link "
+        "(hardlink -- shares the source's inode, so -m/-o/-g/--chown then "
+        "change the source too) or move (consumes the source; a failure "
+        "after staging restores it). Ignored for a '-' (stdin) source, -x "
+        "decompression, an archive source and a symlink source/type (env "
+        "PKGFORGE_INSTALL_METHOD)"
+    )
+    ("--method",)
     type: duho.Arg[
         typing.Union[FileType, str],
         duho.NS(
@@ -373,7 +408,13 @@ class Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd, _Staging):
             if staged != dest:
                 os.replace(staged, dest)
         except BaseException:
-            if staged != dest and (staged.is_symlink() or staged.exists()):
+            if self._move_atomic:
+                # --method move already consumed self.source into `staged`
+                # (or, for a symlink/no-op staging that reused dest itself,
+                # never set this at all); restore it instead of deleting the
+                # only copy.
+                self._rollback_move(staged)
+            elif staged != dest and (staged.is_symlink() or staged.exists()):
                 if staged.is_dir() and not staged.is_symlink():
                     shutil.rmtree(staged, ignore_errors=True)
                 else:
@@ -382,7 +423,15 @@ class Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd, _Staging):
 
         if not self.noentry:
             fspath = os.fspath(self.buildpath(dest))
-            self.add_entry(fspath, fileentry)
+            try:
+                self.add_entry(fspath, fileentry)
+            except BaseException:
+                if self._move_atomic:
+                    # The entry is already applied and (if it needed one) a
+                    # temp already replaced onto dest -- the moved data now
+                    # lives at dest itself.
+                    self._rollback_move(dest)
+                raise
 
         if self.remove_source and self.source not in [DEFAULT, None]:
             # Runs LAST: after apply/replace/record succeed, so a failure
@@ -392,7 +441,13 @@ class Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd, _Staging):
             # (an in-place build): the containment check in _resolve already
             # refused the case where removing a directory source would
             # delete dest or the DB out from under it.
-            if os.path.lexists(dest) and os.path.samestat(
+            if not os.path.lexists(self.source):
+                # --method move already consumed it -- redundant with move,
+                # so this is a no-op rather than an error. A source
+                # --exclude left partially in place (the merge path) still
+                # reaches the branches below, same as without move.
+                pass
+            elif os.path.lexists(dest) and os.path.samestat(
                 os.lstat(self.source), os.lstat(dest)
             ):
                 self._logger_.warning(

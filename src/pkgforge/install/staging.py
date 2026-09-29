@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import errno
 import os
 import shutil
 import stat
@@ -94,6 +95,32 @@ def _refuse_real_directory_dest(dst: Path) -> None:
         raise UsageError(f"{dst}: cannot replace a directory with a file or symlink")
 
 
+#: errnos `os.link` can raise for a source it just can't hardlink (a
+#: different filesystem, ``fs.protected_hardlinks``, the per-inode link
+#: limit, or a permission error) -- ``--method link`` falls back to copying
+#: that one file/entry instead of failing the whole install. Anything else
+#: propagates.
+_LINK_FALLBACK_ERRNOS = frozenset(
+    (errno.EXDEV, errno.EPERM, errno.EMLINK, errno.EACCES)
+)
+
+
+def _try_link(src: Path, tmp: Path) -> bool:
+    """Attempt ``os.link(src, tmp)`` for ``--method link``.
+
+    Returns ``True`` on success, ``False`` when it failed for one of
+    :data:`_LINK_FALLBACK_ERRNOS` (the caller then falls back to a copy);
+    any other ``OSError`` propagates.
+    """
+    try:
+        os.link(src, tmp)
+        return True
+    except OSError as exc:
+        if exc.errno in _LINK_FALLBACK_ERRNOS:
+            return False
+        raise
+
+
 def _copy_ignore(
     src: Path,
     dst: Path,
@@ -170,7 +197,82 @@ def _copy_ignore(
 
 class _Staging:
     """Staging steps for Install; uses the host's meta, decompress,
-    exclude, buildroot, db and _logger_."""
+    exclude, buildroot, db, method and _logger_."""
+
+    #: Set once :meth:`_warn_link_fallback` has logged, so a tree with many
+    #: fallback files (or a multi-source install with several such clones)
+    #: gets one WARNING each, not one per file.
+    _link_fallback_warned: bool = False
+    #: Set by :meth:`_stage_file`/:meth:`_stage_directory` only for the
+    #: staging actions that consume ``self.source`` as a single reversible
+    #: unit (a file move, or a directory's whole-tree rename fast path) --
+    #: never for a merge move, which is not atomic and, like a partial
+    #: copy merge, is not rolled back. ``Install._stage`` reads this to
+    #: decide whether a later apply/replace/record failure can still move
+    #: the data back to ``self.source``.
+    _move_atomic: bool = False
+
+    def _warn_link_fallback(self) -> None:
+        """Log one WARNING (per :class:`Install` clone -- i.e. per source,
+        which is per command for the common single-source case) the first
+        time ``--method link`` has to fall back to copying instead of
+        hardlinking a file, rather than once per file."""
+        if self._link_fallback_warned:
+            return
+        self._link_fallback_warned = True
+        self._logger_.warning(
+            "--method link: one or more sources could not be hardlinked "
+            "(different filesystem, protected_hardlinks, the per-inode "
+            "link limit, or a permission error); copying instead"
+        )
+
+    def _move_file(self, src: Path, tmp: Path) -> None:
+        """Move ``src``'s content into ``tmp`` for ``--method move``:
+        ``os.replace`` when both paths are on the same filesystem, else
+        ``shutil.move`` (a copy, then unlinking ``src``).
+        ``tmp`` must not already exist (mirrors :func:`_try_link` and the
+        plain-copy branch, which also stage into a freshly reserved name).
+        """
+        try:
+            os.replace(src, tmp)
+        except OSError as exc:
+            if exc.errno != errno.EXDEV:
+                raise
+            shutil.move(os.fspath(src), os.fspath(tmp))
+
+    def _rollback_move(self, current: Path) -> None:
+        """Move ``current`` -- wherever ``--method move`` just left
+        ``self.source``'s data, a sibling temp or ``dst`` itself once
+        ``os.replace`` already ran -- back onto ``self.source`` after a
+        later apply/replace/record failure: a move must never lose the
+        only copy. Only called when :attr:`_move_atomic` is set,
+        i.e. never for a merge move (not a single reversible unit; a
+        partial merge is not rolled back, same as for a copy).
+
+        Best effort: logs and swallows its own failure rather than raising,
+        so it never shadows the real exception the caller is already
+        re-raising.
+        """
+        if not (current.exists() or current.is_symlink()):
+            return  # nothing left to move back
+        try:
+            if current.is_dir() and not current.is_symlink():
+                os.rename(current, self.source)
+            else:
+                try:
+                    os.replace(current, self.source)
+                except OSError as exc:
+                    if exc.errno != errno.EXDEV:
+                        raise
+                    shutil.move(os.fspath(current), os.fspath(self.source))
+        except OSError as exc:
+            self._logger_.error(
+                "--method move: could not restore %s to %s after a staging "
+                "failure (%s); the source is gone",
+                current,
+                self.source,
+                exc,
+            )
 
     def _stage_file(self, src: Path, dst: Path) -> Path:
         """Write this clone's file content into a temp file next to ``dst``.
@@ -216,23 +318,37 @@ class _Staging:
                     )
             elif not from_stdin:
                 if stat.S_ISREG(os.stat(src).st_mode):
-                    # Copy src -> tmp: content, permission bits and
-                    # modification time only -- never shutil.copy2, which
-                    # (via copystat) also copies BSD file flags and extended
-                    # attributes (e.g. an SELinux label). Staging should not
-                    # carry either: on macOS, copystat's chflags() call
-                    # raises PermissionError for a source with any of the
-                    # user-immutable/no-dump flags set, even though this
-                    # process only reads the source. mkstemp already created
-                    # tmp; copyfile wants to create the file itself, so
-                    # remove the placeholder first. A mode set by -m still
-                    # wins over the copied one, applied later by
-                    # apply_entry().
+                    # mkstemp already created tmp 0600; os.link/copyfile/
+                    # os.replace each want to create/replace the name
+                    # themselves, so remove the placeholder first (matches
+                    # the plain-copy path below, which relied on this
+                    # already). A mode set by -m still wins over the
+                    # staged one, applied later by apply_entry() -- true
+                    # for all three methods, including link, where it also
+                    # lands on the shared inode.
                     tmp.unlink()
-                    shutil.copyfile(os.fspath(src), os.fspath(tmp))
-                    shutil.copymode(os.fspath(src), os.fspath(tmp))
-                    src_stat = os.stat(src)
-                    os.utime(tmp, ns=(src_stat.st_atime_ns, src_stat.st_mtime_ns))
+                    if self.method == "move":
+                        # os.replace/shutil.move: consumes src.
+                        self._move_file(src, tmp)
+                        self._move_atomic = True
+                    elif self.method == "link" and _try_link(src, tmp):
+                        pass  # hardlinked; nothing further to stage.
+                    else:
+                        if self.method == "link":
+                            self._warn_link_fallback()
+                        # Copy src -> tmp: content, permission bits and
+                        # modification time only -- never shutil.copy2, which
+                        # (via copystat) also copies BSD file flags and
+                        # extended attributes (e.g. an SELinux label).
+                        # Staging should not carry either: on macOS,
+                        # copystat's chflags() call raises PermissionError
+                        # for a source with any of the user-immutable/
+                        # no-dump flags set, even though this process only
+                        # reads the source.
+                        shutil.copyfile(os.fspath(src), os.fspath(tmp))
+                        shutil.copymode(os.fspath(src), os.fspath(tmp))
+                        src_stat = os.stat(src)
+                        os.utime(tmp, ns=(src_stat.st_atime_ns, src_stat.st_mtime_ns))
                 else:
                     # A FIFO or non-terminal character device (a named pipe,
                     # /dev/stdin, process substitution): stream its bytes.
