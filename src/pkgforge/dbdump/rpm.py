@@ -149,12 +149,11 @@ class RpmSpecFiles(PerEntryFormat):
         return _has_control([joined]) or "%" in joined
 
     def render(self, entries: Entries) -> bytes:
-        """Render every entry, validating the whole batch's paths once
-        (parent ``Q1`` design): a single check over every path joined
-        together decides whether anything needs the slower per-entry
-        rejection at all, so a clean batch never runs a rejection check per
-        entry. Byte-identical to rendering each entry through
-        :meth:`render_entry` alone.
+        """Render every entry, validating the whole batch's paths once: a
+        single check over every path joined together decides whether
+        anything needs the slower per-entry rejection at all, so a clean
+        batch never runs a rejection check per entry. Byte-identical to
+        rendering each entry through :meth:`render_entry` alone.
 
         One pass builds every line AND collects the paths for the batch
         check; the check itself (and, on a hit, the per-entry fallback) runs

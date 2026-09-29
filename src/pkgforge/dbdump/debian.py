@@ -198,10 +198,10 @@ class Debian(MultiArtifactFormat):
         # Resolve mode/owner/group once per entry (needed for both the batch
         # check below and the per-entry build), then validate the whole
         # batch in two regex searches instead of one control-character
-        # search plus three whitespace searches per entry (parent Q1
-        # design): a clean batch (the common case) never runs a per-entry
-        # check at all. On a hit, `_debian_reject` re-runs today's exact
-        # per-entry checks in entry order, so the first offending entry
+        # search plus three whitespace searches per entry: a clean batch
+        # (the common case) never runs a per-entry check at all. On a hit,
+        # `_debian_reject` re-runs today's exact per-entry checks in entry
+        # order, so the first offending entry
         # raises exactly the error it would raise rendered alone.
         resolved = [
             (
