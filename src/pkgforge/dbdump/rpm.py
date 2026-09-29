@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from ..entry import FileEntry, FileType, _or_default
+from ..entry import DEFAULT, FileEntry, FileType
 from . import Entries, PerEntryFormat, DumpError, _has_control, _reject_control
 
 
@@ -24,14 +24,20 @@ def _rpm_reject(path: str) -> None:
         )
 
 
+#: `path.translate` (one pass) instead of two chained `.replace` calls (two
+#: passes): both express the same two independent, context-free
+#: substitutions (each original character maps to a fixed output regardless
+#: of its neighbors), so the two are always byte-identical.
+_RPM_ESCAPE_TABLE = str.maketrans({"\\": "\\\\", '"': '\\"'})
+
+
 def _rpm_escape(path: str) -> str:
     """Quote an already-validated ``path`` for rpm 4.19+ (no rejection):
     backslash and double quote are escaped, glob characters
     (``* ? [ ]``) are left alone -- rpm's own shell-globbing quoting rules
     make a quoted glob character match only the literal path anyway.
     """
-    escaped = path.replace("\\", "\\\\").replace('"', '\\"')
-    return f'"{escaped}"'
+    return f'"{path.translate(_RPM_ESCAPE_TABLE)}"'
 
 
 def _rpm_quote(path: str) -> str:
@@ -140,21 +146,6 @@ class RpmSpecFiles(PerEntryFormat):
         """
         return _has_control([joined]) or "%" in joined
 
-    def _line(self, path: str, entry: FileEntry, quoted: str) -> bytes:
-        prefix = entry["meta"].get("rpmprefix") or ""
-        if prefix:
-            prefix += " "
-        if entry["type"] == FileType.Directory:
-            prefix += "%dir "
-
-        mode = _or_default(entry["mode"])
-        owner = _or_default(entry["owner"])
-        group = _or_default(entry["group"])
-
-        return f"{prefix}%attr({mode},{owner},{group}) {quoted}\n".encode(
-            "utf-8", "surrogateescape"
-        )
-
     def render(self, entries: Entries) -> bytes:
         """Render every entry, validating the whole batch's paths once
         (parent ``Q1`` design): a single check over every path joined
@@ -162,6 +153,12 @@ class RpmSpecFiles(PerEntryFormat):
         rejection at all, so a clean batch never runs a rejection check per
         entry. Byte-identical to rendering each entry through
         :meth:`render_entry` alone.
+
+        The per-line body is inlined here rather than split into a helper:
+        this is the hot loop, and ``x or DEFAULT`` is exactly what
+        :func:`~pkgforge.entry._or_default` does for every string value
+        (``apply_entry`` still calls that function directly; this loop just
+        skips the extra call).
         """
         paths = [path for path, _entry in entries]
         if self._batch_reject_needed("".join(paths)):
@@ -170,9 +167,23 @@ class RpmSpecFiles(PerEntryFormat):
             # exactly the error it would raise rendered alone.
             for path in paths:
                 self._reject(path)
-        return b"".join(
-            self._line(path, entry, self._escape(path)) for path, entry in entries
-        )
+        escape = self._escape
+        lines = []
+        for path, entry in entries:
+            prefix = entry["meta"].get("rpmprefix") or ""
+            if prefix:
+                prefix += " "
+            if entry["type"] == FileType.Directory:
+                prefix += "%dir "
+            mode = entry["mode"] or DEFAULT
+            owner = entry["owner"] or DEFAULT
+            group = entry["group"] or DEFAULT
+            lines.append(
+                f"{prefix}%attr({mode},{owner},{group}) {escape(path)}\n".encode(
+                    "utf-8", "surrogateescape"
+                )
+            )
+        return b"".join(lines)
 
     def render_entry(self, path: str, entry: FileEntry) -> bytes:
         return self.render([(path, entry)])
