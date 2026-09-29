@@ -137,8 +137,7 @@ def measure():
     debian_format = Debian()
 
     def _render_rpm():
-        for path, entry in entries:
-            rpm_format.render_entry(path, entry)
+        rpm_format.render(entries)
 
     def _render_debian():
         debian_format.render(entries)
