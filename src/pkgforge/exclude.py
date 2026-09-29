@@ -12,17 +12,17 @@ pattern, e.g.::
 ``**`` as a whole segment matches zero or more path segments; a *trailing*
 ``**`` (or a bare ``**``) matches one or more -- a directory's contents,
 never the directory itself. A relative glob matches at any depth; an
-absolute one is anchored at a root that differs per command (``install``:
-the source directory; ``scan``: ``<buildroot>/PATH``; ``dbdump``: ``/``, the
-DB key) -- see the exclude-pattern guide for the full per-command table.
+absolute one is anchored at the *install path* -- the ``/``-rooted path the
+entry has (``dbdump``) or will have (``install``/``scan``) in the file DB --
+the same coordinate on every command. See the exclude-pattern guide for the
+full grammar and worked examples.
 """
 
 from __future__ import annotations
 
 import argparse
 import functools
-import glob
-import os
+import posixpath
 import re
 import typing
 from pathlib import Path, PurePath
@@ -51,8 +51,8 @@ class ExcludeSyntaxError(UsageError, argparse.ArgumentTypeError):
 
 
 #: What a statement is actually matched against: either the real ``Path`` a
-#: caller passed in, or -- once :class:`PathMatch` has rebased it relative to
-#: a root -- a plain root-relative POSIX string.
+#: caller passed in (no root -- ``dbdump``), or the install-path string
+#: :meth:`PathMatch._candidate` built for this call.
 _Candidate = typing.Union[str, Path]
 
 
@@ -155,20 +155,40 @@ def _glob_regex(pattern: str) -> "re.Pattern[str]":
     return re.compile(prefix + body + r"\Z")
 
 
-def _relative_candidate(path: Path, root: Path) -> str:
-    """Root-relative POSIX text for a RELATIVE statement's candidate.
-
-    ``path == root`` -- the single-file ``scan`` case, where there is no
-    deeper relative path to compute -- matches by the root's own name. A
-    path genuinely outside ``root`` (reachable only from the Python API)
-    keeps its own text unchanged rather than raising.
+def _literal_prefix(pattern: str) -> str:
+    """The literal (glob-metacharacter-free) leading path text of an
+    ANCHORED ``pattern``: its anchor, plus whole segments up to (not
+    including) the first one containing ``*``, ``?`` or ``[``. Used only by
+    :meth:`PathMatch.unreachable` to judge whether a pattern can ever match
+    anything under an install root -- never for actual matching, which stays
+    on :func:`_glob_regex`.
     """
-    if path == root:
-        return root.name
-    try:
-        return path.relative_to(root).as_posix()
-    except ValueError:
-        return PurePath(path).as_posix()
+    parsed = PurePath(pattern)
+    anchor_posix = PurePath(parsed.anchor).as_posix() if parsed.anchor else ""
+    rest = parsed.as_posix()[len(anchor_posix) :]
+    literal: typing.List[str] = []
+    for seg in rest.split("/") if rest else []:
+        if not seg:
+            continue
+        if any(c in seg for c in "*?["):
+            break
+        literal.append(seg)
+    if not literal:
+        return anchor_posix or "/"
+    joined = "/".join(literal)
+    return joined if not anchor_posix else anchor_posix.rstrip("/") + "/" + joined
+
+
+def _contains(parent: str, child: str) -> bool:
+    """True when the POSIX path text ``parent`` is an ancestor of, or equal
+    to, ``child`` -- e.g. ``_contains("/opt", "/opt/app")`` is true, as is
+    ``_contains("/opt/app", "/opt/app")``. ``parent == "/"`` (or a bare
+    drive root) contains everything.
+    """
+    trimmed = parent.rstrip("/")
+    if not trimmed:
+        return True
+    return child == trimmed or child.startswith(trimmed + "/")
 
 
 def filetypetest(name: str) -> PathTest:
@@ -245,8 +265,9 @@ class PathMatchStmt(NS):
     @property
     def anchored(self) -> bool:
         """True when ``pattern`` is rooted (a leading ``/``, or a Windows
-        drive) -- true both for an originally-absolute pattern and, once
-        rebased, for its root-prefixed copy."""
+        drive): it is matched against the install path's own leading
+        segments rather than at any depth. Also drives
+        :meth:`PathMatch.unreachable`."""
         return bool(PurePath(self.pattern).anchor)
 
     def _pattern_matches(self, candidate: _Candidate) -> bool:
@@ -272,33 +293,6 @@ class PathMatchStmt(NS):
         ):
             return not self.negate
         return None
-
-    def rebased(self, root: Path) -> PathMatchStmt:
-        """Copy of this statement with an absolute pattern re-rooted at ``root``.
-
-        Returns ``self`` when the pattern is relative (nothing to rewrite).
-        Never mutates: parsed statements are shared across `PathMatch`
-        constructions (a multi-source ``install`` reuses them per source), so
-        rewriting in place would re-prefix the pattern once per construction.
-        """
-        pattern = Path(self.pattern)
-        if not pattern.anchor:
-            return self
-        # `root` is absolutized (never `resolve()`, which would also follow
-        # symlinks) and glob-escaped, so a relative --buildroot no longer
-        # makes the rebased pattern float, and glob characters in the root
-        # text (e.g. a source directory named "pkg[1]") stay literal.
-        # `.anchor`, not `.is_absolute()`: the runtime is POSIX, but the
-        # grammar is unit-tested everywhere, and on Windows a bare leading
-        # "/" pattern (no drive) has a truthy `.anchor` ("\\") while
-        # `.is_absolute()` is False -- `relative_to(anchor)` rather than
-        # `relative_to("/")` handles a drive-anchored pattern too.
-        root_text = glob.escape(os.fspath(Path(root).absolute()))
-        return PathMatchStmt(
-            negate=self.negate,
-            tests=self.tests,
-            pattern=os.fspath(Path(root_text, pattern.relative_to(pattern.anchor))),
-        )
 
     @classmethod
     def parse(cls, pattern: str) -> PathMatchStmt:
@@ -338,28 +332,58 @@ class PathMatchStmt(NS):
 
 
 class PathMatch(typing.List[PathMatchStmt]):
-    """An ordered set of :class:`PathMatchStmt`, optionally bound to a
-    ``root`` (absolute patterns are rebased onto it as copies; the caller's
-    own statements are left untouched). :meth:`match` evaluates each
-    statement in order and returns the first non-``None`` result."""
+    """An ordered set of :class:`PathMatchStmt`, matched against the
+    **install path** -- the ``/``-rooted path an entry has (``dbdump``) or
+    will have (``install``/``scan``) in the file DB -- the one coordinate
+    all three commands share. :meth:`match` evaluates each statement in
+    order and returns the first non-``None`` result. No pattern rewriting:
+    statements are stored exactly as parsed; :meth:`_candidate` builds one
+    fresh install-path string per :meth:`match` call instead.
+    """
 
     def __init__(
         self,
         stmts: typing.Iterable[PathMatchStmt],
         root: typing.Optional[Path] = None,
+        installroot: str = "/",
     ):
-        # Absolutized, never resolved (no symlink following) -- see
-        # rebased()'s docstring. Kept on self so .match() can build each
-        # candidate the same way rebased() built the stored patterns.
+        # Absolutized, never resolved (no symlink following). `root` is the
+        # real filesystem location a call's `path` is under (a source
+        # directory for `install`, the scanned tree for `scan`); `None` for
+        # `dbdump`, which has no filesystem root at all -- its `path` IS the
+        # DB key already.
         self.root = Path(root).absolute() if root is not None else None
-        # Rebase absolute patterns onto `root` as COPIES: see rebased()'s own
-        # docstring -- the incoming statements come from parsed argv and are
-        # shared between constructions (multi-source install builds one
-        # PathMatch per source), so an in-place rewrite would prefix them
-        # once per source.
-        if self.root is not None:
-            stmts = [stmt.rebased(self.root) for stmt in stmts]
+        if not installroot.startswith("/"):
+            raise ValueError(
+                f"installroot must be an absolute POSIX path, got {installroot!r}"
+            )
+        # normpath, not just the raw text: collapses "//"/"/./" the same way
+        # buildpath()'s own PurePosixPath text is already free of, so a
+        # caller passing one through unnormalized still lines up.
+        self.installroot = posixpath.normpath(installroot)
         super().__init__(stmts)
+
+    def _candidate(self, path: typing.Union[str, Path]) -> _Candidate:
+        """The single install-path string every statement in one
+        :meth:`match` call is matched against -- or ``path`` itself with no
+        ``root`` (``dbdump``, where ``path`` already IS the DB key).
+
+        ``path == root`` (the single-file/symlink ``scan`` case) is
+        :attr:`installroot` itself; below ``root`` it is ``installroot``
+        joined with the path's own root-relative POSIX segments. A path
+        outside ``root`` entirely (reachable only via the Python API, never
+        through the CLI) keeps its own POSIX text rather than raising.
+        """
+        if self.root is None:
+            return path
+        abspath = Path(path).absolute()
+        if abspath == self.root:
+            return self.installroot
+        try:
+            rel = abspath.relative_to(self.root).as_posix()
+        except ValueError:
+            return PurePath(abspath).as_posix()
+        return posixpath.join(self.installroot, rel)
 
     def match(
         self,
@@ -370,6 +394,8 @@ class PathMatch(typing.List[PathMatchStmt]):
     ) -> typing.Optional[bool]:
         if not self:
             return True
+
+        candidate = self._candidate(path)
 
         # The entry is built lazily -- at most once, and only for a
         # statement whose glob ALREADY matched and that actually has inline
@@ -382,22 +408,7 @@ class PathMatch(typing.List[PathMatchStmt]):
         # "the caller supplied one" rather than triggering a real lstat.
         fileentry: typing.Optional[FileEntry] = None
 
-        # With a root, an ANCHORED statement is matched against the
-        # candidate's own absolute path (the rebased pattern already embeds
-        # the root's absolute, escaped text as its prefix); a RELATIVE
-        # statement is matched against the path taken relative to the root,
-        # so it can no longer float above the root or drift with a relative
-        # --buildroot. With no root (dbdump has none), every statement sees
-        # the path exactly as given -- "the key".
-        abspath = Path(path).absolute() if self.root is not None else None
         for stmt in self:
-            if self.root is None:
-                candidate: _Candidate = path
-            elif stmt.anchored:
-                candidate = typing.cast(Path, abspath)
-            else:
-                candidate = _relative_candidate(typing.cast(Path, abspath), self.root)
-
             if stmt.pattern and not stmt._pattern_matches(candidate):
                 continue
 
@@ -412,6 +423,44 @@ class PathMatch(typing.List[PathMatchStmt]):
 
             return not stmt.negate
         return _default
+
+    def unreachable(self) -> typing.List[PathMatchStmt]:
+        """Anchored statements (negated ones too) that can never match
+        anything under :attr:`installroot`: their literal prefix -- the
+        segments before the first one containing ``*``, ``?`` or ``[`` -- is
+        neither an ancestor-or-self nor a descendant-or-self of it. A
+        drive-anchored pattern is always included (a POSIX installroot can
+        never sit under a drive, or vice versa); a bare ``/`` prefix never
+        is (it is an ancestor of everything). A relative statement is never
+        included -- it matches at any depth, so it is never structurally
+        impossible. Used by ``install``/``scan`` to warn about a pattern
+        written for the OLD source-/scan-root anchor that no install path
+        can reach any more; ``dbdump`` has no root and never calls this.
+        """
+        unreachable = []
+        for stmt in self:
+            if not stmt.anchored:
+                continue
+            prefix = _literal_prefix(stmt.pattern)
+            if not (
+                _contains(prefix, self.installroot)
+                or _contains(self.installroot, prefix)
+            ):
+                unreachable.append(stmt)
+        return unreachable
+
+
+def log_unreachable(matcher: PathMatch, logger: typing.Any) -> None:
+    """Log one WARNING per :meth:`PathMatch.unreachable` statement -- shared
+    by ``install`` (once per source) and ``scan`` (once); ``dbdump`` never
+    calls this (no root, so nothing is ever structurally unreachable there).
+    """
+    for stmt in matcher.unreachable():
+        logger.warning(
+            "-X %r matches install paths; nothing below %s can match it",
+            stmt.pattern,
+            matcher.installroot,
+        )
 
 
 class ExcludeArgs(duho.Cmd):
@@ -432,8 +481,9 @@ class ExcludeArgs(duho.Cmd):
         duho.Append(PathMatchStmt.parse, metavar="STMT"),
         duho.Meta(
             help="exclude paths matching STMT (repeatable); "
-            "STMT is [!][(?[!]test:arg)...]GLOB; see the "
-            "exclude-pattern guide for the grammar"
+            "STMT is [!][(?[!]test:arg)...]GLOB; an absolute GLOB matches "
+            "the /-rooted install path; see the exclude-pattern guide for "
+            "the grammar"
         ),
     ] = []
     ("--exclude", "-X")

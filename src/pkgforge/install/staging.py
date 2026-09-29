@@ -18,7 +18,7 @@ from .decompress import _DECOMPRESSORS
 from .transfer import _Transfer, _try_link
 from ..entry import DEFAULT, FileType
 from ..errors import PkgForgeError, UsageError
-from ..exclude import PathMatch
+from ..exclude import PathMatch, log_unreachable
 
 
 def _require_stdin() -> typing.BinaryIO:
@@ -171,7 +171,25 @@ def _copy_ignore(
 
 class _Staging(_Transfer):
     """Staging steps for Install; uses the host's meta, decompress,
-    exclude, buildroot, db, method and _logger_."""
+    exclude, buildroot, buildpath, db, method and _logger_."""
+
+    def _exclude_matcher(self, root: Path, dst: Path) -> typing.Optional[PathMatch]:
+        """Build this clone's ``-X`` matcher for a directory copy from
+        ``root`` onto ``dst``, anchored at the install path ``dst`` will
+        have in the DB (:meth:`~pkgforge.command.PkgForgeCmd.buildpath`) --
+        the same coordinate ``scan`` and ``dbdump`` use. ``None`` without
+        ``self.exclude`` (a plain ``copytree``, nothing to filter). Logs one
+        WARNING per pattern :meth:`~pkgforge.exclude.PathMatch.unreachable`
+        finds -- written for the old source-anchored ``-X``, which no
+        install path can reach any more.
+        """
+        if not self.exclude:
+            return None
+        matcher = PathMatch(
+            self.exclude, root, installroot=self.buildpath(dst).as_posix()
+        )
+        log_unreachable(matcher, self._logger_)
+        return matcher
 
     def _stage_file(self, src: Path, dst: Path) -> Path:
         """Write this clone's file content into a temp file next to ``dst``.
@@ -401,7 +419,7 @@ class _Staging(_Transfer):
         created = not dst.exists()
         try:
             dst.mkdir(exist_ok=True)
-            matcher = PathMatch(self.exclude, src) if self.exclude else None
+            matcher = self._exclude_matcher(src, dst)
             skip = self._self_copy_skips(src, dst)
             copy_function_kwargs = {}
             if self.method == "move":

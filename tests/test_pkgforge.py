@@ -312,9 +312,11 @@ def test_install_remove_source_directory(tmp_path):
 
 
 def test_install_multi_source_absolute_exclude(tmp_path):
-    # Guards: PathMatch must not rewrite the shared parsed --exclude
-    # statements in place -- a second source must not get a double-prefixed
-    # pattern (<src2>/<src1>/...) that matches nothing.
+    # Guards: an absolute -X pattern is matched against the install path
+    # (DESTINATION/<source name>/...), the same text regardless of source --
+    # no per-source rebasing needed, so ONE pattern with a glob standing in
+    # for the varying source name excludes "sub/skip" under every source
+    # that shares DESTINATION.
     from pkgforge.install import Install
 
     root = tmp_path / "root"
@@ -327,8 +329,9 @@ def test_install_multi_source_absolute_exclude(tmp_path):
         (d / "keep").mkdir()
         (d / "keep" / "y").write_text("y")
 
-    # Absolute pattern: anchored to each source root, rebased per source.
-    pattern = os.path.join(tmp_path.anchor, "sub", "skip")
+    # Absolute pattern against the shared DESTINATION, with a glob for each
+    # source's own directory name.
+    pattern = "/opt/out/*/sub/skip"
     parser = Install._parser_()
     inst = parser.parse_args(
         [
@@ -356,7 +359,6 @@ def test_install_multi_source_absolute_exclude(tmp_path):
     for name in ("src1", "src2"):
         staged = root / "opt" / "out" / name / "sub"
         assert (staged / "keep" / "y").exists(), name
-        # The bug: only src1 was excluded; src2 kept the whole tree.
         assert not (staged / "skip").exists(), name
 
 
@@ -593,33 +595,34 @@ def test_single_nonmatching_recursive_dir_still_keeps(make_entry):
     assert m.match(Path("/a/tmp"), make_entry(type=FileType.Directory)) is None
 
 
-def test_root_rebase_does_not_mutate_shared_statements(tmp_path, make_entry):
-    # Guards: PathMatch.__init__ must not rewrite stmt.pattern in place -- a
-    # second construction over the same parsed statements must not re-prefix
-    # an already-rebased pattern (/a/** -> /src1/a/** -> /src2/src1/a/**).
-    # This is exactly what a multi-source install does: one PathMatch per
-    # source over one shared parsed statement list.
+def test_pathmatch_keeps_statements_unchanged(tmp_path, make_entry):
+    # Guards: PathMatch stores statements exactly as parsed -- no rebasing,
+    # no copying -- so two constructions over the same parsed list (what a
+    # multi-source install does: one PathMatch per source) share the exact
+    # same PathMatchStmt objects and never interfere with each other. This
+    # is what makes the old rebasing bug (a pattern re-prefixed once per
+    # source: /a/** -> /src1/a/** -> /src2/src1/a/**) structurally
+    # impossible now: there is nothing left to rebase.
     src1 = tmp_path / "src1"
     src2 = tmp_path / "src2"
-    # Absolute on every platform (POSIX "/", Windows "C:\") so the rebase
-    # branch is actually taken here, not just on the Linux runtime.
-    pattern = os.path.join(tmp_path.anchor, "a", "**")
+    pattern = "/a/**"
 
     stmts = [PathMatchStmt.parse(pattern)]
     first = PathMatch(stmts, src1)
     second = PathMatch(stmts, src2)
 
     assert stmts[0].pattern == pattern  # caller's statement untouched
-    assert first[0].pattern == os.fspath(src1 / "a" / "**")
-    # The bug: this used to be <src2>/<src1>/a/**.
-    assert second[0].pattern == os.fspath(src2 / "a" / "**")
-    # Each matcher still excludes under its own root.
+    assert first[0] is stmts[0]
+    assert second[0] is stmts[0]
+    # Each matcher still excludes under its own root, from the SAME
+    # unmodified pattern -- both installroots default to "/".
     assert first.match(src1 / "a" / "x", make_entry()) is True
     assert second.match(src2 / "a" / "x", make_entry()) is True
 
 
 def test_relative_pattern_statement_is_shared_not_copied(tmp_path):
-    # A relative pattern needs no rewriting: rebased() returns self.
+    # PathMatch never rewrites or copies a statement -- it stores exactly
+    # what was parsed.
     stmt = PathMatchStmt.parse("**/*.pyc")
     assert PathMatch([stmt], tmp_path)[0] is stmt
 

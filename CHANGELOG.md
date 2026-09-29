@@ -297,12 +297,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `PkgForge`), so completion binds. Regenerate installed ones.
 
 ### Changed
-- A relative `--exclude`/`-X` pattern now matches only inside the command's
-  root (`install`: the source directory; `scan`: `<buildroot>/PATH`) instead
-  of anywhere in the full path. An absolute pattern stays anchored there even
-  under a relative `--buildroot` (e.g. the default `.`), and glob characters
-  in the root path (e.g. a source directory named `pkg[1]`) are now literal
-  instead of being read as glob syntax.
+- `-X` matches the install path — the `/`-rooted path the entry has in the
+  DB — on every command. `install` anchored an absolute pattern at the
+  source directory and `scan` at `<buildroot>/PATH`; a relative pattern now
+  also matches DESTINATION/PATH segments above the copied or scanned tree,
+  as `dbdump` already did. Rewrite such patterns as install paths
+  (`install -X /tmp build /opt/app` -> `-X /opt/app/build/tmp`) or as
+  relative ones; an absolute pattern that can no longer match logs a
+  warning.
 - `install`, `scan` and `dbdump` take `--exclude`/`-X` from a shared
   `pkgforge.exclude.ExcludeArgs` base instead of each declaring it separately;
   its position in `install --help` moves earlier (right after
@@ -352,6 +354,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   traceback back); a closed output pipe now exits 1 silently. An unknown
   `--chown` owner or group now raises `UsageError` instead of a raw
   `KeyError`.
+- `PathMatch(stmts, root=None, installroot="/")` and `PathMatch.unreachable()`:
+  the former's new `installroot` keyword names the install path a matched
+  entry will have; the latter lists anchored statements that can never match
+  under it.
+
+### Removed
+- `PathMatchStmt.rebased()`: pass `installroot=` to `PathMatch` instead.
 
 ### Fixed
 - The wheel and sdist never include files named `*.local.*` or `CLAUDE*`, even when built from a tree without `.gitignore`.
