@@ -24,20 +24,22 @@ def _rpm_reject(path: str) -> None:
         )
 
 
-#: `path.translate` (one pass) instead of two chained `.replace` calls (two
-#: passes): both express the same two independent, context-free
-#: substitutions (each original character maps to a fixed output regardless
-#: of its neighbors), so the two are always byte-identical.
-_RPM_ESCAPE_TABLE = str.maketrans({"\\": "\\\\", '"': '\\"'})
-
-
 def _rpm_escape(path: str) -> str:
     """Quote an already-validated ``path`` for rpm 4.19+ (no rejection):
     backslash and double quote are escaped, glob characters
     (``* ? [ ]``) are left alone -- rpm's own shell-globbing quoting rules
     make a quoted glob character match only the literal path anyway.
+
+    Two chained ``.replace`` calls, not ``str.translate``: ``translate``
+    only has a fast single-character path when every replacement is a
+    single character (or deletion) -- a table whose values are
+    *multi*-character strings (both of these are: ``\\`` -> ``\\\\``, ``"``
+    -> ``\\"``) falls onto a much slower generic path. Measured on
+    3.9/3.14: swapping in ``translate`` here made a 1000-entry render
+    slower, not faster, on both.
     """
-    return f'"{path.translate(_RPM_ESCAPE_TABLE)}"'
+    escaped = path.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
 
 
 def _rpm_quote(path: str) -> str:
@@ -154,22 +156,23 @@ class RpmSpecFiles(PerEntryFormat):
         entry. Byte-identical to rendering each entry through
         :meth:`render_entry` alone.
 
+        One pass builds every line AND collects the paths for the batch
+        check; the check itself (and, on a hit, the per-entry fallback) runs
+        only after, on the collected list -- rejecting a bad entry only
+        after also having escaped it wastes a little work on the rare bad
+        batch, but a second full pass over ``entries`` up front cost more
+        than that on every batch, clean ones included (measured on 3.9).
         The per-line body is inlined here rather than split into a helper:
         this is the hot loop, and ``x or DEFAULT`` is exactly what
         :func:`~pkgforge.entry._or_default` does for every string value
         (``apply_entry`` still calls that function directly; this loop just
         skips the extra call).
         """
-        paths = [path for path, _entry in entries]
-        if self._batch_reject_needed("".join(paths)):
-            # Something in the batch is bad -- run today's exact per-entry
-            # check in entry order so the first offending entry raises
-            # exactly the error it would raise rendered alone.
-            for path in paths:
-                self._reject(path)
         escape = self._escape
         lines = []
+        paths = []
         for path, entry in entries:
+            paths.append(path)
             prefix = entry["meta"].get("rpmprefix") or ""
             if prefix:
                 prefix += " "
@@ -183,6 +186,14 @@ class RpmSpecFiles(PerEntryFormat):
                     "utf-8", "surrogateescape"
                 )
             )
+        if self._batch_reject_needed("".join(paths)):
+            # Something in the batch is bad -- run today's exact per-entry
+            # check in entry order so the first offending entry raises
+            # exactly the error it would raise rendered alone (nothing was
+            # returned yet, so no partial output can have escaped this
+            # method).
+            for path in paths:
+                self._reject(path)
         return b"".join(lines)
 
     def render_entry(self, path: str, entry: FileEntry) -> bytes:
