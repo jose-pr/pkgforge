@@ -274,6 +274,52 @@ class _Staging:
                 exc,
             )
 
+    def _link_copy_function(self, src_path: str, dst_path: str) -> None:
+        """``shutil.copytree``'s per-file ``copy_function`` for a directory
+        source staged with ``--method link``: hardlink each file, falling
+        back to a copy (the same errnos, and the same once-per-clone
+        warning, as the single-file path) for one ``os.link`` can't span.
+        """
+        src = Path(src_path)
+        tmp = Path(dst_path)
+        if _try_link(src, tmp):
+            return
+        self._warn_link_fallback()
+        shutil.copyfile(src_path, dst_path)
+        shutil.copymode(src_path, dst_path)
+
+    def _move_copy_function(self, src_path: str, dst_path: str) -> None:
+        """``shutil.copytree``'s per-file ``copy_function`` for a directory
+        source staged with ``--method move``'s merge path: move (not copy)
+        each file, via :meth:`_move_file`. A symlink in the tree is
+        recreated fresh at the destination by ``copytree`` itself (never
+        routed through ``copy_function``), so it is left as-is in the
+        source; :meth:`_stage_directory` only removes directories this
+        leaves *empty* afterwards, never a symlink's own parent.
+        """
+        self._move_file(Path(src_path), Path(dst_path))
+
+    def _remove_empty_dirs(self, root: Path) -> None:
+        """Bottom-up: remove every directory under (and including) ``root``
+        that is empty right now. Used after a ``--method move`` merge,
+        where an ``--exclude`` (or a symlink ``copytree`` recreated at the
+        destination without consuming the source's own copy) can leave some
+        files behind in ``root`` -- unlike ``shutil.rmtree``, this never
+        touches a directory that still holds something.
+
+        Freshly re-``listdir``s each directory rather than trusting
+        ``os.walk``'s own (per-directory, snapshotted-once) ``dirnames``/
+        ``filenames`` lists, which -- since this walk is ``topdown=False``,
+        bottom-up -- can otherwise still list a child this same loop already
+        removed a moment earlier.
+        """
+        for dirpath, _dirnames, _filenames in os.walk(root, topdown=False):
+            try:
+                if not os.listdir(dirpath):
+                    os.rmdir(dirpath)
+            except OSError:
+                pass
+
     def _stage_file(self, src: Path, dst: Path) -> Path:
         """Write this clone's file content into a temp file next to ``dst``.
 
@@ -482,14 +528,33 @@ class _Staging:
                 shutil.rmtree(tmp, ignore_errors=True)
                 raise
 
+        if self.method == "move" and not dst.exists() and not self.exclude:
+            # Fast path: the whole tree becomes the destination in one
+            # rename -- nothing left to stage further, and (unlike the
+            # merge path below) a single reversible unit a failure in
+            # apply/replace/record can still move back onto self.source.
+            os.rename(src, dst)
+            self._move_atomic = True
+            return dst
+
         # A directory source: copytree onto dst, merging if dst already
-        # exists. Only roll back dst on failure if this call created it --
-        # a partial merge into a pre-existing directory is not rolled back.
+        # exists (also every move that isn't the fast path above -- an
+        # existing dst, or an --exclude that must leave some source files
+        # behind). Only roll back dst on failure if this call created it --
+        # a partial merge into a pre-existing directory is not rolled back;
+        # for a move specifically, files already consumed from self.source
+        # into dst by the time of that failure would be lost outright if
+        # dst were then deleted too, so a move never does that cleanup.
         created = not dst.exists()
         try:
             dst.mkdir(exist_ok=True)
             matcher = PathMatch(self.exclude, src) if self.exclude else None
             skip = self._self_copy_skips(src, dst)
+            copy_function_kwargs = {}
+            if self.method == "move":
+                copy_function_kwargs["copy_function"] = self._move_copy_function
+            elif self.method == "link":
+                copy_function_kwargs["copy_function"] = self._link_copy_function
             # copytree stamps the top directory's own stat (mode, mtime)
             # once it finishes, unconditionally -- a copystat here first
             # would only be overwritten by that one, so there is none. The
@@ -502,9 +567,18 @@ class _Staging:
                 symlinks=True,
                 ignore=_copy_ignore(src, dst, matcher, skip=skip, meta=dict(self.meta)),
                 dirs_exist_ok=True,
+                **copy_function_kwargs,
             )
+            if self.method == "move":
+                # Every file copy_function actually moved is already gone
+                # from src; a symlink was recreated fresh at dst instead
+                # (copytree never routes one through copy_function) and so
+                # is still in src -- only directories left with nothing
+                # else in them are removed, so an --exclude (or a symlink)
+                # leaves exactly its own path behind, as documented.
+                self._remove_empty_dirs(src)
         except BaseException:
-            if created:
+            if created and self.method != "move":
                 shutil.rmtree(dst, ignore_errors=True)
             raise
         return dst
