@@ -66,6 +66,7 @@ pkgforge install [options] SOURCE... DESTINATION
 | `-D` | shortcut for `-Tp` |
 | `-x, --decompress [KIND]` | decompress the source (`gz`, `xz`, `bz2`, `zst`, `lzma`, or a decompressor tool name such as `gunzip`/`unxz`, matched case-insensitively; inferred from the suffix if KIND is omitted) |
 | `-X, --exclude PATTERN` | exclude matches when copying a directory source; with an archive source, exits 2 instead of extracting every member (extract it and install the directory with `-X` instead); with only file or symlink sources, logs a warning (nothing to filter) |
+| `--method {copy,link,move}` (env `PKGFORGE_INSTALL_METHOD`) | how to stage a file or directory source; `copy` (default) is the only method that leaves the source completely untouched |
 | `--chown` | apply the recorded owner/group (off by default); an unknown owner/group name exits 2 before anything is staged (a recorded-only name, without `--chown`, is never resolved) |
 | `--remove-source` | delete the source after staging (files or directories), only once the entry is applied and recorded -- never when the source IS the staged destination, and refused (exit 2) up front when a directory source contains the resolved destination or the `--db` file |
 | `--noentry` | stage but do not record a DB entry |
@@ -88,6 +89,35 @@ pkgforge install -D -t symlink -O target=/usr/lib/tool/bin - /usr/bin/tool
 `--mode`, `--chown`'s owner/group names, and the `--db` directory (and,
 without `-p`, the destination's parent directory) are all checked before
 anything is staged, so a bad argument exits 2 with nothing on disk.
+
+**`--method`** applies only to a filesystem file or directory source: a `-`
+(stdin) source, `-x`/`--decompress`, an archive source and a symlink
+source/type all ignore it, since none of them stage from an existing source
+file the way a plain copy/link/move would -- setting
+`PKGFORGE_INSTALL_METHOD=move` globally never breaks an archive install.
+
+```bash
+pkgforge install -p --method link ./build/tool /usr/bin
+```
+
+- `copy` (the default) never touches the source; this is the only method
+  safe to use when the source is still needed afterwards.
+- `link` hardlinks the source instead of copying its content -- fast, and
+  free of disk use, but `-m`/`-o`/`-g`/`--chown` then change the *shared*
+  inode, i.e. the source too. A file `os.link` can't span (a different
+  filesystem, `fs.protected_hardlinks`, the per-inode link limit, or a
+  permission error) falls back to a copy automatically, logging one WARNING
+  per `install` invocation rather than one per file.
+- `move` consumes the source: a file is renamed (or, across filesystems,
+  copied then removed) into place, and a directory whose destination
+  doesn't exist yet and has no `-X`/`--exclude` is renamed as a whole tree
+  in one step; otherwise (an existing destination, or an `-X` that must
+  leave some files behind) it moves file by file and removes any source
+  directory left empty, keeping excluded files in place. If staging the
+  entry (applying mode/ownership, or recording it) fails afterwards, the
+  data is moved back onto the source before the error is reported -- except
+  for the merge case above, which -- like a partial copy merge -- is not
+  rolled back. `--remove-source` is redundant with `move` and a no-op there.
 
 KIND is optional and consumes the next token: write `-x KIND SRC DST`,
 `--decompress=KIND`, or `-x` after the paths. `-x SRC DST` makes `SRC` the

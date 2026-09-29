@@ -543,6 +543,35 @@ above).
   staged destination, and is refused with `UsageError`, before any staging,
   when a directory source contains the resolved destination or the `--db`
   file.
+  `--method {copy,link,move}` (env `PKGFORGE_INSTALL_METHOD`; default
+  `copy`) controls how a filesystem file or directory source is staged; a
+  `-` (stdin) source, `-x`/`--decompress`, an archive source and a symlink
+  source/type all ignore it (they never stage from an existing source
+  file). `copy` (unchanged from before) never touches the source. `link`
+  hardlinks (`os.link`) instead of copying; the staged copy then shares the
+  source's inode, so `-m`/`-o`/`-g`/`--chown` change the source too. A file
+  `os.link` can't span (`OSError` with `errno` `EXDEV`/`EPERM`/`EMLINK`/
+  `EACCES` -- a different filesystem, `fs.protected_hardlinks`, the
+  per-inode link limit, or a permission error) falls back to a copy for
+  that file, logging one WARNING per `Install` clone (i.e. once per
+  command, for the common single-source case) rather than once per file; a
+  directory source hardlinks file by file the same way, via `copytree`'s
+  own `copy_function`, and a symlink in the tree is still recreated fresh
+  (never hardlinked). `move` consumes the source: a file is `os.replace`d
+  (same filesystem) or `shutil.move`d (across filesystems) into a sibling
+  temp; a directory whose destination doesn't exist yet and has no
+  `-X`/`--exclude` is `os.rename`d as a whole tree in one step, otherwise
+  it moves file by file via the same `copy_function` mechanism and removes
+  any source directory left empty afterwards (an excluded file, and its
+  parent directory, stay in the source; a symlink is recreated fresh at
+  the destination, like `copy`/`link`, and also stays in the source). If
+  applying the entry, replacing it onto the destination, or recording it
+  then fails, a `move` that staged as a single reversible unit (a file, or
+  the whole-tree rename) is moved back onto the source before the
+  exception propagates -- best effort, logged rather than raising, so it
+  never shadows the real failure; the merge case is not rolled back, same
+  as a partial copy merge. `--remove-source` is redundant with `move` (the
+  source is already gone) and a no-op there, rather than an error.
   `-d` cannot be combined with `-t`/`--type` (a declared `conflicts=`
   group; exit 2, enforced by argparse itself before `Install` is
   constructed). `-X`'s `(?meta:k=v)` inline test sees this run's `-O`
@@ -638,6 +667,9 @@ value as of import. An empty value counts as unset for all three.
 - **`PKGFORGE_ROOT`** — default `--buildroot`.
 - **`PKGFORGE_DB`** — default `--db`.
 - **`PKGFORGE_DB_FORMAT`** — default `--db-format`.
+- **`PKGFORGE_INSTALL_METHOD`** — default `install`'s `--method` (`copy`,
+  `link` or `move`; an empty value counts as unset, same as the three
+  above). CLI wins over it the same way.
 - **`PKGFORGE_MCP`** — set to `stdio` to serve the command tree as MCP tools
   over stdio instead of running a command (duho's launch trigger; any other
   value exits 2). Unset, it does nothing. It is removed from the environment
@@ -651,11 +683,12 @@ value as of import. An empty value counts as unset for all three.
   keeps only the last record per path. Call `compact()` (or `pkgforge
   compact`) to reclaim space / drop history. `sqlite` has no log to compact
   beyond dropping removed rows.
-- File sources are copied, never linked: the copy carries the source's
-  content, permission bits and modification time (never its BSD file flags
-  or extended attributes, e.g. an SELinux label); `-m`/`--chown` apply to
-  the staged copy only, and the source keeps its original content, mode
-  and ownership.
+- File sources are copied by default (`--method copy`), never linked: the
+  copy carries the source's content, permission bits and modification time
+  (never its BSD file flags or extended attributes, e.g. an SELinux label);
+  `-m`/`--chown` apply to the staged copy only, and the source keeps its
+  original content, mode and ownership. `--method link`/`move` opt into
+  sharing or consuming the source instead -- see `install.Install` above.
 - `chown` (owner/group) requires the Unix `pwd`/`grp` stdlib modules; both
   import guarded to `None` off POSIX, so `.apply(chown=True, ...)` raises
   `RuntimeError` there. Parser/`--help` construction still works everywhere.

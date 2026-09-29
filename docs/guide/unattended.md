@@ -93,10 +93,15 @@ pkgforge --print-completion zsh > "${fpath[1]}/_pkgforge"
   that on purpose.
 - **Ownership is opt-in.** `install` records owner/group but only *applies* them
   with `--chown`, so an unprivileged build doesn't fail trying to `chown`.
-- **Sources are never modified.** File sources are copied (content,
-  permission bits and modification time), so `-m`/`--chown` never touch the
-  source, and the build root may sit on any filesystem (including a tmpfs
-  `/tmp`).
+- **Sources are never modified, by default.** `install`'s default
+  `--method copy` copies a file source's content, permission bits and
+  modification time, so `-m`/`--chown` never touch the source, and the build
+  root may sit on any filesystem (including a tmpfs `/tmp`). A pipeline
+  staging a build's own output -- already private, and never needed again
+  afterwards -- can opt into `--method link` (hardlink; `-m`/`--chown` then
+  affect the source too) or `--method move` (consumes the source, rolled
+  back on a staging failure) via `PKGFORGE_INSTALL_METHOD`; see
+  [Commands](commands.md#install).
 - **No external archiver required** for a tar-family source given as a real
   path — stdlib `tarfile` handles it; `bsdtar` is needed for a `-` (stdin)
   source (any format, including a tar stream) and for other formats (e.g.

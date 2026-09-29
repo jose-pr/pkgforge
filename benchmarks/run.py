@@ -22,6 +22,7 @@ import argparse
 import json
 import os
 import platform
+import shutil
 import statistics
 import sys
 import tempfile
@@ -33,6 +34,7 @@ from pathlib import Path
 import pkgforge
 from pkgforge.db import open_db
 from pkgforge.dbdump import Debian, RpmSpecFiles
+from pkgforge.install import Install
 from pkgforge.scan import ScanCmd
 
 # Per-metric inner iteration counts, sized so each metric runs in ~1s regardless
@@ -44,6 +46,10 @@ SCAN_INNER = 20
 #: on every call (the sqlite backend fsyncs per row) -- seconds, not
 #: milliseconds, on a real disk -- so each sample times a single call.
 SCAN_CMD_INNER = 1
+#: An install.tree_* call needs a fresh source tree per call (--method move
+#: consumes it) and a fresh destination -- kept small since each one is a
+#: real filesystem tree, not an in-memory structure.
+INSTALL_TREE_INNER = 5
 REPEAT = 5
 
 #: Number of entries in the synthetic in-memory file DB (load/render metrics).
@@ -51,6 +57,8 @@ DB_SIZE = 1000
 #: Number of files in the on-disk scan tree (filesystem-bound; kept smaller and
 #: machine-dependent -- CI, not a laptop, is the source of truth for this one).
 SCAN_TREE_SIZE = 250
+#: Number of files in the tree install.tree_* stages with each --method.
+INSTALL_TREE_SIZE = 50
 
 
 def _make_db(n: int) -> dict:
@@ -201,6 +209,46 @@ def measure():
             setup=_scan_setup("jsonl", auto_owner_db, owner="--", group="--"),
         )
         _assert_scanned(auto_owner_db, "jsonl", SCAN_TREE_SIZE)
+
+    # install.tree_{copy,link,move}: staging the same synthetic directory
+    # tree with each --method, so the relative cost is comparable within
+    # this one run (a local timing is noisy machine-to-machine; compare
+    # copy/link/move against each other here, not against another run --
+    # see benchmarks/README.md Caveats).
+    with tempfile.TemporaryDirectory() as td:
+        template = Path(td) / "template"
+        template.mkdir()
+        for i in range(INSTALL_TREE_SIZE):
+            (template / f"file{i:04d}.dat").write_bytes(b"x" * 64)
+
+        def _run_install(inst: Install) -> None:
+            inst()
+
+        def _install_setup(method: str, db_path: Path):
+            def _setup() -> Install:
+                src = Path(tempfile.mkdtemp(dir=td))
+                shutil.copytree(template, src, dirs_exist_ok=True)
+                buildroot = Path(tempfile.mkdtemp(dir=td))
+                return Install(
+                    source=src,
+                    destination=Path("/tree"),
+                    buildroot=buildroot,
+                    db=db_path,
+                    db_format="jsonl",
+                    no_target_directory=True,
+                    parents=True,
+                    method=method,
+                )
+
+            return _setup
+
+        for method in ("copy", "link", "move"):
+            db_path = Path(td) / f"install.{method}.jsonl"
+            metrics[f"install.tree_{method}"] = sample(
+                _run_install,
+                INSTALL_TREE_INNER,
+                setup=_install_setup(method, db_path),
+            )
 
     return metrics
 

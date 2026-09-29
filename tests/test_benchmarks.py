@@ -44,6 +44,9 @@ _EXPECTED_METRICS = {
     "scan.cmd_yaml",
     "scan.cmd_sqlite",
     "scan.cmd_auto_owner",
+    "install.tree_copy",
+    "install.tree_link",
+    "install.tree_move",
 }
 
 _EXPECTED_ITERATIONS = {
@@ -78,6 +81,8 @@ def run_module(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(module, "RENDER_INNER", 1)
     monkeypatch.setattr(module, "SCAN_INNER", 1)
     monkeypatch.setattr(module, "SCAN_CMD_INNER", 1, raising=False)
+    monkeypatch.setattr(module, "INSTALL_TREE_SIZE", 3, raising=False)
+    monkeypatch.setattr(module, "INSTALL_TREE_INNER", 1, raising=False)
     monkeypatch.setattr(module, "REPEAT", 1)
     return module
 

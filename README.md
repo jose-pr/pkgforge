@@ -59,6 +59,10 @@ for a runnable end-to-end walkthrough.
 | `compact` | collapse an append-log DB to one record per live path |
 | `dbdump -f FORMAT [OUT]` | render the DB into a packaging manifest |
 
+`install --method {copy,link,move}` (env `PKGFORGE_INSTALL_METHOD`) stages a
+file or directory source by hardlinking or moving it instead of the default
+copy -- see the [commands guide](https://jose-pr.github.io/pkgforge/guide/commands/#install).
+
 Global options (also read from the environment):
 
 | Option | Env | Meaning |

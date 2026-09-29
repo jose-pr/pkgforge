@@ -7,6 +7,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `install` gains `--method {copy,link,move}` (env `PKGFORGE_INSTALL_METHOD`),
+  applying only to a real file/directory source (a `-` stdin, `-x`, archive or
+  symlink source is unaffected). `copy` (the default) is unchanged. `link`
+  hardlinks instead of copying -- fast and free of disk use, but the staged
+  copy then shares the source's inode, so `-m`/`-o`/`-g`/`--chown` change the
+  source too; a file/entry `os.link` can't span falls back to a copy
+  automatically. `move` consumes the source (a rename, or a copy-then-delete
+  across filesystems for a file; a whole-tree rename when the destination
+  doesn't exist yet and there's no `-X`, otherwise file-by-file, leaving
+  excluded files behind); a failure applying/recording the entry afterwards
+  restores the source where that's still a single reversible unit.
+  `--remove-source` is a no-op with `move` (the source is already gone).
 - The unattended-build guide shows how to install shell completion
   (`--print-completion`).
 - The command guide documents `-O/--meta KEY=VALUE` (`rpmprefix=%config(noreplace)`,

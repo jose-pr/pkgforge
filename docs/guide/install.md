@@ -18,6 +18,11 @@ and symlinks. The CLI itself (parsing, `--help`, the dump formats)
 imports and runs on any platform, so you can develop and unit-test on Windows or
 macOS; the file-staging operations expect a POSIX filesystem.
 
+`install --method link`/`move` (see [Commands](commands.md#install)) use
+`os.link`/`os.rename`, which work the same way anywhere Python runs; crossing
+a filesystem boundary falls back to a copy (`link`) or a copy-then-delete
+(`move`) rather than failing.
+
 Archive extraction prefers stdlib `tarfile` for the tar family
 (`.tar`, `.tar.gz`/`.tgz`, `.tar.bz2`, `.tar.xz`) and falls back to the
 `bsdtar` binary (needs libarchive 3.3+) for stdin sources -- even a tar
