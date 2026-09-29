@@ -68,7 +68,7 @@ Global options (also read from the environment):
 
 | Option | Env | Meaning |
 | --- | --- | --- |
-| `--db PATH` | `PKGFORGE_DB` | file DB to read/write (`-` = write records to stdout; reads see an empty DB) |
+| `--db PATH` | `PKGFORGE_DB` | file DB to read/write (`-` = write records to stdout; reads see an empty DB; `dbdump --stdin` reads records from stdin instead) |
 | `--db-format FMT` | `PKGFORGE_DB_FORMAT` | backend: `jsonl` / `yaml` / `sqlite` (else from the `--db` suffix) |
 | `--buildroot DIR` | `PKGFORGE_ROOT` | staging root that maps to `/` in the DB; DESTINATION/PATH must resolve inside it |
 

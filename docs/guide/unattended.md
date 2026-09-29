@@ -72,10 +72,14 @@ pkgforge --print-completion zsh > "${fpath[1]}/_pkgforge"
 
 ## Design notes for unattended use
 
-- **No prompts.** Commands never wait for input. A `-` source reads stdin to
-  EOF (an empty stdin, e.g. `/dev/null` or an empty pipe, stages an empty
-  file); a terminal or closed stdin is a usage error, not a wait, and a `-`
-  source needs `-T`/`-D` (an explicit destination file name).
+- **No prompts.** Commands never wait for input unless explicitly told to. A
+  `-` source reads stdin to EOF (an empty stdin, e.g. `/dev/null` or an empty
+  pipe, stages an empty file); a terminal or closed stdin is a usage error,
+  not a wait, and a `-` source needs `-T`/`-D` (an explicit destination file
+  name). `dbdump --stdin` is the same shape: it reads the file DB as JSON
+  Lines from stdin instead of `--db`, only when explicitly given (no
+  environment variable enables it), and only ever reads to EOF (a terminal or
+  closed stdin exits 2 instead of waiting).
 - **Private build root.** The build root is a private directory the pipeline
   creates (`mktemp -d`), never a fixed path in a shared, world-writable
   directory such as `/tmp` — a predictable, pre-existing path lets another

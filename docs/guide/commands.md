@@ -8,7 +8,7 @@ Global options are read from the command line or the environment:
 
 | Option | Env | Meaning |
 | --- | --- | --- |
-| `--db PATH` | `PKGFORGE_DB` | file DB to read/write (`-` = write records to stdout; reads see an empty DB) |
+| `--db PATH` | `PKGFORGE_DB` | file DB to read/write (`-` = write records to stdout; reads see an empty DB; `dbdump --stdin` reads records from stdin instead) |
 | `--db-format FMT` | `PKGFORGE_DB_FORMAT` | backend: `jsonl` / `yaml` / `sqlite` (else inferred from the `--db` suffix) |
 | `--buildroot DIR` | `PKGFORGE_ROOT` | staging root that maps to `/` in the DB; DESTINATION/PATH must resolve inside it |
 | `-v, --verbose` | | raise the running command's log level (repeatable) |
@@ -255,3 +255,22 @@ pkgforge dbdump -f FORMAT [-X PATTERN] [OUTPUT]
 and dumps an empty manifest (exit 0 unchanged -- a missing DB has always
 read as empty; this just makes that visible). A `--db` with entries but
 none surviving `--exclude` also warns.
+
+`dbdump --stdin` reads the file DB as JSON Lines from standard input
+instead of `--db`/`PKGFORGE_DB` (both are ignored when given): pipe an
+`install`/`scan` run with no `--db` configured straight into `dbdump` to
+render a manifest without ever writing a DB file.
+
+```bash
+pkgforge install -D -m 644 ./build/tool /usr/bin/tool | pkgforge dbdump --stdin -f rpmspecfiles rpm-files.txt
+```
+
+```bash
+pkgforge dbdump --stdin -f rpmspecfiles rpm-files.txt < records.jsonl
+```
+
+No environment variable enables `--stdin` -- it only ever comes from that
+invocation's own command line. A terminal or already-closed stdin exits 2
+immediately instead of waiting; otherwise it reads to EOF, so a pipe that is
+never closed blocks (the caller's to close, same as any other stdin source).
+Empty input logs a WARNING and dumps an empty manifest, exit 0.
