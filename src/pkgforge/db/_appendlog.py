@@ -154,7 +154,7 @@ def _append_text(path: Path, text: str) -> None:
         fh.write(text.encode("utf-8"))
 
 
-def _normalize(dbfile: Path, path: str, rec: object) -> dict:
+def _normalize(dbfile: typing.Union[Path, str], path: str, rec: object) -> dict:
     """Normalize one already-non-``None`` loaded record for the ``jsonl``/
     ``yaml`` built-in backends: default missing fields, and coerce a JSONL
     literal ``int`` mode/owner/group to the string pkgforge itself always

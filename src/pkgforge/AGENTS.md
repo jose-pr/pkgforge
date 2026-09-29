@@ -699,6 +699,21 @@ above).
   works. Entries are emitted sorted by DB path (code-point order), never
   backend or filesystem order, so the same staged tree gives byte-identical
   manifests on any filesystem or DB backend.
+- **`dbdump --stdin`** — read the DB as JSON Lines from standard input instead
+  of `--db`/`PKGFORGE_DB` (both, including `-`, are ignored -- only a DEBUG
+  log names the ignored `--db`); no environment variable enables it, so this
+  is only ever an explicit, per-invocation choice. Runs after `--format`/OUTPUT
+  are already validated, so a bad one exits 2 without ever touching stdin. A
+  closed stdin (`sys.stdin is None`) or a terminal raises `UsageError` (exit 2)
+  immediately; otherwise it reads to EOF -- blocking on a pipe that is never
+  closed, exactly like any other stdin source pkgforge reads. Empty input
+  (`/dev/null`, an empty pipe) logs a WARNING and dumps an empty manifest,
+  exit 0; the no-DB/missing-DB warnings never fire for `--stdin`. Parsing is
+  shared with the `jsonl` backend's own loader via `db.jsonl._parse_jsonl`
+  (`text: str, source: str`), so both a file and stdin report an error the
+  same way (`{source}:{lineno}: invalid JSON Lines record: ...`, `<stdin>`
+  standing in for the file path); non-UTF-8 input raises `DbError` prefixed
+  the same way.
 - **`initdb.InitDb(PkgForgeCmd)`** (`pkgforge initdb`) — create or truncate
   an empty DB; a no-op, now with a WARNING, for an unset/stdout DB. A `--db`
   naming a file that doesn't exist yet is not this case -- creating it is

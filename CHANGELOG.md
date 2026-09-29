@@ -7,6 +7,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `dbdump --stdin` reads the file DB as JSON Lines from standard input
+  instead of `--db`, e.g. `install ... | pkgforge dbdump --stdin -f FORMAT`
+  to render a manifest without ever writing a DB file. No environment
+  variable enables it, so an existing unattended script keeps its current
+  behavior unchanged; `--db -` (or `PKGFORGE_DB=-`) is still write-only and
+  reads as an empty DB. `--stdin` ignores `--db`/`--db-format` entirely. A
+  terminal or already-closed stdin exits 2 immediately instead of waiting;
+  otherwise it reads to EOF (blocking on a pipe that is never closed, same
+  as any other stdin source). Only JSON Lines is accepted.
 - `install --record-tree` (env `PKGFORGE_INSTALL_RECORD_TREE`) also records
   every path below a directory or archive DESTINATION that the DB does not
   already hold: owner/group/`-O` from the install, mode and type from disk

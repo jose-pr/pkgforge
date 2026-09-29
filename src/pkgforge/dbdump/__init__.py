@@ -26,6 +26,8 @@ import typing
 from pathlib import Path
 
 from .._registry import Registered
+from ..db import Db, DbError
+from ..db.jsonl import _parse_jsonl
 from ..entry import DEFAULT, FileEntry
 from ..errors import PkgForgeError, UsageError
 from ..command import PkgForgeCmd
@@ -226,6 +228,12 @@ class DbDump(ExcludeArgs, PkgForgeCmd):
         "multi-artifact format)"
     )
     ("output",)
+    stdin: bool = False
+    (
+        "read the file DB as JSON Lines from standard input (e.g. piped "
+        "from install or scan run without --db) instead of --db"
+    )
+    ("--stdin",)
 
     def _check_target(self) -> DumpFormat:
         """Validate ``--format``/OUTPUT before anything reads the DB.
@@ -245,15 +253,59 @@ class DbDump(ExcludeArgs, PkgForgeCmd):
         instance.check_output(self.output)
         return instance
 
-    def _surviving_entries(self) -> Entries:
+    def _file_db(self) -> Db:
+        """Load the DB from ``--db``/``PKGFORGE_DB``, warning (never erroring)
+        for every case the file DB itself already reads as empty for."""
         reason = self._no_db_reason()
         if reason:
+            if str(self.db) == "-":
+                reason += "; pass --stdin to read records from standard input"
             self._logger_.warning("%s; dumping an empty manifest", reason)
         elif not self.db.exists():
             self._logger_.warning(
                 "DB %s does not exist; dumping an empty manifest", self.db
             )
-        db = self.loaddb()
+        return self.loaddb()
+
+    def _stdin_db(self) -> Db:
+        """Read the DB as JSON Lines from stdin (``--stdin``).
+
+        Runs only after :meth:`_check_target` already validated
+        ``--format``/OUTPUT (see ``__call__``), so a bad one exits 2 without
+        ever touching stdin. Never blocks unless explicitly told to: a
+        closed or terminal stdin raises immediately; otherwise this reads to
+        EOF, which *does* block on a pipe that is never closed -- that is
+        the caller's responsibility, exactly as for an ``install -`` source.
+        ``--db``/``--db-format`` are ignored here (only noted at DEBUG),
+        never consulted.
+        """
+        if self.db is not None:
+            self._logger_.debug("--stdin: ignoring --db %s", self.db)
+        if sys.stdin is None:
+            raise UsageError(
+                "--stdin reads the file DB from stdin, but stdin is closed"
+            )
+        if sys.stdin.isatty():
+            raise UsageError(
+                "--stdin reads the file DB from stdin, but stdin is a "
+                "terminal; pipe or redirect JSON Lines records"
+            )
+        buffer = getattr(sys.stdin, "buffer", None)
+        if buffer is not None:
+            raw = buffer.read()
+            try:
+                text = raw.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise DbError(f"<stdin>: {exc}") from exc
+        else:
+            text = sys.stdin.read()
+        db = _parse_jsonl(text, "<stdin>")
+        if not db:
+            self._logger_.warning("stdin held no DB records; dumping an empty manifest")
+        return db
+
+    def _surviving_entries(self) -> Entries:
+        db = self._stdin_db() if self.stdin else self._file_db()
         matcher = PathMatch(self.exclude)
         entries: Entries = []
         for path, entry in db.items():
