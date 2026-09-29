@@ -6,6 +6,69 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Upgrading from 0.1.2
+- `pkgforge.common` and its dict-based registries are removed. Import
+  `PkgForgeError`/`UsageError` from `pkgforge.errors`; `FileType`, `FileEntry`,
+  `FileEntryArgs`, `AUTO`, `DEFAULT`, `mode_to_octal`, `normalize_mode` and the
+  entry functions from `pkgforge.entry`; `PkgForgeCmd`, `PkgForge`, `parsepath`
+  from `pkgforge.command` (or straight from `pkgforge`, which still exports
+  every name in `pkgforge.__all__`). `pkgforge.db.register_provider()`/
+  `PROVIDERS`/`SUFFIX_FORMATS`/`_SNIFFERS` and `pkgforge.dbdump.PER_ENTRY_FORMATS`/
+  `MULTI_ARTIFACT_FORMATS`/`dump_formats()`/`PerEntryDumper` are gone too --
+  subclass `DbProvider`/`PerEntryFormat`/`MultiArtifactFormat` with your own
+  `NAME` instead, and look one up with `DbProvider.lookup(name)`/
+  `DumpFormat.lookup(name)`. `pkgforge.dbdump.rpmspecfile()` is gone -- call
+  `RpmSpecFiles().render_entry(path, entry)`.
+- `pkgforge.db` and `pkgforge.dbdump` are now packages (one module per
+  backend/format), and so is `pkgforge.install` (`TAR_SUFFIXES`/
+  `ARCHIVE_SUFFIXES`/`BSDTAR_EXTRACT_FLAGS` moved to `pkgforge.install.archive`);
+  only a direct `import pkgforge.db`/`.dbdump` expecting a plain module needs
+  updating. `DbProvider.format` is renamed to `DbProvider.NAME`.
+- `-X`/`--exclude` on every command now matches the same install path (the
+  `/`-rooted path the entry has, or will have, in the DB) instead of a
+  per-command root. Rewrite an absolute pattern written for the old anchor as
+  an install path (`install -X /tmp build /opt/app` -> `-X /opt/app/build/tmp`)
+  or make it relative; `install`/`scan` log a warning for a pattern that can no
+  longer match. `PathMatchStmt.rebased()` is removed -- pass `installroot=` to
+  `PathMatch` instead.
+- `**` in `--exclude` now matches any number of directories on every Python
+  version; some patterns now exclude more than before -- review any `-X` value
+  containing `**`.
+- `install` copies file sources by default instead of hardlinking them, so
+  `-m`/`--chown` no longer mutate the source and a build root on another
+  filesystem no longer fails. For the old hardlink behavior, or to have
+  `install` consume the source, pass `--method link` or `--method move` (env
+  `PKGFORGE_INSTALL_METHOD`).
+- `scan -m` now applies to regular files only; directories take the new
+  `--dir-mode`. Add `--dir-mode` if you relied on `-m` for directories.
+- Suffix stripping without `-T` is wider: `.tgz`, `.tbz2`, `.tbz`, `.txz`,
+  `.zip`, `.iso` and upper-case suffixes now land at `DESTINATION/app-1.0`
+  (previously only a literal `.tar`/`.tar.gz`/`.tar.bz2`/`.tar.xz` dot-segment
+  was stripped). Update any script relying on the old paths.
+- Commands now log as `pkgforge.<command>` (was `<command>`) -- update any
+  `--loglevel` selector, e.g. `--loglevel pkgforge.scan:WARNING`. Usage,
+  errors, `--version` and shell completion now name the command `pkgforge`
+  (was `PkgForge`) -- regenerate installed completions.
+- `install`, `scan` and `dbdump` now exit 2 (instead of a traceback, exit 1, or
+  silently doing the wrong thing) for bad input: an out-of-buildroot
+  DESTINATION/PATH, no `--buildroot`/`PKGFORGE_ROOT` at all (pass
+  `--buildroot /` to do that on purpose), an unknown `--db-format`/`-t`/`-m`
+  value, a malformed `-X` statement, or a bad `dbdump -f`/OUTPUT combination.
+  Scripts that depended on exit 1 or a traceback for these should check for
+  exit 2 instead.
+- `dbdump -f debian` output gains two new sections: `dirs` (`dh_installdirs`
+  lines) and `fixperms` (a script to run from `override_dh_fixperms`, after
+  `dh_fixperms`, applying every pinned owner/group/mode). Wire both into
+  `debian/rules` if your packaging pipeline parses `dbdump -f debian -`
+  directly.
+- Requires `duho>=0.6.0,<0.7` (was `>=0.5.0,<0.6`) and `pyyaml>=6.0,<7` (was
+  unbounded); building from source now requires `hatchling>=1.27`; the `docs`
+  extra is bounded to mkdocs 1.x/mkdocs-material 9.x/mkdocstrings below 2;
+  `twine` and `hatchling` are no longer in the `dev` extra (install them
+  directly if you used them from it).
+- `DUHO_TRACEBACK` now follows duho's own boolean tokens: `n`/`f` turn it off
+  (they used to turn it on).
+
 ### Added
 - `dbdump -f rpmspecfiles-pre419` (alias `rpm-pre419`) writes `%files` lines
   for rpm older than 4.19 (measured on rpm 4.14, 4.16 and 4.18): the path is
@@ -14,19 +77,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   instead of packaging the wrong file. Choose it when the rpm that will
   build the package is older than 4.19; with rpm 4.19 or newer, use
   `rpmspecfiles` (unchanged) instead.
-
-### Fixed
-- The formats guide now states, measured, what rpm older than 4.19 does
-  with a `rpmspecfiles` line: a `dquote`/`backslash`/non-UTF-8 name fails
-  the build, a `star`/`qmark` name silently packages an extra sibling file,
-  and a `bracket`/`brace` name silently packages the wrong file -- it
-  previously only said `rpmspecfiles` "targets rpm 4.19+" with no detail
-  below that version.
-- The formats guide's `override_dh_fixperms` example read `permissions`
-  fields in the wrong order (it passed the group to `chmod`); it now runs
-  the generated `fixperms` script.
-
-### Added
+- `dbdump -f` accepts `rpm`/`rpmspec` as aliases for `rpmspecfiles`, and
+  `deb` as an alias for `debian`.
 - `debian` also writes `fixperms`, a POSIX `sh` script that applies every
   pinned owner, group and mode to a package directory (`sh debian/fixperms
   debian/<pkg>`, after `dh_fixperms`); `dbdump -f debian -` gains a
@@ -40,6 +92,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   terminal or already-closed stdin exits 2 immediately instead of waiting;
   otherwise it reads to EOF (blocking on a pipe that is never closed, same
   as any other stdin source). Only JSON Lines is accepted.
+- `scan --drop-stale` records a removal for each DB entry below PATH whose
+  file is gone from the build root, so `dbdump` stops listing deleted
+  files. Entries matching `-X` are kept. Needs a `--db` file.
 - `install --record-tree` (env `PKGFORGE_INSTALL_RECORD_TREE`) also records
   every path below a directory or archive DESTINATION that the DB does not
   already hold: owner/group/`-O` from the install, mode and type from disk
@@ -61,15 +116,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`--print-completion`).
 - The command guide documents `-O/--meta KEY=VALUE` (`rpmprefix=%config(noreplace)`,
   a symlink `target`) and `scan`'s entry options.
-
-### Changed
-- The API reference has one page per module, covers every public name and
-  no longer shows private helpers.
-
-### Added
+- `PKGFORGE_MCP=stdio` serves pkgforge's commands as MCP tools over stdio
+  (from duho 0.6). Unset, nothing changes.
+- Python 3.14 classifier.
 - The header documents `__version__`.
-- `dbdump -f` accepts `rpm`/`rpmspec` as aliases for `rpmspecfiles`, and
-  `deb` as an alias for `debian`.
+- `PkgForgeError`, `UsageError` (a `ValueError`). Errors now print one
+  `pkgforge: error: ...` line and exit 2 for a usage mistake or 1 for a
+  runtime failure, instead of a Python traceback (`DUHO_TRACEBACK=1` adds the
+  traceback back); a closed output pipe now exits 1 silently. An unknown
+  `--chown` owner or group now raises `UsageError` instead of a raw
+  `KeyError`.
+- `PathMatch(stmts, root=None, installroot="/")` and `PathMatch.unreachable()`:
+  the former's new `installroot` keyword names the install path a matched
+  entry will have; the latter lists anchored statements that can never match
+  under it.
 - `pkgforge.db.DbProvider` and `pkgforge.dbdump.DumpFormat` (plus its two
   subclasses `PerEntryFormat` and `MultiArtifactFormat`) are now the
   documented extension points: add a backend or a dump format by
@@ -79,6 +139,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   shape for the chosen dump format (a file for a multi-artifact format, or
   an existing directory for a per-entry one). Also a `UsageError` (exit 2,
   unchanged) and, per its name, a `NotImplementedError`.
+- `pkgforge.dbdump.DumpError`, raised for a DB entry a dump format's own
+  tooling cannot represent.
+- `pkgforge.DbError`: a malformed `jsonl`/`yaml` file DB fails with one
+  clear line naming the file (and, for `jsonl`, the line) instead of a
+  traceback.
+- `pkgforge.exclude.ExcludeSyntaxError`, a `UsageError` and
+  `argparse.ArgumentTypeError`, raised for a malformed `--exclude` statement.
+- `entry_from_args`, `entry_from_path`, `resolve_entry`, `apply_entry`, typed
+  forms of the `FileEntry` helpers (entries are dicts; `.resolve_for`/`.apply`
+  on an entry never worked).
+- `normalize_mode()`: normalizes a `mode` value (an `int`, an octal string, or
+  the `-`/`--`/`auto` sentinels) to the octal permission string the file DB
+  stores.
+- `pkgforge.DbProvider.batch()`: an optional context manager a backend can
+  override to batch many writes; the default does nothing, so existing and
+  third-party providers are unaffected. `scan` into a `sqlite` DB now uses
+  it: one connection, committed every 1000 rows (and once more at the end),
+  instead of connecting, creating the schema and committing once per file.
 
 ### Changed
 - `pkgforge.db` and `pkgforge.dbdump` are now packages, one module per
@@ -90,6 +168,77 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `pkgforge.install` is a package: `TAR_SUFFIXES`, `ARCHIVE_SUFFIXES` and
   `BSDTAR_EXTRACT_FLAGS` moved to `pkgforge.install.archive`;
   `pkgforge.install.Install` is unchanged.
+- The API reference has one page per module, covers every public name and
+  no longer shows private helpers.
+- `-X` matches the install path — the `/`-rooted path the entry has in the
+  DB — on every command. `install` anchored an absolute pattern at the
+  source directory and `scan` at `<buildroot>/PATH`; a relative pattern now
+  also matches DESTINATION/PATH segments above the copied or scanned tree,
+  as `dbdump` already did. Rewrite such patterns as install paths
+  (`install -X /tmp build /opt/app` -> `-X /opt/app/build/tmp`) or as
+  relative ones; an absolute pattern that can no longer match logs a
+  warning.
+- `install`, `scan` and `dbdump` take `--exclude`/`-X` from a shared
+  `pkgforge.exclude.ExcludeArgs` base instead of each declaring it separately;
+  its position in `install --help` moves earlier (right after
+  `--buildroot`), with no other visible change.
+- `install -X` with only file or symlink sources logs a warning (nothing to
+  filter); a directory or archive source is always filtered.
+- `scan` logs one INFO summary; per-path `Updating file entry for:` lines need
+  `-v`.
+- Commands log as `pkgforge.<command>` (was `<command>`, e.g. `scan`). Use the
+  new name in `--loglevel`, e.g. `--loglevel pkgforge.scan:WARNING`; in
+  Python, `logging.getLogger("pkgforge")` controls all of them.
+- `scan -m` applies to regular files only. Directories take the new
+  `--dir-mode` (default: from disk with `--mode=--`, else `-`); symlinks
+  always record mode `-`. If you relied on `-m` for directories, add
+  `--dir-mode`.
+- `scan` and `install` look up user and group names only for fields set to
+  `--`, and cache each lookup for the process's life.
+- `app-1.0.tgz`, `.tbz2`, `.tbz`, `.txz`, `.zip`, `.iso` and upper-case
+  suffixes installed without `-T` now land at `DESTINATION/app-1.0`
+  (previously only a literal `.tar`/`.tar.gz`/`.tar.bz2`/`.tar.xz`
+  dot-segment was stripped); a directory source keeps its full name
+  unchanged (`conf.tar.d` stays `conf.tar.d`, never `conf`). Update any
+  script relying on the old paths.
+- A tar archive writing through any symlink, even one inside the
+  destination, is refused (exit 1), as `bsdtar` already did; a hardlink
+  member naming another archive member by an absolute-looking path (e.g.
+  `/a`) links to that member, never to a real host path that happens to
+  exist there; escaping members or links, and device nodes or FIFOs, exit 1
+  with one message, not a traceback.
+- The `yaml` backend uses PyYAML's libyaml-backed loader/dumper when the
+  installed PyYAML build has them; the on-disk file format is unchanged.
+- `dbdump` writes entries sorted by path, so a staged tree gives
+  byte-identical manifests on any filesystem and backend (was insertion
+  order).
+- `compact` (`jsonl`/`yaml`) now replaces the DB with a new inode (a temp
+  file renamed into place) instead of rewriting it in place. A `--db`
+  hardlinked elsewhere is detached from that hardlink by the next compact;
+  a symlinked `--db` keeps its link (the link's target is what gets
+  replaced), and the file's mode (and owner/group, best-effort) are carried
+  over unchanged.
+- The documentation site is now rebuilt from `main` whenever the docs change,
+  and from the release tag after each final release. A pre-release tag leaves
+  it unchanged.
+- Pre-release tags (`vX.Y.Z-rc.N`) now produce a GitHub pre-release only and
+  are no longer uploaded to PyPI. Install a pre-release from the wheel
+  attached to its GitHub release.
+- Requires `duho>=0.6.0,<0.7` (was `>=0.5.0,<0.6`). `DUHO_TRACEBACK` now
+  follows duho's boolean tokens: `n` and `f` turn it off (they used to turn it
+  on). `--loglevel` accepts `[NAME:]LEVEL[,...]` and rejects a malformed value
+  with exit 2; `-v`/`-q` gain `--verbose`/`--quiet`; log output is colored only
+  on a terminal and never when `NO_COLOR` is set.
+- `pyyaml` is declared as `>=6.0,<7`; it was unbounded.
+- Building from source requires `hatchling` 1.27 or later.
+- The `docs` extra is bounded to mkdocs 1.x, mkdocs-material 9.x and mkdocstrings below 2.
+- `twine` and `hatchling` are no longer in the `dev` extra; install them directly if you used them from it.
+- The `dev` extra installs `black` on Python 3.10 and later.
+- The sdist no longer includes `benchmarks/`.
+- `benchmarks/run.py` times the `scan` command end to end per DB backend
+  (`scan.cmd_jsonl`, `scan.cmd_yaml`, `scan.cmd_sqlite`, `scan.cmd_auto_owner`).
+  `scan.walk`, which timed only `os.walk`, is renamed `fs.walk_baseline`. The
+  result schema is documented in `benchmarks/README.md`.
 
 ### Removed
 - `pkgforge.common`: import `PkgForgeError`/`UsageError` from `pkgforge.errors`;
@@ -108,11 +257,34 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (list every registered name with `DumpFormat.names()`).
 - `pkgforge.dbdump.rpmspecfile()`: use `RpmSpecFiles().render_entry(path,
   entry)` instead (`from pkgforge.dbdump import RpmSpecFiles`).
+- `PathMatchStmt.rebased()`: pass `installroot=` to `PathMatch` instead.
 
 ### Fixed
+- The formats guide now states, measured, what rpm older than 4.19 does
+  with a `rpmspecfiles` line: a `dquote`/`backslash`/non-UTF-8 name fails
+  the build, a `star`/`qmark` name silently packages an extra sibling file,
+  and a `bracket`/`brace` name silently packages the wrong file -- it
+  previously only said `rpmspecfiles` "targets rpm 4.19+" with no detail
+  below that version.
+- The formats guide's `override_dh_fixperms` example read `permissions`
+  fields in the wrong order (it passed the group to `chmod`); it now runs
+  the generated `fixperms` script.
+- The docs no longer call `debian`'s `permissions` `dpkg-statoverride`
+  input (that tool takes `user group mode path` and rejects `-`); they now
+  say how to apply it from an `override_dh_fixperms` target, and that
+  `dh_install`'s sources need `PKGFORGE_ROOT=debian/tmp` or
+  `--sourcedir=$(PKGFORGE_ROOT)`.
+- The README quick start, the docs landing page and the unattended guide no
+  longer run `scan --missing` over `/usr` or `/etc`: every directory a scan
+  walks becomes an RPM `%dir` ownership claim, and Fedora/RHEL's
+  `filesystem` package ships `/usr/bin` as `0555`, so the built RPM
+  conflicted with it and `rpm -U` refused to install. Pass `scan` only a
+  directory your own package owns.
 - README links and badges work on PyPI and in the installed `pkgforge/README.md`.
-
-### Fixed
+- The wheel and sdist never include files named `*.local.*` or `CLAUDE*`, even when built from a tree without `.gitignore`.
+- `examples/stage_and_package.sh` is executable, so `./examples/stage_and_package.sh` runs in a fresh checkout.
+- `examples/stage_and_package.sh` stages its tree at `/usr/share/tool` and
+  records its files.
 - `dbdump ... -` writes through `sys.stdout` instead of a raw file
   descriptor: it now works when `sys.stdout` is redirected (or otherwise not
   backed by a real file descriptor), and keeps its place after text the
@@ -137,77 +309,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   package (previously only `rpmspecfiles`' `%dir` covered it). `dbdump -f
   debian DIR` now also writes (and replaces) `DIR/dirs`, and `-` gains a
   `# === dirs ===` section.
-- The docs no longer call `debian`'s `permissions` `dpkg-statoverride`
-  input (that tool takes `user group mode path` and rejects `-`); they now
-  say how to apply it from an `override_dh_fixperms` target, and that
-  `dh_install`'s sources need `PKGFORGE_ROOT=debian/tmp` or
-  `--sourcedir=$(PKGFORGE_ROOT)`.
 - `debian`'s `install` destination is split with POSIX path rules on every
   platform: on Windows, a source name containing a literal backslash (a
   valid POSIX filename character) was previously split in the wrong place,
   since the native path module there also treats a backslash as a
   separator.
-
-### Added
-- `pkgforge.dbdump.DumpError`, raised for a DB entry a dump format's own
-  tooling cannot represent.
-
-### Changed
-- `dbdump` writes entries sorted by path, so a staged tree gives
-  byte-identical manifests on any filesystem and backend (was insertion
-  order).
-
-### Security
-- `rpmspecfiles` rejects a path containing `%`: rpmbuild expanded it, so a
-  staged `%(...)` name ran a shell command, and no quoting is literal on rpm
-  both before and after 4.19; write that `%files` line by hand.
-- Archives extracted with `bsdtar` (stdin, `.zip`, `.iso`, `.cpio`) no
-  longer restore owners, setuid/setgid, group/other write, xattrs, ACLs or
-  file flags as root; an archive holding a device node, FIFO or socket is
-  refused (exit 1).
-- Without tarfile's extraction filter (Python before 3.9.17, 3.10.12 or
-  3.11.4), a tar archive now routes to `bsdtar`, or is refused (exit 1),
-  instead of extracting with no path/symlink/special-file checks at all.
-- The quick start and unattended guide build in a private `mktemp -d` root,
-  not `/tmp/stage`; scripts copied from the old docs should do the same.
-
-### Changed
-- `scan -m` applies to regular files only. Directories take the new
-  `--dir-mode` (default: from disk with `--mode=--`, else `-`); symlinks
-  always record mode `-`. If you relied on `-m` for directories, add
-  `--dir-mode`.
-- `scan` and `install` look up user and group names only for fields set to
-  `--`, and cache each lookup for the process's life.
-- `install -X` with only file or symlink sources logs a warning (nothing to
-  filter); a directory or archive source is always filtered.
-- `app-1.0.tgz`, `.tbz2`, `.tbz`, `.txz`, `.zip`, `.iso` and upper-case
-  suffixes installed without `-T` now land at `DESTINATION/app-1.0`
-  (previously only a literal `.tar`/`.tar.gz`/`.tar.bz2`/`.tar.xz`
-  dot-segment was stripped); a directory source keeps its full name
-  unchanged (`conf.tar.d` stays `conf.tar.d`, never `conf`). Update any
-  script relying on the old paths.
-- A tar archive writing through any symlink, even one inside the
-  destination, is refused (exit 1), as `bsdtar` already did; a hardlink
-  member naming another archive member by an absolute-looking path (e.g.
-  `/a`) links to that member, never to a real host path that happens to
-  exist there; escaping members or links, and device nodes or FIFOs, exit 1
-  with one message, not a traceback.
-- The `yaml` backend uses PyYAML's libyaml-backed loader/dumper when the
-  installed PyYAML build has them; the on-disk file format is unchanged.
-
-### Added
-- `scan --drop-stale` records a removal for each DB entry below PATH whose
-  file is gone from the build root, so `dbdump` stops listing deleted
-  files. Entries matching `-X` are kept. Needs a `--db` file.
-- `pkgforge.DbError`: a malformed `jsonl`/`yaml` file DB fails with one
-  clear line naming the file (and, for `jsonl`, the line) instead of a
-  traceback.
-
-### Fixed
-- `install -X` filters an archive source's members like a directory copy
-  (every member used to be extracted regardless of `-X`): excluded members
-  and directories never reach DESTINATION. An archive holding a device
-  node, FIFO or socket is still refused even when `-X` matches it.
 - `scan` no longer records the file DB (or a SQLite DB's
   `-journal`/`-wal`/`-shm` sidecars) found inside the scanned tree, and
   warns once instead; other files there, such as an earlier `dbdump`
@@ -221,26 +327,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the link's path -- for an absolute target, the build **host**'s
   filesystem. `PATH /` is unaffected and is still walked, even through a
   symlinked `--buildroot`.
-- The README quick start, the docs landing page and the unattended guide no
-  longer run `scan --missing` over `/usr` or `/etc`: every directory a scan
-  walks becomes an RPM `%dir` ownership claim, and Fedora/RHEL's
-  `filesystem` package ships `/usr/bin` as `0555`, so the built RPM
-  conflicted with it and `rpm -U` refused to install. Pass `scan` only a
-  directory your own package owns.
-- `examples/stage_and_package.sh` stages its tree at `/usr/share/tool` and
-  records its files.
-- A directory install whose source contains the build root, destination or
-  file DB skips them (their parents are created empty) instead of
-  recursing into `RecursionError`.
-- Tar archives holding absolute symlinks, or symlinks that climb above the
-  destination, extract with their targets kept exactly as written (instead
-  of `tarfile.AbsoluteLinkError`/`LinkOutsideDestinationError`), and
-  re-extract cleanly over an earlier run instead of failing.
-- Re-running a directory install whose source holds symlinks no longer
-  fails with `shutil.Error`; a stale symlink left at the destination
-  (including a directory-source's own symlink retargeted between runs) is
-  replaced instead, and a regular-file source is never written through a
-  leftover destination symlink.
+- `install -X` filters an archive source's members like a directory copy
+  (every member used to be extracted regardless of `-X`): excluded members
+  and directories never reach DESTINATION. An archive holding a device
+  node, FIFO or socket is still refused even when `-X` matches it.
 - `**` in `--exclude` matches any number of directories on every Python
   version: `/**/*.pyc` excludes `.pyc` files at any depth, `/opt/app/**`
   excludes everything below `/opt/app` but not `/opt/app` itself. Some
@@ -269,6 +359,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   test). `-O`/`--meta` without `=` reports `expected KEY=VALUE, got '...'`
   instead of `invalid <lambda> value`. Every command's `--help` now shows
   the `-X` grammar.
+- A directory install whose source contains the build root, destination or
+  file DB skips them (their parents are created empty) instead of
+  recursing into `RecursionError`.
+- Tar archives holding absolute symlinks, or symlinks that climb above the
+  destination, extract with their targets kept exactly as written (instead
+  of `tarfile.AbsoluteLinkError`/`LinkOutsideDestinationError`), and
+  re-extract cleanly over an earlier run instead of failing.
+- Re-running a directory install whose source holds symlinks no longer
+  fails with `shutil.Error`; a stale symlink left at the destination
+  (including a directory-source's own symlink retargeted between runs) is
+  replaced instead, and a regular-file source is never written through a
+  leftover destination symlink.
 - `install` and `scan` exit 2 when DESTINATION or PATH leaves the build root
   through a `..` that climbs above it, or a symlinked path component leading
   outside it, instead of writing or recording outside `--buildroot`. An
@@ -327,85 +429,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a tmpfs `/tmp`) or a source the caller doesn't own no longer fails.
   `-o --`/`-g --` (AUTO) now record the staged copy's owner, not the
   source's.
-- `--help` describes every option, names the `PKGFORGE_*` variables and the
-  DB and dump formats, and no longer shows developer notes.
-- An unknown `--db-format` or `PKGFORGE_DB_FORMAT` exits 2 with one line
-  naming the valid formats, before anything is staged (was a traceback and
-  exit 1, after `install` had staged the file), also when `--db` is unset
-  (was ignored). Constructing a command with an unknown `db_format` raises
-  `UsageError` (a `ValueError`) immediately.
-- Usage, errors, `--version` and completion name the command `pkgforge` (was
-  `PkgForge`), so completion binds. Regenerate installed ones.
-
-### Changed
-- `-X` matches the install path — the `/`-rooted path the entry has in the
-  DB — on every command. `install` anchored an absolute pattern at the
-  source directory and `scan` at `<buildroot>/PATH`; a relative pattern now
-  also matches DESTINATION/PATH segments above the copied or scanned tree,
-  as `dbdump` already did. Rewrite such patterns as install paths
-  (`install -X /tmp build /opt/app` -> `-X /opt/app/build/tmp`) or as
-  relative ones; an absolute pattern that can no longer match logs a
-  warning.
-- `install`, `scan` and `dbdump` take `--exclude`/`-X` from a shared
-  `pkgforge.exclude.ExcludeArgs` base instead of each declaring it separately;
-  its position in `install --help` moves earlier (right after
-  `--buildroot`), with no other visible change.
-- `scan` logs one INFO summary; per-path `Updating file entry for:` lines need
-  `-v`.
-- Commands log as `pkgforge.<command>` (was `<command>`, e.g. `scan`). Use the
-  new name in `--loglevel`, e.g. `--loglevel pkgforge.scan:WARNING`; in
-  Python, `logging.getLogger("pkgforge")` controls all of them.
-- The documentation site is now rebuilt from `main` whenever the docs change,
-  and from the release tag after each final release. A pre-release tag leaves
-  it unchanged.
-- Pre-release tags (`vX.Y.Z-rc.N`) now produce a GitHub pre-release only and
-  are no longer uploaded to PyPI. Install a pre-release from the wheel
-  attached to its GitHub release.
-- The `dev` extra installs `black` on Python 3.10 and later.
-- The sdist no longer includes `benchmarks/`.
-- `pyyaml` is declared as `>=6.0,<7`; it was unbounded.
-- Building from source requires `hatchling` 1.27 or later.
-- The `docs` extra is bounded to mkdocs 1.x, mkdocs-material 9.x and mkdocstrings below 2.
-- `twine` and `hatchling` are no longer in the `dev` extra; install them directly if you used them from it.
-- Requires `duho>=0.6.0,<0.7` (was `>=0.5.0,<0.6`). `DUHO_TRACEBACK` now
-  follows duho's boolean tokens: `n` and `f` turn it off (they used to turn it
-  on). `--loglevel` accepts `[NAME:]LEVEL[,...]` and rejects a malformed value
-  with exit 2; `-v`/`-q` gain `--verbose`/`--quiet`; log output is colored only
-  on a terminal and never when `NO_COLOR` is set.
-- `benchmarks/run.py` times the `scan` command end to end per DB backend
-  (`scan.cmd_jsonl`, `scan.cmd_yaml`, `scan.cmd_sqlite`, `scan.cmd_auto_owner`).
-  `scan.walk`, which timed only `os.walk`, is renamed `fs.walk_baseline`. The
-  result schema is documented in `benchmarks/README.md`.
-
-### Added
-- `pkgforge.exclude.ExcludeSyntaxError`, a `UsageError` and
-  `argparse.ArgumentTypeError`, raised for a malformed `--exclude` statement.
-- Python 3.14 classifier.
-- `PKGFORGE_MCP=stdio` serves pkgforge's commands as MCP tools over stdio
-  (from duho 0.6). Unset, nothing changes.
-- `entry_from_args`, `entry_from_path`, `resolve_entry`, `apply_entry`, typed
-  forms of the `FileEntry` helpers (entries are dicts; `.resolve_for`/`.apply`
-  on an entry never worked).
-- `normalize_mode()`: normalizes a `mode` value (an `int`, an octal string, or
-  the `-`/`--`/`auto` sentinels) to the octal permission string the file DB
-  stores.
-- `PkgForgeError`, `UsageError` (a `ValueError`). Errors now print one
-  `pkgforge: error: ...` line and exit 2 for a usage mistake or 1 for a
-  runtime failure, instead of a Python traceback (`DUHO_TRACEBACK=1` adds the
-  traceback back); a closed output pipe now exits 1 silently. An unknown
-  `--chown` owner or group now raises `UsageError` instead of a raw
-  `KeyError`.
-- `PathMatch(stmts, root=None, installroot="/")` and `PathMatch.unreachable()`:
-  the former's new `installroot` keyword names the install path a matched
-  entry will have; the latter lists anchored statements that can never match
-  under it.
-
-### Removed
-- `PathMatchStmt.rebased()`: pass `installroot=` to `PathMatch` instead.
-
-### Fixed
-- The wheel and sdist never include files named `*.local.*` or `CLAUDE*`, even when built from a tree without `.gitignore`.
-- `examples/stage_and_package.sh` is executable, so `./examples/stage_and_package.sh` runs in a fresh checkout.
 - `install -m` on a symlink, and any `install -m` on glibc older than 2.32
   (e.g. RHEL/Rocky 8), no longer fails with `NotImplementedError`. A
   symlink's mode is recorded but never applied on disk (Linux ignores it).
@@ -429,6 +452,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the source instead of raising `NotImplementedError`. `scan --type` is
   hidden from `--help` (`scan` always records each path's own on-disk type)
   and now warns instead of silently doing nothing when given a value.
+- `--help` describes every option, names the `PKGFORGE_*` variables and the
+  DB and dump formats, and no longer shows developer notes.
+- An unknown `--db-format` or `PKGFORGE_DB_FORMAT` exits 2 with one line
+  naming the valid formats, before anything is staged (was a traceback and
+  exit 1, after `install` had staged the file), also when `--db` is unset
+  (was ignored). Constructing a command with an unknown `db_format` raises
+  `UsageError` (a `ValueError`) immediately.
+- Usage, errors, `--version` and completion name the command `pkgforge` (was
+  `PkgForge`), so completion binds. Regenerate installed ones.
 - `PKGFORGE_ROOT`/`PKGFORGE_DB`/`PKGFORGE_DB_FORMAT` are now read when
   `pkgforge.main()` (or `duho.parse`) runs, instead of once when the package
   is imported. A build driver or test that sets one of these after importing
@@ -466,16 +498,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A flow-style YAML DB (`{/usr/bin/x: ...}`, `{}`) is still read as YAML.
   Appending to one now raises `DbError` instead of silently corrupting it;
   `pkgforge --db FILE compact` rewrites it in block style first.
-
-### Changed
-- `compact` (`jsonl`/`yaml`) now replaces the DB with a new inode (a temp
-  file renamed into place) instead of rewriting it in place. A `--db`
-  hardlinked elsewhere is detached from that hardlink by the next compact;
-  a symlinked `--db` keeps its link (the link's target is what gets
-  replaced), and the file's mode (and owner/group, best-effort) are carried
-  over unchanged.
-
-### Fixed
 - `compact` (`jsonl`/`yaml`) no longer truncates the DB before writing the
   compacted result: a failure partway through (a full disk, a kill) now
   leaves the original file completely unchanged instead of a torn or
@@ -484,15 +506,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   through an advisory lock on the DB file, so running `compact` while
   another pkgforge process is appending to the same DB no longer silently
   drops the concurrent append.
-
-### Added
-- `pkgforge.DbProvider.batch()`: an optional context manager a backend can
-  override to batch many writes; the default does nothing, so existing and
-  third-party providers are unaffected. `scan` into a `sqlite` DB now uses
-  it: one connection, committed every 1000 rows (and once more at the end),
-  instead of connecting, creating the schema and committing once per file.
-
-### Fixed
 - Reading a `sqlite` DB never writes to it any more: pointing `dbdump` (or
   any read) at an empty or foreign SQLite file no longer adds an `entries`
   table to it. A SQLite file without an `entries` table now raises
@@ -514,6 +527,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   in that case; now nothing is created, for every backend). Exit codes and
   output are unchanged -- a missing/unset/`-` DB has always read as empty;
   this just makes that visible instead of silent.
+
+### Security
+- `rpmspecfiles` rejects a path containing `%`: rpmbuild expanded it, so a
+  staged `%(...)` name ran a shell command, and no quoting is literal on rpm
+  both before and after 4.19; write that `%files` line by hand.
+- Archives extracted with `bsdtar` (stdin, `.zip`, `.iso`, `.cpio`) no
+  longer restore owners, setuid/setgid, group/other write, xattrs, ACLs or
+  file flags as root; an archive holding a device node, FIFO or socket is
+  refused (exit 1).
+- Without tarfile's extraction filter (Python before 3.9.17, 3.10.12 or
+  3.11.4), a tar archive now routes to `bsdtar`, or is refused (exit 1),
+  instead of extracting with no path/symlink/special-file checks at all.
+- The quick start and unattended guide build in a private `mktemp -d` root,
+  not `/tmp/stage`; scripts copied from the old docs should do the same.
 
 ## [0.1.2] - 2026-08-16
 
