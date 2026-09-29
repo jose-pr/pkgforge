@@ -154,4 +154,7 @@ pkgforge dbdump -f debian -                # all four to stdout under "# === <na
     Pinning an owner or group needs root at `binary` time: add
     `Rules-Requires-Root: binary-targets` to `debian/control`'s source
     stanza so `dpkg-buildpackage` runs `binary` under fakeroot. A mode-only
-    pin needs no root.
+    pin needs no root. Building with `dh_builddeb` directly, outside
+    `dpkg-buildpackage`, needs `DEB_RULES_REQUIRES_ROOT=binary-targets`
+    exported by hand -- `dpkg-buildpackage` is what normally reads
+    `Rules-Requires-Root` and exports it for you.

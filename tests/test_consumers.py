@@ -512,6 +512,14 @@ def test_dh_install_fixperms_builds_deb(tmp_path, cli):
         cwd=pkgroot,
         capture_output=True,
         text=True,
+        # dh_builddeb is invoked directly here, not through dpkg-buildpackage,
+        # so Rules-Requires-Root: binary-targets in debian/control is never
+        # read into DEB_RULES_REQUIRES_ROOT -- debhelper then treats it as
+        # "no" and dh_builddeb runs dpkg-deb --root-owner-group, which
+        # normalizes every owner/group to root:root regardless of what
+        # fixperms just chowned. Export it explicitly, mirroring what
+        # dpkg-buildpackage itself would export from the control file.
+        env={**os.environ, "DEB_RULES_REQUIRES_ROOT": "binary-targets"},
     )
     assert build_result.returncode == 0, build_result.stdout + build_result.stderr
 
