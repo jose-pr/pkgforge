@@ -4,7 +4,7 @@
 install metadata — mode, owner, group, type, and free-form key/value `meta` — in
 a *file DB* (JSON Lines by default; YAML or SQLite backends). That DB can then
 be dumped into packaging manifests such as an RPM `%files` list or Debian
-`install` + `permissions` + `dirs` files.
+`install` + `permissions` + `dirs` + `fixperms` files.
 
 It is a small, dependency-light helper for unattended build pipelines on Linux:
 install a source into place, remember how it should be owned and permissioned,

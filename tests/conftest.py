@@ -32,6 +32,7 @@ SCRUBBED_ENV = (
 for _name in SCRUBBED_ENV:
     os.environ.pop(_name, None)
 
+import errno
 import logging
 import typing
 from pathlib import Path
@@ -41,6 +42,22 @@ import pytest
 import pkgforge
 from pkgforge.entry import FileEntry
 from pkgforge.command import PkgForgeCmd
+
+
+def skip_if_fs_rejects_non_utf8(dirpath: Path) -> None:
+    """Skip the current test if ``dirpath``'s filesystem can't hold a
+    non-UTF-8 name (e.g. macOS/APFS raises ``OSError(EILSEQ)`` on the raw
+    byte sequence). Shared by any test that stages a non-UTF-8 name for a
+    real consumer tool to read."""
+    probe = dirpath / os.fsdecode(b"probe-\xe9")
+    try:
+        probe.write_bytes(b"x")
+    except OSError as exc:
+        if exc.errno == errno.EILSEQ:
+            pytest.skip("filesystem rejects non-UTF-8 names")
+        raise
+    else:
+        probe.unlink()
 
 
 def pytest_configure(config: pytest.Config) -> None:

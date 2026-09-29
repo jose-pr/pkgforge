@@ -414,15 +414,27 @@ that one line.
   `install` (`dh_install`-style `<src> <dest-dir>` lines, non-directory
   entries only) + `permissions` (a pkgforge-specific `<path> <mode> <owner>
   <group>` manifest -- **not** `dpkg-statoverride` input, which takes `user
-  group mode path` and rejects `-`; apply it instead from an
-  `override_dh_fixperms` target -- unescaped, `-` meaning "unpinned"; parse
+  group mode path` and rejects `-`; unescaped, `-` meaning "unpinned"; parse
   right-to-left, since the path may itself contain spaces -- for only the
   entries that pin a non-default mode/owner/group) + `dirs`
   (`dh_installdirs`-style dest-escaped lines, one
   per directory entry, always written even when empty -- routed there and
   never through `install`, which would re-copy any children `--exclude`
   dropped -- so a directory recorded with no files under it, e.g. `install
-  -d` for an empty state directory, still reaches the package). `install`'s
+  -d` for an empty state directory, still reaches the package) + `fixperms`
+  (a POSIX `sh` script, always written, that applies `permissions`' pins
+  directly: run it from an `override_dh_fixperms` target, after
+  `dh_fixperms` -- e.g. `sh debian/fixperms debian/<pkg>`. One
+  `chown`/`chgrp`/`chmod` line per pinned field, in that order (`chown`
+  before `chmod`, since `chown` clears a regular file's setuid/setgid bit
+  even to the same owner); a symlink gets `chown -h`/`chgrp -h` and never a
+  `chmod` (POSIX `chmod` has no `-h` and would follow the link to a target
+  outside the package tree). Each path is written as `"$d"` (the script's
+  required first argument, guarded by `${1:?}`) plus the DB path,
+  `shlex.quote`d for POSIX `sh`; owner/group/mode go through a
+  `functools.lru_cache`d quoting call, since those values repeat far more
+  than paths do. With no pinned entry, the script is just its own
+  four-line header). `install`'s
   source is debhelper-escaped (needs compat 13): a backslash before each
   glob character (`\ * ? [ ] { }`, which also makes a literal `${` read as
   literal since `{`/`}` get escaped), a space as `${Space}`, and a leading

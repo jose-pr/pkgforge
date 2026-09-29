@@ -7,6 +7,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `debian` also writes `fixperms`, a POSIX `sh` script that applies every
+  pinned owner, group and mode to a package directory (`sh debian/fixperms
+  debian/<pkg>`, after `dh_fixperms`); `dbdump -f debian -` gains a
+  `# === fixperms ===` section. `permissions` is unchanged.
 - `dbdump --stdin` reads the file DB as JSON Lines from standard input
   instead of `--db`, e.g. `install ... | pkgforge dbdump --stdin -f FORMAT`
   to render a manifest without ever writing a DB file. No environment

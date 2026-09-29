@@ -118,6 +118,7 @@ def test_dbdump_debian_stdout_sections(tmp_path, cli):
     text = result.out.decode()
     assert text.index("# === install ===") < text.index("# === permissions ===")
     assert text.index("# === permissions ===") < text.index("# === dirs ===")
+    assert text.index("# === dirs ===") < text.index("# === fixperms ===")
 
 
 @pytest.mark.parametrize("fmt", ["rpmspecfiles", "debian"])
