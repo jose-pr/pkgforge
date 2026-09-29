@@ -63,9 +63,9 @@ class _RecordTree(duho.Cmd):
 
         # Children's mode is always read from disk (AUTO), for both files
         # and directories -- DESTINATION's own `-m` never inherits down, and
-        # there is no per-child `--dir-mode` equivalent (Q3). owner/group/
-        # meta are this install's own -o/-g/-O, `--` resolved per child from
-        # disk the same as -m/-o/-g always resolve AUTO.
+        # there is no per-child `--dir-mode` equivalent. owner/group/meta
+        # are this install's own -o/-g/-O, `--` resolved per child from disk
+        # the same as -m/-o/-g always resolve AUTO.
         base: FileEntry = {
             "mode": AUTO,
             "owner": _normalize_field(self.owner),
@@ -83,7 +83,7 @@ class _RecordTree(duho.Cmd):
         if self.exclude:
             # Built directly (not via _Staging._exclude_matcher), so this
             # never repeats the PathMatch.unreachable() warning staging's
-            # own matcher already logged once for the same statements (Q6).
+            # own matcher already logged once for the same statements.
             matcher = PathMatch(
                 self.exclude, dest, installroot=self.buildpath(dest).as_posix()
             )
