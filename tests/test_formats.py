@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import stat
 import subprocess
 import tarfile
@@ -379,6 +380,172 @@ def test_rpmspecfile_empty_fields_render_default():
     assert RpmSpecFiles().render_entry("/x", entry) == b'%attr(-,-,-) "/x"\n'
 
 
+# --------------------------------------------------------------------------
+# rpm: a whole batch rendered together (validate-once-per-batch, not per
+# entry) -- pins the aggregate byte output, one entry per feature, dirs
+# interleaved with files.
+# --------------------------------------------------------------------------
+
+
+def _bs(n):
+    """``n`` literal backslash characters, spelled without a dense run of
+    backslashes in the source."""
+    return "\\" * n
+
+
+def _rpm_corpus_entries():
+    return [
+        (
+            "/etc/tool",
+            {
+                "mode": "-",
+                "owner": "-",
+                "group": "-",
+                "type": "directory",
+                "meta": {"rpmprefix": "%{buildroot}"},
+            },
+        ),
+        (
+            "/usr/bin/back" + _bs(1) + "slash",
+            {
+                "mode": "755",
+                "owner": "root",
+                "group": "root",
+                "type": "file",
+                "meta": {},
+            },
+        ),
+        (
+            '/usr/share/t/quo"te',
+            {"mode": "", "owner": "", "group": "", "type": "file", "meta": {}},
+        ),
+        (
+            "/usr/share/t/star*br[a]?",
+            {"mode": "644", "owner": "-", "group": "-", "type": "file", "meta": {}},
+        ),
+        (
+            "/usr/share/t/with space",
+            {
+                "mode": "750",
+                "owner": "root",
+                "group": "root",
+                "type": "directory",
+                "meta": {},
+            },
+        ),
+        (
+            "/opt/app/caf\udce9",
+            {"mode": "640", "owner": "svc", "group": "svc", "type": "file", "meta": {}},
+        ),
+    ]
+
+
+def test_rpm_render_pinned():
+    expected = (
+        '%{buildroot} %dir %attr(-,-,-) "/etc/tool"\n'
+        '%attr(755,root,root) "/usr/bin/back' + _bs(2) + 'slash"\n'
+        '%attr(-,-,-) "/usr/share/t/quo' + _bs(1) + '"te"\n'
+        '%attr(644,-,-) "/usr/share/t/star*br[a]?"\n'
+        '%dir %attr(750,root,root) "/usr/share/t/with space"\n'
+        '%attr(640,svc,svc) "/opt/app/caf\udce9"\n'
+    ).encode("utf-8", "surrogateescape")
+    assert RpmSpecFiles().render(_rpm_corpus_entries()) == expected
+
+
+def test_rpm_render_matches_render_entry():
+    fmt = RpmSpecFiles()
+    entries = _rpm_corpus_entries()
+    assert fmt.render(entries) == b"".join(
+        fmt.render_entry(path, entry) for path, entry in entries
+    )
+
+
+def test_rpm_render_empty_list():
+    assert RpmSpecFiles().render([]) == b""
+    assert RpmSpecFilesPre419().render([]) == b""
+
+
+def _rpm_pre419_corpus_entries():
+    return [
+        (
+            "/etc/tool",
+            {
+                "mode": "-",
+                "owner": "-",
+                "group": "-",
+                "type": "directory",
+                "meta": {"rpmprefix": "%{buildroot}"},
+            },
+        ),
+        (
+            "/usr/bin/back" + _bs(1) + "slash",
+            {
+                "mode": "755",
+                "owner": "root",
+                "group": "root",
+                "type": "file",
+                "meta": {},
+            },
+        ),
+        (
+            '/usr/share/t/quo"te',
+            {"mode": "", "owner": "", "group": "", "type": "file", "meta": {}},
+        ),
+        (
+            "/usr/share/t/plain",
+            {"mode": "644", "owner": "-", "group": "-", "type": "file", "meta": {}},
+        ),
+    ]
+
+
+def test_rpm_pre419_render_pinned():
+    expected = (
+        "%{buildroot} %dir %attr(-,-,-) /etc/tool\n"
+        "%attr(755,root,root) /usr/bin/back" + _bs(1) + "slash\n"
+        '%attr(-,-,-) /usr/share/t/quo"te\n'
+        "%attr(644,-,-) /usr/share/t/plain\n"
+    ).encode("utf-8", "surrogateescape")
+    assert RpmSpecFilesPre419().render(_rpm_pre419_corpus_entries()) == expected
+
+
+def test_rpm_pre419_render_matches_render_entry():
+    fmt = RpmSpecFilesPre419()
+    entries = _rpm_pre419_corpus_entries()
+    assert fmt.render(entries) == b"".join(
+        fmt.render_entry(path, entry) for path, entry in entries
+    )
+
+
+@pytest.mark.parametrize(
+    "fmt_cls,bad_paths",
+    [
+        (RpmSpecFiles, ["/a\nb", "/100%done"]),
+        (RpmSpecFilesPre419, ["/a\nb", "/star*", "/caf\udce9"]),
+    ],
+    ids=["rpmspecfiles", "rpmspecfiles-pre419"],
+)
+def test_rpm_render_first_error_wins(fmt_cls, bad_paths):
+    good = (
+        "/ok",
+        {"mode": "-", "owner": "-", "group": "-", "type": "file", "meta": {}},
+    )
+
+    def entry_for(path):
+        return (
+            path,
+            {"mode": "-", "owner": "-", "group": "-", "type": "file", "meta": {}},
+        )
+
+    for order in (bad_paths, list(reversed(bad_paths))):
+        entries = [good] + [entry_for(p) for p in order] + [good]
+        fmt = fmt_cls()
+        with pytest.raises(DumpError) as batch_exc:
+            fmt.render(entries)
+        with pytest.raises(DumpError) as single_exc:
+            fmt.render([entry_for(order[0])])
+        assert str(batch_exc.value) == str(single_exc.value)
+
+
 def test_debian_permissions_skip_empty_fields():
     entries = [
         (
@@ -426,6 +593,190 @@ def test_debian_dirs_artifact():
     assert dirs == ["var/lib/tool", "var/lib/sp${Space}ace", "./#state"]
     # A directory entry is never an install target.
     assert "var/lib/tool" not in arts["install"].decode()
+
+
+# --------------------------------------------------------------------------
+# debian: a whole batch rendered together (validate-once-per-batch, not per
+# entry) -- pins every artifact's aggregate byte output, dirs interleaved
+# with files.
+# --------------------------------------------------------------------------
+
+
+def _debian_corpus_entries():
+    return [
+        (
+            "/usr/share/t/star*br[a]{x,y}",
+            {"mode": "-", "owner": "-", "group": "-", "type": "file", "meta": {}},
+        ),
+        (
+            "/usr/bin/tool",
+            {
+                "mode": "755",
+                "owner": "root",
+                "group": "root",
+                "type": "file",
+                "meta": {},
+            },
+        ),
+        _dir_entry("/etc/tool"),
+        (
+            "/#comment/file",
+            {
+                "mode": "640",
+                "owner": "root",
+                "group": "adm",
+                "type": "file",
+                "meta": {},
+            },
+        ),
+        _dir_entry("/#dirstate"),
+        (
+            "/usr/share/t/with space",
+            {"mode": "-", "owner": "svc", "group": "-", "type": "file", "meta": {}},
+        ),
+        (
+            "/opt/app/caf\udce9",
+            {
+                "mode": "644",
+                "owner": "svc",
+                "group": "-",
+                "type": "symlink",
+                "meta": {},
+            },
+        ),
+        (
+            "/usr/share/dol${y}dir/f",
+            {"mode": "-", "owner": "-", "group": "-", "type": "file", "meta": {}},
+        ),
+        (
+            "/x",
+            {"mode": "", "owner": "", "group": "", "type": "file", "meta": {}},
+        ),
+    ]
+
+
+def test_debian_render_pinned():
+    arts = Debian().render(_debian_corpus_entries())
+
+    assert arts["install"] == (
+        "usr/share/t/star"
+        + _bs(1)
+        + "*br"
+        + _bs(1)
+        + "[a"
+        + _bs(1)
+        + "]"
+        + _bs(1)
+        + "{x,y"
+        + _bs(1)
+        + "} usr/share/t\n"
+        "usr/bin/tool usr/bin\n" + _bs(1) + "#comment/file #comment\n"
+        "usr/share/t/with${Space}space usr/share/t\n"
+        "opt/app/caf\udce9 opt/app\n"
+        "usr/share/dol$"
+        + _bs(1)
+        + "{y"
+        + _bs(1)
+        + "}dir/f usr/share/dol${Dollar}{y}dir\n"
+        "x\n"
+    ).encode("utf-8", "surrogateescape")
+
+    assert arts["dirs"] == b"etc/tool\n./#dirstate\n"
+
+    assert arts["permissions"] == (
+        "/usr/bin/tool 755 root root\n"
+        "/#comment/file 640 root adm\n"
+        "/usr/share/t/with space - svc -\n"
+        "/opt/app/caf\udce9 644 svc -\n"
+    ).encode("utf-8", "surrogateescape")
+
+    target_tool = '"$d"' + shlex.quote("/usr/bin/tool")
+    target_hash = '"$d"' + shlex.quote("/#comment/file")
+    target_space = '"$d"' + shlex.quote("/usr/share/t/with space")
+    target_link = '"$d"' + shlex.quote("/opt/app/caf\udce9")
+    assert arts["fixperms"] == (
+        b"#!/bin/sh\n"
+        b"# Generated by pkgforge dbdump -f debian. Usage: sh fixperms PACKAGE-DIR\n"
+        b"set -e\n"
+        b"d=${1:?usage: sh fixperms PACKAGE-DIR}\n"
+        + f"chown -- root {target_tool}\n".encode()
+        + f"chgrp -- root {target_tool}\n".encode()
+        + f"chmod -- 755 {target_tool}\n".encode()
+        + f"chown -- root {target_hash}\n".encode()
+        + f"chgrp -- adm {target_hash}\n".encode()
+        + f"chmod -- 640 {target_hash}\n".encode()
+        + f"chown -- svc {target_space}\n".encode()
+        # A symlink: chown -h only, never chgrp (group unpinned) or chmod.
+        + f"chown -h -- svc {target_link}\n".encode("utf-8", "surrogateescape")
+    )
+
+
+def test_debian_render_matches_entries_rendered_alone():
+    # Guard: batching the validation and the debhelper escaping must not
+    # change any entry's own contribution -- rendering the whole corpus
+    # together must equal the union of rendering each artifact-relevant
+    # subset one entry at a time, entry by entry, for install/dirs (order
+    # preserved) built from a single-entry batch each.
+    entries = _debian_corpus_entries()
+    fmt = Debian()
+    whole = fmt.render(entries)
+    install_lines = whole["install"].decode("utf-8", "surrogateescape").splitlines()
+    dir_lines = whole["dirs"].decode("utf-8", "surrogateescape").splitlines()
+    non_dir = [e for e in entries if e[1]["type"] != "directory"]
+    dirs = [e for e in entries if e[1]["type"] == "directory"]
+    for (path, entry), line in zip(non_dir, install_lines):
+        one = fmt.render([(path, entry)])["install"].decode("utf-8", "surrogateescape")
+        assert one.strip() == line
+    for (path, entry), line in zip(dirs, dir_lines):
+        one = fmt.render([(path, entry)])["dirs"].decode("utf-8", "surrogateescape")
+        assert one.strip() == line
+
+
+@pytest.mark.parametrize(
+    "make_bad,message_fragment",
+    [
+        (lambda: _one_entry("/a\nb"), "control character"),
+        (
+            lambda: [
+                (
+                    "/a",
+                    {
+                        "mode": "644",
+                        "owner": "ro ot",
+                        "group": "root",
+                        "type": "file",
+                        "meta": {},
+                    },
+                )
+            ],
+            "owner",
+        ),
+    ],
+    ids=["control", "owner_whitespace"],
+)
+def test_debian_render_first_error_wins(make_bad, message_fragment):
+    good = _one_entry("/ok")[0]
+    bad = make_bad()[0]
+    for entries in ([good, bad, good], [bad, good]):
+        with pytest.raises(DumpError) as batch_exc:
+            Debian().render(entries)
+        with pytest.raises(DumpError) as single_exc:
+            Debian().render([bad])
+        assert message_fragment in str(batch_exc.value)
+        assert str(batch_exc.value) == str(single_exc.value)
+
+
+def test_debian_render_empty_list():
+    arts = Debian().render([])
+    assert arts["install"] == b""
+    assert arts["permissions"] == b""
+    assert arts["dirs"] == b""
+    assert arts["fixperms"] == (
+        b"#!/bin/sh\n"
+        b"# Generated by pkgforge dbdump -f debian. Usage: sh fixperms PACKAGE-DIR\n"
+        b"set -e\n"
+        b"d=${1:?usage: sh fixperms PACKAGE-DIR}\n"
+    )
 
 
 # --------------------------------------------------------------------------
