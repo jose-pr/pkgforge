@@ -76,6 +76,30 @@ def _reject_control(path: str, fmt: str) -> None:
         )
 
 
+def _has_control(texts: typing.Iterable[str]) -> bool:
+    """Whether any string in ``texts`` contains a C0/DEL control character.
+
+    A single :data:`_CONTROL_RE` search over every string joined together,
+    reading the module global at call time (so a test's monkeypatch of
+    ``pkgforge.dbdump._CONTROL_RE`` is honored) -- the batch pre-check a
+    format's ``render`` uses to decide whether any per-entry rejection is
+    needed at all. Concatenation cannot hide or fabricate a match: every
+    character this regex looks for is matched on its own, never as part of a
+    multi-character sequence, so a hit anywhere in the joined text always
+    means some individual string actually contains that character.
+    """
+    return _CONTROL_RE.search("".join(texts)) is not None
+
+
+def _has_whitespace(texts: typing.Iterable[str]) -> bool:
+    """Whether any string in ``texts`` contains whitespace (:data:`_WHITESPACE_RE`).
+
+    Same shape and same batching rationale as :func:`_has_control`, for
+    debian's mode/owner/group check.
+    """
+    return _WHITESPACE_RE.search("".join(texts)) is not None
+
+
 @contextlib.contextmanager
 def _open_output(output: Path):
     """Open OUTPUT for writing: the real file for a path, or a stream onto

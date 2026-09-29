@@ -780,6 +780,63 @@ def test_debian_render_empty_list():
 
 
 # --------------------------------------------------------------------------
+# validate-once-per-batch: a clean batch runs each control/whitespace regex
+# exactly once, never once per entry.
+# --------------------------------------------------------------------------
+
+
+class _CountingPattern:
+    """Wraps a compiled regex, counting ``search`` calls -- swapped in for
+    the module's real pattern via ``monkeypatch.setattr`` so the count
+    reflects exactly how many times production code searches it."""
+
+    def __init__(self, real):
+        self._real = real
+        self.calls = 0
+
+    def search(self, s):
+        self.calls += 1
+        return self._real.search(s)
+
+
+def _clean_entries(n):
+    return [
+        (
+            f"/usr/share/app/file{i:04d}.dat",
+            {
+                "mode": "644",
+                "owner": "root",
+                "group": "root",
+                "type": "file",
+                "meta": {},
+            },
+        )
+        for i in range(n)
+    ]
+
+
+def test_rpm_render_checks_control_once(monkeypatch):
+    import pkgforge.dbdump as dbdump_mod
+
+    counter = _CountingPattern(dbdump_mod._CONTROL_RE)
+    monkeypatch.setattr(dbdump_mod, "_CONTROL_RE", counter)
+    RpmSpecFiles().render(_clean_entries(1000))
+    assert counter.calls == 1
+
+
+def test_debian_render_checks_once(monkeypatch):
+    import pkgforge.dbdump as dbdump_mod
+
+    control_counter = _CountingPattern(dbdump_mod._CONTROL_RE)
+    whitespace_counter = _CountingPattern(dbdump_mod._WHITESPACE_RE)
+    monkeypatch.setattr(dbdump_mod, "_CONTROL_RE", control_counter)
+    monkeypatch.setattr(dbdump_mod, "_WHITESPACE_RE", whitespace_counter)
+    Debian().render(_clean_entries(1000))
+    assert control_counter.calls == 1
+    assert whitespace_counter.calls == 1
+
+
+# --------------------------------------------------------------------------
 # debian: fixperms
 # --------------------------------------------------------------------------
 

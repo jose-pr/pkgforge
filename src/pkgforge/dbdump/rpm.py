@@ -5,21 +5,15 @@ from __future__ import annotations
 import re
 
 from ..entry import FileEntry, FileType, _or_default
-from . import PerEntryFormat, DumpError, _reject_control
+from . import Entries, PerEntryFormat, DumpError, _has_control, _reject_control
 
 
-def _rpm_quote(path: str) -> str:
-    """Quote ``path`` for an rpm ``%files``/``%attr`` line (rpm 4.19+).
-
-    rpm's ``%files -f`` parser macro-expands every line BEFORE it sees the
-    quoting: on rpm 4.19+ no spelling of ``%`` is literal inside or outside
-    double quotes, so a path containing one is refused outright rather than
-    escaped (below 4.19, ``%%`` ran the doubled-percent expansion and
-    ``%(cmd)`` ran ``cmd`` as a shell command -- there is currently no
-    escaping that is safe on that range, so it is refused there too). Glob
-    characters
-    (``* ? [ ]``) are never escaped: rpm's own shell-globbing quoting rules
-    make a quoted glob character match only the literal path anyway.
+def _rpm_reject(path: str) -> None:
+    """Raise :class:`DumpError` if ``path`` cannot be represented in an rpm
+    ``%files``/``%attr`` line (rpm 4.19+): a control character, or a ``%``
+    (macro-expanded by rpm's ``%files -f`` parser on every version -- see
+    :func:`_rpm_quote`). Validation only; :func:`_rpm_escape` does the
+    quoting once a path is known good.
     """
     _reject_control(path, "rpmspecfiles")
     if "%" in path:
@@ -28,8 +22,24 @@ def _rpm_quote(path: str) -> str:
             "%files parser expands as a macro on every rpm version; write "
             "this entry's %files line by hand"
         )
+
+
+def _rpm_escape(path: str) -> str:
+    """Quote an already-validated ``path`` for rpm 4.19+ (no rejection):
+    backslash and double quote are escaped, glob characters
+    (``* ? [ ]``) are left alone -- rpm's own shell-globbing quoting rules
+    make a quoted glob character match only the literal path anyway.
+    """
     escaped = path.replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
+
+
+def _rpm_quote(path: str) -> str:
+    """Validate then quote ``path`` for an rpm ``%files``/``%attr`` line
+    (rpm 4.19+): see :func:`_rpm_reject` and :func:`_rpm_escape`.
+    """
+    _rpm_reject(path)
+    return _rpm_escape(path)
 
 
 #: Characters :func:`_rpm_quote_pre419` refuses outright: a space (ends rpm's
@@ -40,24 +50,22 @@ def _rpm_quote(path: str) -> str:
 #: bare ``"`` or ``\`` survives an unquoted token unescaped and literal, so
 #: neither is refused here.
 _REFUSED_PRE419 = frozenset(" *?[]{}%")
+#: A single-character class matching anything in :data:`_REFUSED_PRE419` --
+#: the batch pre-check for the pre-4.19 format (one search over every path
+#: joined together, instead of the per-character loop below run once per
+#: entry).
+_REFUSED_PRE419_RE = re.compile("[" + re.escape("".join(_REFUSED_PRE419)) + "]")
 #: A lone surrogate (``surrogateescape``'s stand-in for a non-UTF-8 byte).
 _SURROGATE_RE = re.compile("[\udc80-\udcff]")
 
 
-def _rpm_quote_pre419(path: str) -> str:
-    """Quote ``path`` for rpm older than 4.19's ``%files -f`` parser
-    (measured against real rpmbuild runs on 4.14.3, 4.16.1 and 4.18.2).
-
-    Below rpm 4.19, a quoted ``%files -f`` name is macro-expanded TWICE
-    (``specExpand``, then ``rpmExpand`` again while resolving the file), and
-    an unquoted name's glob characters are matched by rpm's own globbing
-    before pkgforge's own escaping is ever consulted -- there is no
-    escaping on that range that is safe for a space or a glob character.
-    This writes the path completely unquoted instead (rpm's bare-token
-    reader passes a literal ``"`` or ``\\`` straight through, unescaped),
-    and refuses outright a path containing a space, a glob character
-    (``* ? [ ] { }``), ``%`` (in any form), or a byte that is not valid
-    UTF-8, rather than risk packaging the wrong file.
+def _rpm_reject_pre419(path: str) -> None:
+    """Raise :class:`DumpError` if ``path`` cannot be represented in rpm
+    older than 4.19's ``%files -f`` parser (measured against real rpmbuild
+    runs on 4.14.3, 4.16.1 and 4.18.2): a control character, a byte that is
+    not valid UTF-8, a space, or a glob character (``* ? [ ] { }``) or ``%``
+    (see :func:`_rpm_quote_pre419`). Validation only; a validated path is
+    written back completely unquoted -- there is no separate escaping step.
     """
     _reject_control(path, "rpmspecfiles-pre419")
     if _SURROGATE_RE.search(path):
@@ -73,6 +81,21 @@ def _rpm_quote_pre419(path: str) -> str:
                 "rpm older than 4.19 cannot represent it; use rpmspecfiles "
                 "with rpm 4.19+ or write this line by hand"
             )
+
+
+def _rpm_quote_pre419(path: str) -> str:
+    """Validate then return ``path`` unquoted for rpm older than 4.19's
+    ``%files -f`` parser: see :func:`_rpm_reject_pre419`.
+
+    Below rpm 4.19, a quoted ``%files -f`` name is macro-expanded TWICE
+    (``specExpand``, then ``rpmExpand`` again while resolving the file), and
+    an unquoted name's glob characters are matched by rpm's own globbing
+    before pkgforge's own escaping is ever consulted -- there is no
+    escaping on that range that is safe for a space or a glob character.
+    This writes the path completely unquoted instead (rpm's bare-token
+    reader passes a literal ``"`` or ``\\`` straight through, unescaped).
+    """
+    _rpm_reject_pre419(path)
     return path
 
 
@@ -92,11 +115,32 @@ class RpmSpecFiles(PerEntryFormat):
 
     NAME = "rpmspecfiles"
     ALIASES = ("rpm", "rpmspec")
-    #: The quoting hook: a plain function, held as a class attribute so a
-    #: subclass can override it without also overriding `render_entry`.
+    #: The quoting hook (validate + escape together): a plain function, held
+    #: as a class attribute so a subclass can override it without also
+    #: overriding `render`/`render_entry`. Used only by `render_entry` (a
+    #: one-entry batch) and, within `render`, only on the slow per-entry
+    #: fallback path once a batch check finds something wrong.
     _quote = staticmethod(_rpm_quote)
+    #: The escaping half alone, for an already-validated path -- what a
+    #: clean batch's per-line loop uses instead of re-validating every path
+    #: it already knows is good.
+    _escape = staticmethod(_rpm_escape)
+    #: The rejection half alone, for the per-entry fallback once a batch
+    #: check finds something wrong -- raises with today's exact message on
+    #: the first offending entry, in entry order.
+    _reject = staticmethod(_rpm_reject)
 
-    def render_entry(self, path: str, entry: FileEntry) -> bytes:
+    @staticmethod
+    def _batch_reject_needed(joined: str) -> bool:
+        """Whether ``joined`` (every entry's path concatenated) might hide a
+        rejected path -- a control character or a ``%`` anywhere. ``False``
+        means every path in the batch is already known good, so `render`'s
+        per-line loop can call `_escape` directly and skip `_reject`
+        entirely.
+        """
+        return _has_control([joined]) or "%" in joined
+
+    def _line(self, path: str, entry: FileEntry, quoted: str) -> bytes:
         prefix = entry["meta"].get("rpmprefix") or ""
         if prefix:
             prefix += " "
@@ -107,10 +151,31 @@ class RpmSpecFiles(PerEntryFormat):
         owner = _or_default(entry["owner"])
         group = _or_default(entry["group"])
 
-        quoted = self._quote(path)
         return f"{prefix}%attr({mode},{owner},{group}) {quoted}\n".encode(
             "utf-8", "surrogateescape"
         )
+
+    def render(self, entries: Entries) -> bytes:
+        """Render every entry, validating the whole batch's paths once
+        (parent ``Q1`` design): a single check over every path joined
+        together decides whether anything needs the slower per-entry
+        rejection at all, so a clean batch never runs a rejection check per
+        entry. Byte-identical to rendering each entry through
+        :meth:`render_entry` alone.
+        """
+        paths = [path for path, _entry in entries]
+        if self._batch_reject_needed("".join(paths)):
+            # Something in the batch is bad -- run today's exact per-entry
+            # check in entry order so the first offending entry raises
+            # exactly the error it would raise rendered alone.
+            for path in paths:
+                self._reject(path)
+        return b"".join(
+            self._line(path, entry, self._escape(path)) for path, entry in entries
+        )
+
+    def render_entry(self, path: str, entry: FileEntry) -> bytes:
+        return self.render([(path, entry)])
 
 
 class RpmSpecFilesPre419(RpmSpecFiles):
@@ -118,14 +183,27 @@ class RpmSpecFilesPre419(RpmSpecFiles):
     rpmbuild runs on 4.14.3, 4.16.1 and 4.18.2).
 
     Inherits :class:`RpmSpecFiles`'s ``%attr``/``%dir``/``rpmprefix``
-    rendering and overrides only the quoting: the path is written completely
-    unquoted, and a path containing a space, a glob character
-    (``* ? [ ] { }``), ``%`` (in any form), or a byte that is not valid
-    UTF-8 raises :class:`~pkgforge.dbdump.DumpError` instead of risking a
-    silently wrong or overmatched package. Use :class:`RpmSpecFiles` instead
-    when the rpm that builds the package is 4.19 or newer.
+    rendering and batch-then-per-entry validation, overriding only the
+    quoting/rejection hooks: the path is written completely unquoted, and a
+    path containing a space, a glob character (``* ? [ ] { }``), ``%`` (in
+    any form), or a byte that is not valid UTF-8 raises
+    :class:`~pkgforge.dbdump.DumpError` instead of risking a silently wrong
+    or overmatched package. Use :class:`RpmSpecFiles` instead when the rpm
+    that builds the package is 4.19 or newer.
     """
 
     NAME = "rpmspecfiles-pre419"
     ALIASES = ("rpm-pre419",)
     _quote = staticmethod(_rpm_quote_pre419)
+    #: No escaping at all here -- an already-validated path is written back
+    #: unquoted (see :func:`_rpm_quote_pre419`).
+    _escape = staticmethod(lambda path: path)
+    _reject = staticmethod(_rpm_reject_pre419)
+
+    @staticmethod
+    def _batch_reject_needed(joined: str) -> bool:
+        return bool(
+            _has_control([joined])
+            or _REFUSED_PRE419_RE.search(joined)
+            or _SURROGATE_RE.search(joined)
+        )

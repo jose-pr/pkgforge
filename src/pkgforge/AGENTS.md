@@ -391,7 +391,9 @@ that one line.
   `DumpFormat` directly.
 - **`PerEntryFormat(DumpFormat)`** — renders one line per DB entry to a
   single output stream. Abstract `render_entry(path, entry) -> bytes`;
-  concrete `render(entries) -> bytes` (joins every `render_entry` call) and
+  concrete `render(entries) -> bytes` (default: joins every `render_entry`
+  call -- a format MAY override `render` itself to validate/render a whole
+  batch at once, as `RpmSpecFiles` does below) and
   `dump(entries, output, logger=None)` (checks OUTPUT, renders, opens
   OUTPUT, writes). `check_output` refuses an existing directory.
   Built in: **`rpm.RpmSpecFiles`** (`NAME = "rpmspecfiles"`,
@@ -404,20 +406,29 @@ that one line.
   quoting already matches only the literal name). A `%` anywhere in the
   path raises `DumpError` -- no version of rpm treats a quoted `%` as
   literal, and `%(...)` runs a shell command -- as does any C0 control
-  character or DEL. Targets rpm 4.19+; below that, a quoted name is
-  macro-expanded twice and glob characters are matched unescaped, so this
-  quoting is not safe there -- use **`rpm.RpmSpecFilesPre419`**
-  (`NAME = "rpmspecfiles-pre419"`, `ALIASES = ("rpm-pre419",)`) instead.
-  It subclasses `RpmSpecFiles`, overriding only the quoting hook
-  (`_quote`, a `staticmethod` `render_entry` calls as `self._quote(path)`):
-  the path is written completely unquoted (rpm's bare-token reader passes a
-  literal `"`/`\` straight through, unescaped), and it raises `DumpError`
-  for a path containing a space, a glob character (`* ? [ ] { }`), `%` (any
-  form), or a non-UTF-8 byte, instead of risking a silently wrong or
-  overmatched package. Measured against real rpmbuild runs on rpm 4.14.3,
-  4.16.1 and 4.18.2 (see the formats guide's rpm-older-than-4.19 table for
-  the full per-class verdicts); choose whichever of the two matches the
-  build host's own `rpm --version`.
+  character or DEL. `RpmSpecFiles` overrides `render(entries)`: it
+  validates the whole batch's paths in one pass (a single check over every
+  path joined together decides whether ANY entry needs the slower per-entry
+  rejection at all -- a clean batch, the common case, never runs a
+  rejection check per entry) before rendering every line; `render_entry`
+  renders a one-entry batch (`self.render([(path, entry)])`), so the two
+  are always byte-identical. The quoting/rejection behavior itself is four
+  class-attribute hooks (`_quote`, `_escape`, `_reject`,
+  `_batch_reject_needed`), so a subclass changes only those, never
+  `render`/`render_entry` themselves. Targets rpm 4.19+; below that, a
+  quoted name is macro-expanded twice and glob characters are matched
+  unescaped, so this quoting is not safe there -- use
+  **`rpm.RpmSpecFilesPre419`** (`NAME = "rpmspecfiles-pre419"`,
+  `ALIASES = ("rpm-pre419",)`) instead. It subclasses `RpmSpecFiles`,
+  overriding only the four hooks above: the path is written completely
+  unquoted (rpm's bare-token reader passes a literal `"`/`\` straight
+  through, unescaped), and it raises `DumpError` for a path containing a
+  space, a glob character (`* ? [ ] { }`), `%` (any form), or a non-UTF-8
+  byte, instead of risking a silently wrong or overmatched package.
+  Measured against real rpmbuild runs on rpm 4.14.3, 4.16.1 and 4.18.2 (see
+  the formats guide's rpm-older-than-4.19 table for the full per-class
+  verdicts); choose whichever of the two matches the build host's own
+  `rpm --version`.
 - **`MultiArtifactFormat(DumpFormat)`** — renders several named artifacts
   into a directory (or, for `-`, concatenates them to stdout under
   `# === <name> ===` section headers). Abstract
@@ -456,15 +467,28 @@ that one line.
   (`dh_installdirs` never globs, so there is nothing else to escape there).
   Every destination (`install`'s and `dirs`') is only ever
   `${Dollar}{`/`${Space}`-escaped, never glob-escaped -- `dh_install`/
-  `dh_installdirs` take it literally. Every entry is validated first (a
-  control character in the path, or whitespace in mode/owner/group, raises
-  `DumpError` before any artifact is built), and every artifact is written
-  as UTF-8 with `surrogateescape` (a non-UTF-8 name round-trips its
-  original bytes). The install destination is split with `posixpath`, not
-  `os.path` -- DB paths are always POSIX-style ("/"-separated), and
-  `ntpath` also treats a literal backslash as a separator, which split a
-  path containing one (e.g. a source named `back\slash`) in the wrong
-  place on Windows.
+  `dh_installdirs` take it literally. Every entry is validated first: a
+  single batch check (a control character anywhere across every path
+  joined together, or whitespace anywhere across every mode/owner/group
+  joined together) decides whether ANY entry needs a per-entry rejection
+  check at all -- a clean batch, the common case, never runs a rejection
+  check per entry, and on a hit the per-entry fallback (`_debian_reject`)
+  raises today's exact message for the first offending entry, in entry
+  order. Once the batch is known clean, every SOURCE is debhelper-escaped
+  in one `str.translate` call over every `rel` newline-joined
+  (`_dh_src_batch`), and every DESTINATION in one pair of `str.replace`
+  calls the same way (`_dh_dest_batch`) -- safe only because the batch
+  validation already ruled out a literal newline (a control character)
+  anywhere in a path; the leading-`#` case stays per line (it depends on
+  each line's own first character), applied after the join/escape/split
+  round-trip. `_dh_src`/`_dh_dest` (single-string) stay defined and are
+  still what the batch helpers and the direct tests describe; every
+  artifact is written as UTF-8 with `surrogateescape` (a non-UTF-8 name
+  round-trips its original bytes). The install destination is split with
+  `posixpath`, not `os.path` -- DB paths are always POSIX-style
+  ("/"-separated), and `ntpath` also treats a literal backslash as a
+  separator, which split a path containing one (e.g. a source named
+  `back\slash`) in the wrong place on Windows.
 - **`UnsupportedOutputError(UsageError, DumpError, NotImplementedError)`** —
   OUTPUT is the wrong shape for the chosen format (an existing file for
   `debian`, an existing directory for `rpmspecfiles`); raised by

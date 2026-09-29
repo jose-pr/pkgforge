@@ -8,7 +8,33 @@ import shlex
 import typing
 
 from ..entry import DEFAULT, FileType, _or_default
-from . import DumpError, Entries, MultiArtifactFormat, _WHITESPACE_RE, _reject_control
+from . import (
+    DumpError,
+    Entries,
+    MultiArtifactFormat,
+    _WHITESPACE_RE,
+    _has_control,
+    _has_whitespace,
+    _reject_control,
+)
+
+
+def _debian_reject(path: str, mode: str, owner: str, group: str) -> None:
+    """Raise :class:`DumpError` if this entry cannot be represented in the
+    debian artifacts: a control character in ``path``, then whitespace in
+    ``mode``, ``owner``, or ``group`` in that order -- today's exact
+    messages, used as the per-entry fallback once a batch check
+    (:func:`~pkgforge.dbdump._has_control`/:func:`~pkgforge.dbdump._has_whitespace`)
+    finds something wrong somewhere in the batch.
+    """
+    _reject_control(path, "debian")
+    for field, value in (("mode", mode), ("owner", owner), ("group", group)):
+        if _WHITESPACE_RE.search(value):
+            raise DumpError(
+                f"debian: a DB entry's {field} contains whitespace, "
+                "which the permissions format cannot represent"
+            )
+
 
 #: Characters dh_install/dh_installdirs read as shell-glob syntax in a
 #: SOURCE line, plus the backslash that escapes them; ``{``/``}`` are
@@ -44,6 +70,37 @@ def _dh_dest(rel: str) -> str:
     literal, which also works on compat 12.
     """
     return rel.replace("${", "${Dollar}{").replace(" ", "${Space}")
+
+
+def _dh_src_batch(rels: typing.List[str]) -> typing.List[str]:
+    """:func:`_dh_src`, applied to every SOURCE in one pass: one
+    ``str.translate`` over every ``rel`` newline-joined, instead of one
+    Python-level call (and one ``translate``) per entry.
+
+    Safe only because every ``rel`` here has already passed the batch's own
+    control-character check (:func:`~pkgforge.dbdump._has_control`, run
+    before this is ever called) -- a real ``\\n`` inside a ``rel`` would
+    otherwise be indistinguishable from the join separator. The leading-``#``
+    case is still per-line (it depends on each line's own first character),
+    applied after the join/translate/split round-trip.
+    """
+    if not rels:
+        return []
+    lines = "\n".join(rels).translate(_DH_SRC_TABLE).split("\n")
+    return ["\\" + line if line.startswith("#") else line for line in lines]
+
+
+def _dh_dest_batch(rels: typing.List[str]) -> typing.List[str]:
+    """:func:`_dh_dest`, applied to every DESTINATION in one pass: two
+    ``str.replace`` calls over every ``rel`` newline-joined, instead of two
+    Python-level calls per entry. Safe for the same reason as
+    :func:`_dh_src_batch` -- every ``rel`` is already known control-free.
+    """
+    if not rels:
+        return []
+    return (
+        "\n".join(rels).replace("${", "${Dollar}{").replace(" ", "${Space}").split("\n")
+    )
 
 
 #: The generated ``fixperms`` script's first four lines. With no pinned
@@ -138,25 +195,67 @@ class Debian(MultiArtifactFormat):
     ALIASES = ("deb",)
 
     def render(self, entries: Entries) -> typing.Dict[str, bytes]:
+        # Resolve mode/owner/group once per entry (needed for both the batch
+        # check below and the per-entry build), then validate the whole
+        # batch in two regex searches instead of one control-character
+        # search plus three whitespace searches per entry (parent Q1
+        # design): a clean batch (the common case) never runs a per-entry
+        # check at all. On a hit, `_debian_reject` re-runs today's exact
+        # per-entry checks in entry order, so the first offending entry
+        # raises exactly the error it would raise rendered alone.
+        resolved = [
+            (
+                path,
+                entry,
+                _or_default(entry["mode"]),
+                _or_default(entry["owner"]),
+                _or_default(entry["group"]),
+            )
+            for path, entry in entries
+        ]
+        if _has_control(path for path, _e, _m, _o, _g in resolved) or _has_whitespace(
+            value
+            for _p, _e, mode, owner, group in resolved
+            for value in (mode, owner, group)
+        ):
+            for path, _entry, mode, owner, group in resolved:
+                _debian_reject(path, mode, owner, group)
+
+        # Two passes: gather every SOURCE/DESTINATION that needs debhelper
+        # escaping first, then escape each kind in one batched call
+        # (_dh_src_batch/_dh_dest_batch) instead of once per entry -- safe
+        # now that the batch validation above has already ruled out a
+        # control character (a literal newline included) anywhere in a
+        # path. `is_dirs` is kept alongside each entry's index so the second
+        # pass never has to recompute the entry's type.
+        is_dirs: typing.List[bool] = []
+        dest_inputs: typing.List[str] = []
+        src_indices: typing.List[int] = []
+        src_inputs: typing.List[str] = []
+        for i, (path, entry, mode, owner, group) in enumerate(resolved):
+            is_dir = entry["type"] == FileType.Directory
+            rel = path.lstrip("/")
+            is_dirs.append(is_dir)
+            if is_dir:
+                dest_inputs.append(rel)
+            else:
+                # rel is relative, so this equals posixpath.dirname(rel).
+                dest_inputs.append(rel.rpartition("/")[0].rstrip("/"))
+                src_indices.append(i)
+                src_inputs.append(rel)
+
+        escaped_dests = _dh_dest_batch(dest_inputs)
+        escaped_srcs = _dh_src_batch(src_inputs)
+        srcs_by_index = dict(zip(src_indices, escaped_srcs))
+
         install_lines: typing.List[str] = []
         perm_lines: typing.List[str] = []
         dir_lines: typing.List[str] = []
         fixperms_lines: typing.List[str] = []
-        for path, entry in entries:
-            _reject_control(path, "debian")
-            mode = _or_default(entry["mode"])
-            owner = _or_default(entry["owner"])
-            group = _or_default(entry["group"])
-            for field, value in (("mode", mode), ("owner", owner), ("group", group)):
-                if _WHITESPACE_RE.search(value):
-                    raise DumpError(
-                        f"debian: a DB entry's {field} contains whitespace, "
-                        "which the permissions format cannot represent"
-                    )
+        for i, (path, entry, mode, owner, group) in enumerate(resolved):
             is_symlink = entry["type"] == FileType.Symlink
-            rel = path.lstrip("/")
-            if entry["type"] == FileType.Directory:
-                dline = _dh_dest(rel)
+            if is_dirs[i]:
+                dline = escaped_dests[i]
                 # dh_installdirs, like dh_install, treats a line starting
                 # with "#" as a comment; "./" is a directory-neutral prefix
                 # that keeps the leaf name literal instead of backslash-
@@ -166,9 +265,7 @@ class Debian(MultiArtifactFormat):
                     dline = "./" + dline
                 dir_lines.append(dline)
             else:
-                # rel is relative, so this equals posixpath.dirname(rel).
-                dest_dir = _dh_dest(rel.rpartition("/")[0].rstrip("/"))
-                install_lines.append(f"{_dh_src(rel)} {dest_dir}".rstrip())
+                install_lines.append(f"{srcs_by_index[i]} {escaped_dests[i]}".rstrip())
             if mode != DEFAULT or owner != DEFAULT or group != DEFAULT:
                 perm_lines.append(f"{path} {mode} {owner} {group}")
                 fixperms_lines.extend(
