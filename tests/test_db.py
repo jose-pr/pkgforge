@@ -721,6 +721,98 @@ def test_jsonl_int_mode_is_str(tmp_path):
     assert entry["group"] == "0"
 
 
+# --------------------------------------------------------------------------
+# pin JSON Lines and SQLite load results and errors, byte for byte
+# --------------------------------------------------------------------------
+
+
+def test_jsonl_load_errors_pinned(tmp_path):
+    from pkgforge.db import DbError
+
+    path = tmp_path / "f.jsonl"
+
+    def _err(text: str) -> str:
+        path.write_text(text, encoding="utf-8")
+        with pytest.raises(DbError) as excinfo:
+            open_db(path, "jsonl", for_read=True).load()
+        return str(excinfo.value)
+
+    # bad JSON with a column
+    assert _err('{"path": "/a", not valid json\n') == (
+        f"{path}:1: invalid JSON Lines record: "
+        "Expecting property name enclosed in double quotes (column 16)"
+    )
+    # a BOM-prefixed line
+    assert _err("\ufeff" + '{"path": "/a"}\n') == (
+        f"{path}:1: invalid JSON Lines record: "
+        "Unexpected UTF-8 BOM (decode using utf-8-sig) (column 1)"
+    )
+    # two objects on one line
+    assert (
+        _err("{}{}\n") == f"{path}:1: invalid JSON Lines record: Extra data (column 3)"
+    )
+    # trailing garbage after a valid object
+    assert (
+        _err('{"a":1}xyz\n')
+        == f"{path}:1: invalid JSON Lines record: Extra data (column 8)"
+    )
+    # a JSON array is not an object
+    assert _err("[1]\n") == f"{path}:1: invalid JSON Lines record: not an object"
+    # a JSON null is not an object
+    assert _err("null\n") == f"{path}:1: invalid JSON Lines record: not an object"
+    # a JSON string is not an object
+    assert _err('"text"\n') == f"{path}:1: invalid JSON Lines record: not an object"
+    # a valid object missing "path"
+    assert _err('{"mode": "644"}\n') == (
+        f'{path}:1: invalid JSON Lines record: missing "path"'
+    )
+    # non-UTF-8 bytes fail before any JSON parsing is attempted
+    path.write_bytes(b"\xff\xfe")
+    with pytest.raises(DbError) as excinfo:
+        open_db(path, "jsonl", for_read=True).load()
+    assert str(path) in str(excinfo.value)
+
+
+def test_jsonl_load_tolerant_lines_pinned(tmp_path):
+    path = tmp_path / "f.jsonl"
+    path.write_bytes(
+        b"\n"
+        b'  {"path": "/a", "mode": "644", "owner": "-", "group": "-", '
+        b'"type": "file", "meta": {}}  \r\n'
+        b"\t \r\n"
+        b'{"path": "/a", "mode": "755", "owner": "-", "group": "-", '
+        b'"type": "file", "meta": {}}\r\n'
+        b'{"path": "/b", "_removed": true}\n'
+        b'{"path": "/c", "mode": "600", "owner": "-", "group": "-", '
+        b'"type": "file", "meta": {}}'  # no final newline
+    )
+    db = open_db(path, "jsonl", for_read=True).load()
+    assert db["/a"]["mode"] == "755"  # duplicate path: last record wins
+    assert db["/b"] is None  # "_removed" tombstone
+    assert db["/c"]["mode"] == "600"  # last line has no trailing newline
+
+
+def test_sqlite_load_meta_pinned(tmp_path, make_entry):
+    db_path = tmp_path / "f.db"
+    p = open_db(db_path, "sqlite")
+    p.init()
+    p.add("/empty", make_entry(meta={}))
+    p.add("/full", make_entry(meta={"k": "v"}))
+
+    db = open_db(db_path, "sqlite", for_read=True).load()
+    assert db["/empty"]["meta"] == {}
+    assert db["/full"]["meta"] == {"k": "v"}
+
+    # each row's meta is its own dict object: mutating one never leaks
+    db["/empty"]["meta"]["mutated"] = True
+    assert db["/full"]["meta"] == {"k": "v"}
+
+    # a fresh load hands back a fresh object too, not one cached anywhere
+    db2 = open_db(db_path, "sqlite", for_read=True).load()
+    assert db2["/empty"]["meta"] == {}
+    assert db2["/empty"]["meta"] is not db["/empty"]["meta"]
+
+
 def _write_bad_field(tmp_path: Path, kind: str) -> Path:
     base = (
         '{{"path": "/a", "owner": "-", "group": "-", "type": "file", '
