@@ -813,6 +813,63 @@ def test_sqlite_load_meta_pinned(tmp_path, make_entry):
     assert db2["/empty"]["meta"] is not db["/empty"]["meta"]
 
 
+def _counting_json_loads(monkeypatch):
+    """Wrap the shared :mod:`json` module's ``loads`` with a call counter,
+    for every module that does ``import json`` -- there is only ever one
+    ``json`` module object, so patching it here reaches ``pkgforge.db.jsonl``
+    and ``pkgforge.db.sqlite`` too without patching either by name."""
+    calls = []
+    real_loads = json.loads
+
+    def _wrapped(s, *a, **kw):
+        calls.append(s)
+        return real_loads(s, *a, **kw)
+
+    monkeypatch.setattr(json, "loads", _wrapped)
+    return calls
+
+
+def test_jsonl_load_skips_json_loads_for_valid_lines(tmp_path, monkeypatch, make_entry):
+    path = tmp_path / "f.jsonl"
+    lines = [
+        json.dumps({"path": f"/f{i}", **make_entry()}, sort_keys=True)
+        for i in range(50)
+    ]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    calls = _counting_json_loads(monkeypatch)
+    db = open_db(path, "jsonl", for_read=True).load()
+    assert len(db) == 50
+    assert calls == []
+
+    # the fallback path is still exercised, and still raises the pinned
+    # message, for a line the fast path can't parse on its own.
+    from pkgforge.db import DbError
+
+    path.write_text('{"path": "/a", not valid json\n', encoding="utf-8")
+    with pytest.raises(DbError) as excinfo:
+        open_db(path, "jsonl", for_read=True).load()
+    assert str(excinfo.value) == (
+        f"{path}:1: invalid JSON Lines record: "
+        "Expecting property name enclosed in double quotes (column 16)"
+    )
+    assert calls  # the fallback did call json.loads
+
+
+def test_sqlite_load_skips_json_for_empty_meta(tmp_path, monkeypatch, make_entry):
+    db_path = tmp_path / "f.db"
+    p = open_db(db_path, "sqlite")
+    p.init()
+    for i in range(50):
+        p.add(f"/f{i}", make_entry(meta={}))
+
+    calls = _counting_json_loads(monkeypatch)
+    db = open_db(db_path, "sqlite", for_read=True).load()
+    assert len(db) == 50
+    assert all(entry["meta"] == {} for entry in db.values())
+    assert calls == []
+
+
 def _write_bad_field(tmp_path: Path, kind: str) -> Path:
     base = (
         '{{"path": "/a", "owner": "-", "group": "-", "type": "file", '

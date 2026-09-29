@@ -171,12 +171,21 @@ class SqliteDb(DbProvider):
                 if removed:
                     db[path] = None
                 else:
+                    # pkgforge always writes an empty meta as the literal
+                    # string "{}" (json.dumps({}, sort_keys=True)); skip
+                    # json.loads for that known value (and a falsy/legacy
+                    # empty value) and hand each row its own fresh dict,
+                    # never one shared object across rows.
+                    if meta_json and meta_json != "{}":
+                        meta = json.loads(meta_json)
+                    else:
+                        meta = {}
                     db[path] = {
                         "mode": mode,
                         "owner": owner,
                         "group": group,
                         "type": type_,
-                        "meta": json.loads(meta_json) if meta_json else {},
+                        "meta": meta,
                     }
         return db
 
