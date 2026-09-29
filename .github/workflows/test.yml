@@ -236,7 +236,7 @@ jobs:
         with:
           python-version: "3.14"
       - name: Install debhelper
-        run: sudo apt-get update && sudo apt-get install -y debhelper
+        run: sudo apt-get update && sudo apt-get install -y debhelper fakeroot
       - name: Install package with dev extras
         run: python -m pip install -e ".[dev]"
       - name: Run the dh_install consumer tests
