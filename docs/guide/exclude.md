@@ -26,9 +26,8 @@ glob pattern.
   segments; a *trailing* `**` (or a bare `**`) matches one or more segments
   — the contents of a directory, never the directory itself, so
   `/opt/app/**` excludes everything below `/opt/app` but keeps `/opt/app`
-  itself. A relative glob (no leading `/`) matches at any depth, the same as
-  today; an absolute one (a leading `/`) is anchored — see the table below
-  for what each command anchors it to.
+  itself. A relative glob (no leading `/`) matches at any depth; an absolute
+  one (a leading `/`) is anchored at the install path — see below.
 
 Statements are evaluated in order; the first that applies decides. With no
 `--exclude`, or when no statement applies, the path is kept.
@@ -57,31 +56,46 @@ naming the problem, instead of silently matching nothing.
 `(?meta:...)` sees `-O`/`--meta` on `install` and `scan` (the same values for
 every path in that run) and the entry's *stored* meta on `dbdump`.
 
-## Per-command differences
+## Every command matches the install path
 
-The same `-X /src/tmp` statement means a different root on each command, and
-they prune differently:
+An absolute pattern is matched against the same coordinate on every
+command: the `/`-rooted install path — the path an entry already has in the
+file DB (`dbdump`) or will get there (`install`/`scan`) — never a
+command-local root. They still prune differently, and `(?meta:...)` still
+reads from a different source:
 
-| Command | An absolute pattern anchors at | An excluded directory |
+| Command | An excluded directory | `(?meta:...)` sees |
 | --- | --- | --- |
-| `install` | the SOURCE directory (a real directory source only) | pruned: nothing under it is copied |
-| `scan` | `<buildroot>/PATH` (the scanned path) | pruned: nothing under it is walked or recorded |
-| `dbdump` | `/` (the DB key) | dropped as its own row only — the DB is a flat key list, not a tree. Add a trailing `/**` (e.g. `-X '/usr/lib/debug/**'`) to also drop everything below it |
+| `install` | pruned: nothing under it is copied | this run's `-O` values |
+| `scan` | pruned: nothing under it is walked or recorded | this run's `-O` values |
+| `dbdump` | dropped as its own row only — the DB is a flat key list, not a tree. Add a trailing `/**` (e.g. `-X '/usr/lib/debug/**'`) to also drop everything below it | the entry's *stored* meta |
 
-A relative pattern (no leading `/`) sidesteps the anchor question entirely —
-it matches by name at any depth within whichever root applies.
+A relative pattern (no leading `/`) matches by name at any depth against the
+install path, the same on every command — it can span segments that come
+from DESTINATION/PATH itself, not only ones under the copied/scanned tree.
 
 `install -X` only ever filters a real directory source. With an archive
 source it exits 2 instead of extracting every member unfiltered (extract
 it and install the resulting directory with `-X` instead); with only file
 or symlink sources it logs a warning, since there is nothing to filter.
 
-Examples, run with the same statement to show the difference:
+Examples, run with statements that target the same install path
+(`install`/`scan` stage `build` at `/opt/app/build`):
 
 ```bash
-pkgforge install -p -d -X /src/tmp SRC /opt/app   # anchored at SRC
-pkgforge scan -X /src/tmp /opt                    # anchored at <buildroot>/opt, not /opt/src/tmp
-pkgforge dbdump -X '/usr/lib/debug/**'             # anchored at '/', the DB key; drops the whole subtree
+pkgforge install -p -d -X /opt/app/build/tmp build /opt/app
+pkgforge scan -X /opt/app/build/tmp /opt/app
+pkgforge dbdump -X /opt/app/build/tmp -X '/opt/app/build/tmp/**'
+```
+
+A pattern written for the *old* source-/scan-root anchor (e.g. a bare
+`-X /tmp` meant to reach a source's own top-level `tmp/`) can no longer
+match any install path below a different DESTINATION/PATH; `install` and
+`scan` each log one WARNING naming such a pattern instead of silently
+matching nothing:
+
+```
+-X '/tmp' matches install paths; nothing below /opt/app/build can match it
 ```
 
 `-X '*.fifo'` is the documented way to skip a FIFO or socket: a glob-only

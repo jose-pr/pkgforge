@@ -1,8 +1,8 @@
 # Exclude grammar (`exclude`)
 
 The `--exclude`/`-X` match grammar shared by `install`, `scan` and `dbdump`.
-See the [guide](../guide/exclude.md) for the syntax and per-command anchoring
-table.
+See the [guide](../guide/exclude.md) for the syntax and how each command
+prunes once a statement matches the install path.
 
 ::: pkgforge.exclude.PathMatchStmt
     options:

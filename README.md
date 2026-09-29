@@ -144,11 +144,12 @@ tests, and a trailing glob:
 Tests are `(?type:file|directory|symlink)` and `(?meta:key=value)`; prefix a test
 name with `!` (`(?!type:file)`) to invert just that test. `**` recurses (a
 trailing `**` means "the contents of this directory"); an absolute pattern
-anchors at a different root per command (`install`: the source directory;
-`scan`: `<buildroot>/PATH`; `dbdump`: `/`, the DB key) and `install`/`scan`
-prune an excluded directory's subtree, while `dbdump` decides entry by entry
-on its flat key list. See the [exclude grammar guide](https://jose-pr.github.io/pkgforge/guide/exclude/)
-for the full per-command table and worked examples.
+anchors at the *install path* — the `/`-rooted path an entry has (`dbdump`)
+or will have (`install`/`scan`) in the file DB — the same coordinate on
+every command. `install`/`scan` prune an excluded directory's subtree, while
+`dbdump` decides entry by entry on its flat key list. See the
+[exclude grammar guide](https://jose-pr.github.io/pkgforge/guide/exclude/)
+for the full grammar and worked examples.
 
 ## Documentation
 
