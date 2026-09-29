@@ -158,8 +158,9 @@ class Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd, _Staging):
         check would reject. The one exception: with ``--exclude`` set, it
         classifies the source via :meth:`_source_kind` (a non-raising
         ``Path.is_dir``/``is_symlink`` stat, never :func:`_detect_source_type`,
-        which raises for a missing/special path) to refuse an archive
-        source outright, or warn once for a source ``-X`` never filters.
+        which raises for a missing/special path) to warn once for a file or
+        symlink source, the only kinds ``-X`` never filters (a directory or
+        archive source is filtered during staging).
         """
         self.mode = normalize_mode(self.mode)
 
@@ -194,16 +195,10 @@ class Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd, _Staging):
 
         if self.exclude:
             kind = self._source_kind()
-            if kind == "archive":
-                raise UsageError(
-                    f"{self.source}: -X/--exclude has no effect on an "
-                    "archive source; extract it and install the "
-                    "resulting directory with -X instead"
-                )
-            if kind != "copy":
+            if kind in ("file", "symlink"):
                 self._logger_.warning(
                     "-X/--exclude has no effect on a %s source %s; it "
-                    "only filters a directory copy",
+                    "only filters a directory or archive source",
                     kind,
                     self.source,
                 )

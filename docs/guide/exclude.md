@@ -74,10 +74,14 @@ A relative pattern (no leading `/`) matches by name at any depth against the
 install path, the same on every command — it can span segments that come
 from DESTINATION/PATH itself, not only ones under the copied/scanned tree.
 
-`install -X` only ever filters a real directory source. With an archive
-source it exits 2 instead of extracting every member unfiltered (extract
-it and install the resulting directory with `-X` instead); with only file
-or symlink sources it logs a warning, since there is nothing to filter.
+`install -X` filters a directory source's copy and an archive source's
+extracted members alike: an archive is extracted into a temporary
+directory first, matched members (and directories -- their whole subtree)
+are pruned there, and only what survives is merged or moved onto
+DESTINATION. A device node, FIFO or socket found in the archive is still
+refused (exit 1) even when `-X` matches it -- see the archive extraction
+policy under [Commands](commands.md#install). With only file or symlink
+sources `-X` logs a warning, since there is nothing to filter.
 
 Examples, run with statements that target the same install path
 (`install`/`scan` stage `build` at `/opt/app/build`):

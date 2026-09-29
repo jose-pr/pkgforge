@@ -65,7 +65,7 @@ pkgforge install [options] SOURCE... DESTINATION
 | `-T, --no-target-directory` | treat DESTINATION as the final path, not a directory (else, for an extracted archive, its archive suffix -- `.tar`, `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz2`/`.tbz`, `.tar.xz`/`.txz`, `.iso`, `.zip`, matched case-insensitively -- is dropped from the destination name; a directory source keeps its own name unchanged) |
 | `-D` | shortcut for `-Tp` |
 | `-x, --decompress [KIND]` | decompress the source (`gz`, `xz`, `bz2`, `zst`, `lzma`, or a decompressor tool name such as `gunzip`/`unxz`, matched case-insensitively; inferred from the suffix if KIND is omitted) |
-| `-X, --exclude PATTERN` | exclude matches (against the install path) when copying a directory source; with an archive source, exits 2 instead of extracting every member (extract it and install the directory with `-X` instead); with only file or symlink sources, logs a warning (nothing to filter) |
+| `-X, --exclude PATTERN` | exclude matches (against the install path): pruned from a directory source's copy, or from an archive source's extracted members and directories before anything is merged onto DESTINATION; with only file or symlink sources, logs a warning (nothing to filter) |
 | `--method {copy,link,move}` (env `PKGFORGE_INSTALL_METHOD`) | how to stage a file or directory source; `copy` (default) is the only method that leaves the source completely untouched |
 | `--chown` | apply the recorded owner/group (off by default); an unknown owner/group name exits 2 before anything is staged (a recorded-only name, without `--chown`, is never resolved) |
 | `--remove-source` | delete the source after staging (files or directories), only once the entry is applied and recorded -- never when the source IS the staged destination, and refused (exit 2) up front when a directory source contains the resolved destination or the `--db` file |
@@ -166,6 +166,15 @@ that resolves back inside the destination; a hardlink member's target is
 resolved against the destination and must stay inside it. Re-extracting
 the same archive (or one archive after another) over an existing tree
 replaces a stale entry at each member's path instead of failing.
+
+With `-X/--exclude`, every member is extracted into a temporary directory
+first (as it always is), then a matched file, symlink, or directory (with
+its whole subtree) is removed there before anything is merged or moved
+onto DESTINATION -- the same `-X` statements and install-path matching a
+directory install's own copy uses. The extraction policy above still
+applies to every member first: an archive holding a device node, FIFO or
+socket is refused (exit 1) even when `-X` matches it, since a device node
+or FIFO on disk is never how the exclusion is expressed.
 
 Re-running a directory install onto an existing destination always works:
 any stale destination symlink (from an earlier run, or left there by

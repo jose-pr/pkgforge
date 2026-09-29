@@ -38,7 +38,10 @@ as stored (absolute or climbing targets included), but a write through any
 symlink ancestor -- even one resolving back inside the destination -- is
 refused, and a hardlink member's target must resolve inside the
 destination; re-extracting the same archive over an existing tree replaces
-a stale entry at each member's path instead of failing.
+a stale entry at each member's path instead of failing. `install -X`
+prunes matched members (files, symlinks, and whole directory subtrees)
+from the extracted tree before anything reaches DESTINATION, the same as
+it filters a directory source's copy.
 
 ## From source
 

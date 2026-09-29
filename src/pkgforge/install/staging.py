@@ -174,14 +174,16 @@ class _Staging(_Transfer):
     exclude, buildroot, buildpath, db, method and _logger_."""
 
     def _exclude_matcher(self, root: Path, dst: Path) -> typing.Optional[PathMatch]:
-        """Build this clone's ``-X`` matcher for a directory copy from
-        ``root`` onto ``dst``, anchored at the install path ``dst`` will
-        have in the DB (:meth:`~pkgforge.command.PkgForgeCmd.buildpath`) --
-        the same coordinate ``scan`` and ``dbdump`` use. ``None`` without
-        ``self.exclude`` (a plain ``copytree``, nothing to filter). Logs one
-        WARNING per pattern :meth:`~pkgforge.exclude.PathMatch.unreachable`
-        finds -- written for the old source-anchored ``-X``, which no
-        install path can reach any more.
+        """Build this clone's ``-X`` matcher for an on-disk tree at
+        ``root`` (a directory source being copied, or an archive's
+        extraction temp dir) onto ``dst``, anchored at the install path
+        ``dst`` will have in the DB (:meth:`~pkgforge.command.PkgForgeCmd.buildpath`)
+        -- the same coordinate ``scan`` and ``dbdump`` use. ``None`` without
+        ``self.exclude`` (nothing to filter: a plain ``copytree``, or an
+        archive staged whole). Logs one WARNING per pattern
+        :meth:`~pkgforge.exclude.PathMatch.unreachable` finds -- written for
+        the old source-anchored ``-X``, which no install path can reach any
+        more.
         """
         if not self.exclude:
             return None
@@ -384,6 +386,14 @@ class _Staging(_Transfer):
             os.chmod(tmp, 0o777 & ~_umask())
             try:
                 archive.extract(src, tmp, self._logger_)
+                # `-X` prunes matched members from the extracted tree
+                # before anything is merged or renamed onto dst -- the
+                # same PathMatch a directory copy applies via
+                # _copy_ignore, evaluated directly over the on-disk
+                # extraction instead of copytree's own ignore= callback.
+                matcher = self._exclude_matcher(tmp, dst)
+                if matcher is not None:
+                    archive._prune_excluded(tmp, matcher, dict(self.meta))
                 if dst.exists():
                     shutil.copytree(
                         tmp,

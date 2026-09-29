@@ -594,11 +594,17 @@ above).
   `PathMatch.unreachable()` statement. `-X`'s `(?meta:k=v)` inline test
   sees this run's `-O` values; a FIFO or socket the copy itself would
   otherwise reach raises `PkgForgeError` naming the path and the `-X`
-  remedy, unless a glob-only `-X` already excluded it first. `-X` only
-  ever filters a real directory source: with an archive source it raises
-  `UsageError` (exit 2) instead of extracting every member unfiltered;
-  with only file or symlink sources it logs a warning, since there is
-  nothing to filter.
+  remedy, unless a glob-only `-X` already excluded it first. `-X` filters
+  a directory source's copy and an archive source's extracted members
+  alike: `archive._prune_excluded(root, matcher, meta)` walks the
+  archive's already-extracted temp dir (`os.walk`, `followlinks=False`)
+  and removes every matched file/symlink (`os.unlink`, never followed) or
+  directory (`shutil.rmtree`, dropped from the walk) before anything is
+  merged or renamed onto the destination -- the extraction policy (device
+  nodes, FIFOs, sockets, escaping members) still applies to every member
+  first, so a special or escaping member is refused even when `-X`
+  matches it. With only file or symlink sources it logs a warning, since
+  there is nothing to filter.
 - **`scan.ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd)`** (`pkgforge scan`) — walk
   PATH, recording an entry for every directory and file **below** it (never
   PATH itself); `--missing` only fills gaps not already in the DB, else scan

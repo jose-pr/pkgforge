@@ -17,6 +17,7 @@ from pathlib import Path
 
 from ..entry import DEFAULT
 from ..errors import PkgForgeError
+from ..exclude import PathMatch
 
 #: Archive suffixes handled by stdlib :mod:`tarfile` (tar family + compression).
 #: Anything else (e.g. ``.iso``) falls back to ``bsdtar``.
@@ -297,3 +298,57 @@ def extract(src: typing.Union[Path, str], dst: Path, logger: logging.Logger) -> 
     else:
         logger.debug("Extracting %s via bsdtar", src)
         _extract_bsdtar(src, dst)
+
+
+#: Module logger for :func:`_prune_excluded`'s per-removal DEBUG lines --
+#: pruning is a shared post-extraction step, not tied to any one running
+#: command's own ``_logger_``.
+_LOGGER = logging.getLogger(__name__)
+
+
+def _prune_excluded(root: Path, matcher: PathMatch, meta: typing.Dict[str, str]) -> int:
+    """Remove every entry under an already-extracted ``root`` that
+    ``matcher`` excludes, before its content is merged or renamed onto the
+    real destination. Returns the number of entries removed.
+
+    Walks ``root`` top-down (``os.walk``, ``followlinks=False``, which
+    never descends into a symlinked directory even when one is left in
+    ``dirnames``) so a removed directory's own contents are never visited
+    afterward: a matched name is removed whole with ``shutil.rmtree`` only
+    when it is a REAL directory (``not os.path.islink``); a matched file, or
+    a matched symlink -- including one to a directory -- is removed with
+    ``os.unlink`` instead and never followed. Either way the name is
+    dropped from the walk's own ``dirnames`` so nothing beneath a removed
+    directory is visited a second time.
+
+    This mirrors :func:`~pkgforge.install.staging._copy_ignore` (a plain
+    directory install's own ``-X`` filter) exactly, since both evaluate the
+    same :class:`~pkgforge.exclude.PathMatch` over an on-disk tree: every
+    directory the extraction actually created is seen here, even one with
+    no archive member of its own, member order never matters, and a
+    hardlink extracted alongside an excluded member is a distinct on-disk
+    path checked (and possibly kept) on its own.
+    """
+    removed = 0
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        base = Path(dirpath)
+        kept: typing.List[str] = []
+        for name in dirnames:
+            path = base / name
+            if matcher.match(path, meta=meta):
+                if os.path.islink(path):
+                    os.unlink(path)
+                else:
+                    shutil.rmtree(path)
+                removed += 1
+                _LOGGER.debug("excluded %s", path)
+            else:
+                kept.append(name)
+        dirnames[:] = kept
+        for name in filenames:
+            path = base / name
+            if matcher.match(path, meta=meta):
+                os.unlink(path)
+                removed += 1
+                _LOGGER.debug("excluded %s", path)
+    return removed

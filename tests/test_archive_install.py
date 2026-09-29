@@ -1034,37 +1034,6 @@ def test_install_dir_containing_buildroot_with_exclude(tmp_path, monkeypatch):
     assert list((staged / "build").iterdir()) == []
 
 
-# --------------------------------------------------------------------------
-# install -X with an archive source is an error
-# --------------------------------------------------------------------------
-
-
-@pytest.mark.posix
-def test_install_exclude_with_archive_source_refused(tmp_path, cli):
-    root = tmp_path / "root"
-    db = tmp_path / "files.jsonl"
-    archive = tmp_path / "pkg.tar"
-    _write_tar(archive, lambda tf: _add_file(tf, "x", b"data"))
-
-    result = cli(
-        "--db",
-        str(db),
-        "--buildroot",
-        str(root),
-        "install",
-        "-p",
-        "-d",
-        "-D",
-        "-X",
-        "**/*.la",
-        str(archive),
-        "/opt/app",
-    )
-    assert result.rc == 2
-    assert not root.exists() or not (root / "opt").exists()
-    assert archive.exists()
-
-
 @pytest.mark.posix
 def test_install_exclude_only_file_sources_warns(tmp_path, caplog):
     import logging

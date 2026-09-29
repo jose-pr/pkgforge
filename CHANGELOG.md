@@ -140,9 +140,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `--dir-mode`.
 - `scan` and `install` look up user and group names only for fields set to
   `--`, and cache each lookup for the process's life.
-- `install -X` with an archive source exits 2 instead of extracting every
-  member: extract it and install the directory with `-X`. `-X` with only
-  file or symlink sources logs a warning.
+- `install -X` with only file or symlink sources logs a warning (nothing to
+  filter); a directory or archive source is always filtered.
 - `app-1.0.tgz`, `.tbz2`, `.tbz`, `.txz`, `.zip`, `.iso` and upper-case
   suffixes installed without `-T` now land at `DESTINATION/app-1.0`
   (previously only a literal `.tar`/`.tar.gz`/`.tar.bz2`/`.tar.xz`
@@ -167,6 +166,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   traceback.
 
 ### Fixed
+- `install -X` filters an archive source's members like a directory copy
+  (every member used to be extracted regardless of `-X`): excluded members
+  and directories never reach DESTINATION. An archive holding a device
+  node, FIFO or socket is still refused even when `-X` matches it.
 - `scan` no longer records the file DB (or a SQLite DB's
   `-journal`/`-wal`/`-shm` sidecars) found inside the scanned tree, and
   warns once instead; other files there, such as an earlier `dbdump`
