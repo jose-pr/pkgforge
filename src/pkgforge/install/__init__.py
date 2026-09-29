@@ -42,19 +42,7 @@ from ..exclude import ExcludeArgs
 from .archive import _archive_dir_name
 from .decompress import _DECOMPRESSORS, _SUFFIX_TO_KIND, _looks_like_path, _resolve_kind
 from .staging import _Staging, _detect_source_type, _require_stdin
-
-
-def _env_method(value: str) -> str:
-    """Env-var/CLI value -> an install method (one of :data:`_INSTALL_METHODS`).
-
-    Empty means unset, the same as :meth:`PkgForgeCmd.db`'s own env fields:
-    giving this a non-``str`` ``type=`` converter (even though it's just an
-    ``str -> str`` identity otherwise) is what makes duho's "empty env value
-    means unset" rule apply to it -- a bare ``str``-typed field would keep an
-    explicitly-empty ``PKGFORGE_INSTALL_METHOD=`` as a real, choices-checked
-    value instead of falling through to the default.
-    """
-    return value if value else "copy"
+from .transfer import _env_method
 
 
 class Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd, _Staging):
