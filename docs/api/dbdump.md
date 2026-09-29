@@ -34,6 +34,10 @@ its own `NAME` -- no registration call needed.
     options:
       show_root_heading: true
 
+::: pkgforge.dbdump.rpm.RpmSpecFilesPre419
+    options:
+      show_root_heading: true
+
 ::: pkgforge.dbdump.debian.Debian
     options:
       show_root_heading: true

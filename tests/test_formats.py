@@ -19,6 +19,7 @@ from pkgforge.dbdump import (
     DumpError,
     DumpFormat,
     RpmSpecFiles,
+    RpmSpecFilesPre419,
     UnsupportedOutputError,
 )
 from pkgforge.install.archive import _extract_tar, _is_tar_source
@@ -84,9 +85,16 @@ def test_extract_tar_gz_roundtrip(tmp_path):
 def test_dump_format_names_lists_rpm_and_debian():
     names = DumpFormat.names()
     assert "rpmspecfiles" in names
+    assert "rpmspecfiles-pre419" in names
     assert "debian" in names
     assert DumpFormat.lookup("rpmspecfiles") is RpmSpecFiles
+    assert DumpFormat.lookup("rpmspecfiles-pre419") is RpmSpecFilesPre419
     assert DumpFormat.lookup("debian") is Debian
+
+
+def test_dump_format_alias_pre419():
+    assert DumpFormat.lookup("rpm-pre419") is RpmSpecFilesPre419
+    assert DumpFormat.lookup("rpm-pre419").NAME == "rpmspecfiles-pre419"
 
 
 @pytest.mark.parametrize(
@@ -319,6 +327,43 @@ def test_rpmspecfile_rejects(path):
 
     with pytest.raises(DumpError):
         _rpm_quote(path)
+
+
+@pytest.mark.parametrize(
+    "path,expected",
+    [
+        ("/usr/bin/x", b"/usr/bin/x"),  # plain
+        ("/opt/café", b"/opt/caf\xc3\xa9"),  # utf8
+        ('/quo"te', b'/quo"te'),  # dquote: passed through unescaped
+        ("/back\\slash", b"/back\\slash"),  # backslash: passed through unescaped
+    ],
+    ids=["plain", "utf8", "dquote", "backslash"],
+)
+def test_rpmspecfiles_pre419_quotes(path, expected):
+    from pkgforge.dbdump.rpm import _rpm_quote_pre419
+
+    assert _rpm_quote_pre419(path).encode("utf-8", "surrogateescape") == expected
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/with space",
+        "/star*",
+        "/q?",
+        "/br[x]",
+        "/brace{a,b}",
+        "/100%done",
+        "/%{name}",
+        "/caf\udce9",
+    ],
+    ids=["space", "star", "qmark", "bracket", "brace", "pct", "pct_brace", "nonutf8"],
+)
+def test_rpmspecfiles_pre419_rejects(path):
+    from pkgforge.dbdump.rpm import _rpm_quote_pre419
+
+    with pytest.raises(DumpError):
+        _rpm_quote_pre419(path)
 
 
 def test_rpmspecfile_non_utf8_keeps_bytes():

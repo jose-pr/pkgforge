@@ -222,7 +222,12 @@ def test_dbdump_registered_format_accepted(tmp_path, cli, restore_registries):
 
 @pytest.mark.parametrize(
     "alias,canonical",
-    [("rpm", "rpmspecfiles"), ("rpmspec", "rpmspecfiles"), ("deb", "debian")],
+    [
+        ("rpm", "rpmspecfiles"),
+        ("rpmspec", "rpmspecfiles"),
+        ("rpm-pre419", "rpmspecfiles-pre419"),
+        ("deb", "debian"),
+    ],
 )
 def test_dump_format_alias_matches_canonical_output(tmp_path, cli, alias, canonical):
     db = tmp_path / "files.jsonl"

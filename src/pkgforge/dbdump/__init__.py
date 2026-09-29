@@ -216,8 +216,9 @@ class DbDump(ExcludeArgs, PkgForgeCmd):
 
     format: str
     (
-        "output format: rpmspecfiles (aliases rpm, rpmspec), debian (alias "
-        "deb), or a registered DumpFormat subclass's NAME"
+        "output format: rpmspecfiles (aliases rpm, rpmspec; rpm 4.19+), "
+        "rpmspecfiles-pre419 (alias rpm-pre419; rpm older than 4.19), "
+        "debian (alias deb), or a registered DumpFormat subclass's NAME"
     )
     ("--format", "-f")
     output: Path = Path("-")
@@ -336,7 +337,7 @@ class DbDump(ExcludeArgs, PkgForgeCmd):
 # Built-in formats: importing each module registers its format class.
 # --------------------------------------------------------------------------
 
-from .rpm import RpmSpecFiles  # noqa: E402
+from .rpm import RpmSpecFiles, RpmSpecFilesPre419  # noqa: E402
 from .debian import Debian  # noqa: E402
 
 DbDump._register()
@@ -350,5 +351,6 @@ __all__ = [
     "MultiArtifactFormat",
     "PerEntryFormat",
     "RpmSpecFiles",
+    "RpmSpecFilesPre419",
     "UnsupportedOutputError",
 ]

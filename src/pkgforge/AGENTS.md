@@ -404,7 +404,20 @@ that one line.
   quoting already matches only the literal name). A `%` anywhere in the
   path raises `DumpError` -- no version of rpm treats a quoted `%` as
   literal, and `%(...)` runs a shell command -- as does any C0 control
-  character or DEL.
+  character or DEL. Targets rpm 4.19+; below that, a quoted name is
+  macro-expanded twice and glob characters are matched unescaped, so this
+  quoting is not safe there -- use **`rpm.RpmSpecFilesPre419`**
+  (`NAME = "rpmspecfiles-pre419"`, `ALIASES = ("rpm-pre419",)`) instead.
+  It subclasses `RpmSpecFiles`, overriding only the quoting hook
+  (`_quote`, a `staticmethod` `render_entry` calls as `self._quote(path)`):
+  the path is written completely unquoted (rpm's bare-token reader passes a
+  literal `"`/`\` straight through, unescaped), and it raises `DumpError`
+  for a path containing a space, a glob character (`* ? [ ] { }`), `%` (any
+  form), or a non-UTF-8 byte, instead of risking a silently wrong or
+  overmatched package. Measured against real rpmbuild runs on rpm 4.14.3,
+  4.16.1 and 4.18.2 (see the formats guide's rpm-older-than-4.19 table for
+  the full per-class verdicts); choose whichever of the two matches the
+  build host's own `rpm --version`.
 - **`MultiArtifactFormat(DumpFormat)`** — renders several named artifacts
   into a directory (or, for `-`, concatenates them to stdout under
   `# === <name> ===` section headers). Abstract

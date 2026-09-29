@@ -95,7 +95,8 @@ reading an existing file auto-detects its actual format.
 
 | Format | Aliases | Output |
 | --- | --- | --- |
-| `rpmspecfiles` | `rpm`, `rpmspec` | RPM `%files` lines (`%attr(...)`, `%dir`, `meta.rpmprefix`) to a file or `-` |
+| `rpmspecfiles` | `rpm`, `rpmspec` | RPM `%files` lines (`%attr(...)`, `%dir`, `meta.rpmprefix`) to a file or `-`; rpm 4.19+ |
+| `rpmspecfiles-pre419` | `rpm-pre419` | Same, for rpm older than 4.19 (measured on 4.14/4.16/4.18): refuses a space, a glob character, or `%` instead of packaging the wrong file |
 | `debian` | `deb` | `install` + `permissions` + `dirs` + `fixperms` files into an output directory (or `-`, sectioned) |
 
 Output of the Quick start above:

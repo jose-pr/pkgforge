@@ -87,6 +87,7 @@ REQUIRED_API_TARGETS = (
     "pkgforge.dbdump.PerEntryFormat",
     "pkgforge.dbdump.MultiArtifactFormat",
     "pkgforge.dbdump.rpm.RpmSpecFiles",
+    "pkgforge.dbdump.rpm.RpmSpecFilesPre419",
     "pkgforge.dbdump.debian.Debian",
     "pkgforge.install.Install",
     "pkgforge.scan.ScanCmd",

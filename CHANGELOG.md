@@ -6,7 +6,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- `dbdump -f rpmspecfiles-pre419` (alias `rpm-pre419`) writes `%files` lines
+  for rpm older than 4.19 (measured on rpm 4.14, 4.16 and 4.18): the path is
+  written completely unquoted, and a space, a glob character
+  (`* ? [ ] { }`), `%` (any form), or a non-UTF-8 byte raises an error
+  instead of packaging the wrong file. Choose it when the rpm that will
+  build the package is older than 4.19; with rpm 4.19 or newer, use
+  `rpmspecfiles` (unchanged) instead.
+
 ### Fixed
+- The formats guide now states, measured, what rpm older than 4.19 does
+  with a `rpmspecfiles` line: a `dquote`/`backslash`/non-UTF-8 name fails
+  the build, a `star`/`qmark` name silently packages an extra sibling file,
+  and a `bracket`/`brace` name silently packages the wrong file -- it
+  previously only said `rpmspecfiles` "targets rpm 4.19+" with no detail
+  below that version.
 - The formats guide's `override_dh_fixperms` example read `permissions`
   fields in the wrong order (it passed the group to `chmod`); it now runs
   the generated `fixperms` script.

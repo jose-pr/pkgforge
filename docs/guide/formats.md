@@ -6,6 +6,7 @@ manifest. `null` (removed) entries and `--exclude` matches are skipped.
 | Format | Aliases | Shape | Output |
 | --- | --- | --- | --- |
 | `rpmspecfiles` | `rpm`, `rpmspec` | per-entry lines | a file or `-` (stdout) |
+| `rpmspecfiles-pre419` | `rpm-pre419` | per-entry lines | a file or `-` (stdout) |
 | `debian` | `deb` | multiple artifacts | a **directory**, or `-` (stdout, sectioned) |
 
 ## `rpmspecfiles`
@@ -48,6 +49,60 @@ represent it either.
 ```bash
 pkgforge dbdump -f rpmspecfiles files.txt
 pkgforge dbdump -f rpmspecfiles -          # to stdout
+```
+
+### rpm older than 4.19
+
+`rpmspecfiles` targets rpm 4.19+. Below that, a quoted `%files -f` name is
+macro-expanded twice and an unquoted name's glob characters are matched by
+rpm's own globbing before pkgforge's escaping is ever consulted, so the same
+quoting is not safe there. Measured 2026-09-29 against real `rpmbuild` runs
+on rpm 4.14.3 (Rocky Linux 8), 4.16.1 (Rocky Linux 9) and 4.18.2 (Ubuntu's
+`rpm` package), against the rpm 4.19+ baseline of 6.0.2 (Fedora):
+
+| class | fedora (6.0) | rocky 8 (4.14) | rocky 9 (4.16) | ubuntu (4.18) |
+| --- | --- | --- | --- | --- |
+| plain | exact | exact | exact | exact |
+| space | exact | exact | exact | exact |
+| utf8 | exact | exact | exact | exact |
+| non-UTF-8 byte | loud | exact | loud | loud |
+| `"` (dquote) | exact | loud | loud | loud |
+| `\` (backslash) | exact | loud | loud | loud |
+| `*` (star) | exact | overmatch | overmatch | overmatch |
+| `?` (qmark) | exact | overmatch | overmatch | overmatch |
+| `[ ]` (bracket) | exact | wrong | wrong | wrong |
+| `{ }` (brace) | exact | wrong | wrong | wrong |
+| `%` (any form) | refused | refused | refused | refused |
+
+`overmatch` means the build also packages an unrelated sibling file;
+`wrong` means it packages a different file than the one named. `rpm
+--version` on the build host decides which `-f` to use:
+
+- **rpm 4.19 or newer:** `-f rpmspecfiles`, as documented above.
+- **older than 4.19:** `-f rpmspecfiles-pre419` (alias `rpm-pre419`). It
+  writes each path completely unquoted (rpm's bare-token reader passes a
+  literal `"`/`\` straight through, unescaped and literal), and refuses a
+  path containing a space, a glob character (`* ? [ ] { }`), `%` (any
+  form), or a non-UTF-8 byte, instead of risking the wrong file:
+
+    | class | fedora (6.0) | rocky 8 (4.14) | rocky 9 (4.16) | ubuntu (4.18) |
+    | --- | --- | --- | --- | --- |
+    | plain | exact | exact | exact | exact |
+    | utf8 | exact | exact | exact | exact |
+    | `"` (dquote) | exact | exact | exact | exact |
+    | `\` (backslash) | exact | exact | exact | exact |
+    | space, glob chars, `%`, non-UTF-8 | refused | refused | refused | refused |
+
+Using the wrong format for the rpm that actually builds the package: with
+rpm below 4.19, `rpmspecfiles` fails the build loudly for a `dquote`/
+`backslash`/non-UTF-8 name, silently packages an extra sibling for a `star`/
+`qmark` name, and silently packages the wrong file for a `bracket`/`brace`
+name. `rpmspecfiles-pre419` used with rpm 4.19 or newer either fails the
+build for a name rpm 4.19+ could package, or packages it correctly -- never
+the wrong file.
+
+```bash
+pkgforge dbdump -f rpmspecfiles-pre419 files.txt
 ```
 
 ## `debian`
