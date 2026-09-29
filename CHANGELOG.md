@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- The formats guide's `override_dh_fixperms` example read `permissions`
+  fields in the wrong order (it passed the group to `chmod`); it now runs
+  the generated `fixperms` script.
+
 ### Added
 - `debian` also writes `fixperms`, a POSIX `sh` script that applies every
   pinned owner, group and mode to a package directory (`sh debian/fixperms
