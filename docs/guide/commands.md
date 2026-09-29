@@ -45,11 +45,13 @@ recorded entry as a JSON Lines line on stdout instead of writing to a file.
 
 Stage a source into the build root and record its entry. A directory or
 archive install stages the whole tree but records **one** entry, for the
-destination itself: follow it with `pkgforge scan --missing DEST` to
-record its contents too (see `scan` below), or the tree's files never
-reach the `rpmspecfiles`/`debian` output at all (`rpmspecfiles` renders
-the one entry as `%dir`; `debian` skips directory entries in `install`
-entirely).
+destination itself, unless `--record-tree` is set: pass it to also record
+every path below the destination the DB doesn't already hold (see the
+option table below), or follow up with `pkgforge scan --missing DEST` for a
+tree staged by something else (see `scan` below) -- skip both and the
+tree's files never reach the `rpmspecfiles`/`debian` output at all
+(`rpmspecfiles` renders the one entry as `%dir`; `debian` skips directory
+entries in `install` entirely).
 
 ```bash
 pkgforge install [options] SOURCE... DESTINATION
@@ -67,6 +69,7 @@ pkgforge install [options] SOURCE... DESTINATION
 | `-x, --decompress [KIND]` | decompress the source (`gz`, `xz`, `bz2`, `zst`, `lzma`, or a decompressor tool name such as `gunzip`/`unxz`, matched case-insensitively; inferred from the suffix if KIND is omitted) |
 | `-X, --exclude PATTERN` | exclude matches (against the install path): pruned from a directory source's copy, or from an archive source's extracted members and directories before anything is merged onto DESTINATION; with only file or symlink sources, logs a warning (nothing to filter) |
 | `--method {copy,link,move}` (env `PKGFORGE_INSTALL_METHOD`) | how to stage a file or directory source; `copy` (default) is the only method that leaves the source completely untouched |
+| `--record-tree` (env `PKGFORGE_INSTALL_RECORD_TREE`) | after installing a directory or archive DESTINATION, also record every path below it not already in the DB: owner/group/meta from this install, mode and type from disk (symlinks `-`), honouring `-X`; ignored for a file/symlink source, and a no-op under `--noentry` |
 | `--chown` | apply the recorded owner/group (off by default); an unknown owner/group name exits 2 before anything is staged (a recorded-only name, without `--chown`, is never resolved) |
 | `--remove-source` | delete the source after staging (files or directories), only once the entry is applied and recorded -- never when the source IS the staged destination, and refused (exit 2) up front when a directory source contains the resolved destination or the `--db` file |
 | `--noentry` | stage but do not record a DB entry |

@@ -23,6 +23,11 @@ macOS; the file-staging operations expect a POSIX filesystem.
 a filesystem boundary falls back to a copy (`link`) or a copy-then-delete
 (`move`) rather than failing.
 
+`install --record-tree` (see [Commands](commands.md#install)) is a plain
+filesystem walk over the already-staged tree -- it reads each child's mode
+and type from disk (`os.lstat`), no extra POSIX facility beyond what
+staging itself already needs.
+
 Archive extraction prefers stdlib `tarfile` for the tar family
 (`.tar`, `.tar.gz`/`.tgz`, `.tar.bz2`, `.tar.xz`) and falls back to the
 `bsdtar` binary (needs libarchive 3.3+) for stdin sources -- even a tar

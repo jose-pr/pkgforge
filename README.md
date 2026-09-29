@@ -40,8 +40,7 @@ mkdir -p "$PKGFORGE_ROOT"
 pkgforge initdb
 pkgforge install -p -m 755 -o root -g root ./build/tool /usr/bin
 pkgforge install -p -m 640 -o root -g adm -O rpmprefix=%config ./tool.conf /etc
-pkgforge install -D -d -m 755 -o root -g root ./share /usr/share/tool
-pkgforge scan --missing --mode=-- -o root -g root /usr/share/tool
+pkgforge install -D -d -m 755 -o root -g root --record-tree ./share /usr/share/tool
 pkgforge dbdump -f rpmspecfiles rpm-files.txt
 pkgforge dbdump -f debian debian/
 ```
@@ -61,7 +60,9 @@ for a runnable end-to-end walkthrough.
 
 `install --method {copy,link,move}` (env `PKGFORGE_INSTALL_METHOD`) stages a
 file or directory source by hardlinking or moving it instead of the default
-copy -- see the [commands guide](https://jose-pr.github.io/pkgforge/guide/commands/#install).
+copy; `install --record-tree` (env `PKGFORGE_INSTALL_RECORD_TREE`) also
+records a directory or archive install's own contents, not just DESTINATION
+itself -- see the [commands guide](https://jose-pr.github.io/pkgforge/guide/commands/#install).
 
 Global options (also read from the environment):
 

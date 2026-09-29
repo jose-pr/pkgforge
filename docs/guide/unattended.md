@@ -12,16 +12,15 @@ mkdir -p "$PKGFORGE_ROOT"
 
 pkgforge initdb
 
-# stage binaries, config, and a whole tree
+# stage binaries, config, and a whole tree; --record-tree also records the
+# tree's own contents -- for a tree staged by something else, use
+# "scan --missing DEST" instead, but never scan a directory the distro owns
+# (e.g. /usr or /etc): every directory scan records becomes an RPM %dir
+# claim, and a shared directory's mode/owner/group would conflict with the
+# one the distro's own package ships
 pkgforge install -p -m 755 -o root -g root ./build/tool /usr/bin
 pkgforge install -p -m 640 -o root -g adm  ./config     /etc/tool
-pkgforge install -D -d -m 755 -o root -g root ./share /usr/share/tool
-
-# fill in the tree's own contents -- never scan a directory the distro
-# owns (e.g. /usr or /etc): every directory scan records becomes an RPM
-# %dir claim, and a shared directory's mode/owner/group would conflict
-# with the one the distro's own package ships
-pkgforge scan --missing --mode=-- -o root -g root /usr/share/tool
+pkgforge install -D -d -m 755 -o root -g root --record-tree ./share /usr/share/tool
 
 # emit packaging manifests
 pkgforge dbdump -f rpmspecfiles rpm-files.txt
