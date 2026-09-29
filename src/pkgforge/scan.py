@@ -9,7 +9,7 @@ from pathlib import Path
 
 import duho
 
-from .errors import PkgForgeError, UsageError
+from .errors import UsageError
 from .entry import (
     AUTO,
     DEFAULT,
@@ -19,9 +19,8 @@ from .entry import (
     normalize_mode,
     _parse_filetype,
     _parse_mode,
-    _file_type,
-    _resolve_stat,
 )
+from ._tree import TreeRecorder
 from .command import PkgForgeCmd
 from .exclude import ExcludeArgs, PathMatch, log_unreachable
 
@@ -121,73 +120,11 @@ class ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
         log_unreachable(filter, self._logger_)
         self._logger_.info("Scanning %s", scanpath)
 
-        # Precomputed ONCE (never per walked path, so the walk stays cheap):
-        # the file DB's own directory (realpath) and the four basenames that
-        # matter -- the DB file itself, and a sqlite backend's -journal/-wal/
-        # -shm sidecars, which exist only transiently during a write but cost
-        # nothing to also name here. `_scanfile` below only pays for a second
-        # `realpath` call (to confirm it's the SAME directory, not merely a
-        # same-named file elsewhere in the tree) on an actual basename hit.
         # `dbdump` OUTPUT files (rpm-files.txt, debian/) are not recognizable
-        # here and are documented instead -- keep them outside --buildroot too.
-        db_skip_dir = db_skip_names = None
-        if not self._no_file_db():
-            db_path = Path(self.db)
-            db_skip_dir = os.path.realpath(db_path.parent)
-            db_skip_names = {
-                db_path.name + suffix for suffix in ("", "-journal", "-wal", "-shm")
-            }
-        warned_db_skip = False
-
-        recorded = 0
-
-        def _scanfile(path: Path) -> bool:
-            """Record ``path``'s entry (unless already known, under
-            ``--missing``). Returns ``False`` only when ``-X`` excluded
-            ``path`` -- the signal the walk below uses to prune an excluded
-            directory's subtree, so it no longer descends into it and
-            records its contents anyway (matching ``install``).
-            """
-            nonlocal recorded, warned_db_skip
-            try:
-                if db_skip_names is not None and path.name in db_skip_names:
-                    if os.path.realpath(path.parent) == db_skip_dir:
-                        if warned_db_skip:
-                            self._logger_.debug("Skipping the file DB %s", path)
-                        else:
-                            self._logger_.warning(
-                                "Skipping the file DB %s found inside the "
-                                "scanned tree; keep --db (and dbdump output) "
-                                "outside --buildroot",
-                                path,
-                            )
-                            warned_db_skip = True
-                        return True
-                # meta=dict(self.meta): a (?meta:k=v) inline test then sees
-                # this run's -O values, the same as it always has in dbdump
-                # (scan/install build the entry from disk, which never
-                # carries meta on its own).
-                if self.exclude and filter.match(path, meta=dict(self.meta)):
-                    self._logger_.debug("Excluding %s", path)
-                    return False
-                fspath = os.fspath(self.buildpath(path))
-                if db.get(fspath) is None:
-                    st = path.lstat()
-                    ftype = _file_type(path, st)
-                    entry = _resolve_stat(bases[ftype], path, st, lookupval=AUTO)
-                    self._logger_.debug("Updating file entry for: %s", fspath)
-                    self.add_entry(fspath, entry=entry)
-                    recorded += 1
-                return True
-            except TypeError as exc:
-                # _file_type raises TypeError for a fifo/socket. A
-                # glob-only -X (e.g. '*.fifo') already skipped such a path
-                # above without ever reaching here (PathMatch builds the
-                # entry lazily); this is the path scan cannot record at all.
-                raise PkgForgeError(
-                    f"{path}: unsupported file type (not a file, directory "
-                    "or symlink); exclude it with -X"
-                ) from exc
+        # by TreeRecorder's DB-file skip and are documented instead -- keep
+        # them outside --buildroot too.
+        matcher = filter if self.exclude else None
+        recorder = TreeRecorder(self, bases, matcher, dict(self.meta), db)
 
         # Batches the walk's own writes (a no-op except for sqlite, where it
         # holds one connection and commits periodically instead of once per
@@ -200,18 +137,15 @@ class ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
                 # otherwise its target's contents would be recorded under
                 # the link's own path, and an absolute target would walk
                 # the build HOST's filesystem instead of the build root.
-                _scanfile(scanpath)
+                recorder.record(scanpath)
             elif not scanpath.is_dir():
-                _scanfile(scanpath)
+                recorder.record(scanpath)
             else:
-                for top, dirs, files in os.walk(scanpath):
-                    # Prune in place: os.walk only descends into names
-                    # still left in `dirs` after this line runs.
-                    dirs[:] = [d for d in dirs if _scanfile(Path(top, d))]
-                    for file in files:
-                        _scanfile(Path(top, file))
+                recorder.walk(scanpath)
 
-        self._logger_.info("Scanned %s: %d path(s) recorded", scanpath, recorded)
+        self._logger_.info(
+            "Scanned %s: %d path(s) recorded", scanpath, recorder.recorded
+        )
 
         if self.drop_stale:
             # Reload from disk regardless of --missing (the walk's own `db`
