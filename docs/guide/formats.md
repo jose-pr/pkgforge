@@ -151,8 +151,9 @@ Writes four artifacts into an output directory (created if needed):
     d=${1:?usage: sh fixperms PACKAGE-DIR}
     ```
 
-    followed by one `chown`/`chgrp`/`chmod` line per pinned field (owner and
-    group before mode, since `chown` clears a regular file's setuid/setgid
+    followed by, per pinned entry, one `chown owner:group` (or `chown` /
+    `chgrp` when only one is pinned) and then `chmod` (owner and group before
+    mode, since `chown` clears a regular file's setuid/setgid
     bit even to the same owner), for every entry `permissions` also covers.
     A symlink gets `chown -h`/`chgrp -h` and never a `chmod` (POSIX `chmod`
     has no `-h`, and would otherwise follow the link to a target outside the

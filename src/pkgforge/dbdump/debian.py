@@ -135,7 +135,9 @@ def _fixperms_lines(
 ) -> typing.List[str]:
     """Render PATH's ``chown``/``chgrp``/``chmod`` lines for the generated
     ``fixperms`` script (only ever called once a caller already knows at
-    least one of mode/owner/group is pinned).
+    least one of mode/owner/group is pinned). Owner and group both pinned
+    become one ``chown -- owner:group``; only one pinned uses ``chown`` or
+    ``chgrp``.
 
     Order matches :func:`~pkgforge.entry.apply_entry`: owner (and
     group) before mode, since ``chown`` clears a regular file's setuid/setgid
@@ -148,9 +150,12 @@ def _fixperms_lines(
     target = '"$d"' + _sh_word(path)
     flag = "-h " if is_symlink else ""
     lines = []
-    if owner != DEFAULT:
+    if owner != DEFAULT and group != DEFAULT:
+        owner_group = _sh_word_cached(f"{owner}:{group}")
+        lines.append(f"chown {flag}-- {owner_group} {target}")
+    elif owner != DEFAULT:
         lines.append(f"chown {flag}-- {_sh_word_cached(owner)} {target}")
-    if group != DEFAULT:
+    elif group != DEFAULT:
         lines.append(f"chgrp {flag}-- {_sh_word_cached(group)} {target}")
     if mode != DEFAULT and not is_symlink:
         lines.append(f"chmod -- {_sh_word_cached(mode)} {target}")
@@ -177,9 +182,10 @@ class Debian(MultiArtifactFormat):
       every pinned mode/owner/group directly to a package directory: run it
       from ``override_dh_fixperms`` (after ``dh_fixperms``, which would
       otherwise strip the very bits this pins), e.g. ``sh debian/fixperms
-      debian/<pkg>``. One ``chown``/``chgrp``/``chmod`` line per pinned
-      field, in that order (chown before chmod, since chown clears a
-      regular file's setuid/setgid bit even to the same owner); a symlink
+      debian/<pkg>``. Per pinned entry: one ``chown owner:group`` (or
+      ``chown``/``chgrp`` when only one is pinned), then ``chmod`` (chown
+      before chmod, since chown clears a regular file's setuid/setgid bit
+      even to the same owner); a symlink
       gets ``chown -h``/``chgrp -h`` and never a ``chmod`` (POSIX ``chmod``
       has no ``-h`` and would follow the link to a target outside the
       package tree). With no pinned entry, the script is just its own

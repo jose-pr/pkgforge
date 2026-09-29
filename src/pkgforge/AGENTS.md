@@ -448,8 +448,9 @@ that one line.
   -d` for an empty state directory, still reaches the package) + `fixperms`
   (a POSIX `sh` script, always written, that applies `permissions`' pins
   directly: run it from an `override_dh_fixperms` target, after
-  `dh_fixperms` -- e.g. `sh debian/fixperms debian/<pkg>`. One
-  `chown`/`chgrp`/`chmod` line per pinned field, in that order (`chown`
+  `dh_fixperms` -- e.g. `sh debian/fixperms debian/<pkg>`. Per pinned
+  entry: one `chown owner:group` (or `chown`/`chgrp` when only one is
+  pinned), then `chmod` (`chown`
   before `chmod`, since `chown` clears a regular file's setuid/setgid bit
   even to the same owner); a symlink gets `chown -h`/`chgrp -h` and never a
   `chmod` (POSIX `chmod` has no `-h` and would follow the link to a target
