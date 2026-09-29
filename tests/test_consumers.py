@@ -371,10 +371,12 @@ def test_rpmbuild_quoted_glob_is_literal(tmp_path, cli):
 
 @requires_rpmbuild
 def test_rpmbuild_other_format_never_silently_wrong(tmp_path, cli):
-    # A format used with the wrong rpm may fail the build, but must never
-    # silently package a sibling (overmatch) or the wrong file (wrong).
-    # For each class the format this host does NOT match supports,
-    # build with that other format anyway and check the outcome.
+    # rpmspecfiles-pre419 used with rpm 4.19+ may fail the build, but must
+    # never silently package a sibling (overmatch) or the wrong file. The
+    # reverse does not hold: rpmspecfiles on rpm below 4.19 is measured to
+    # overmatch glob names, which is why rpmspecfiles-pre419 exists.
+    if _RPM_BELOW_419:
+        pytest.skip("rpmspecfiles on rpm < 4.19 overmatches glob names by design")
     other_format = _OTHER_FORMAT[_HOST_FORMAT]
     other_supported = _SUPPORTED[other_format]
 
@@ -790,7 +792,8 @@ def test_dh_install_fixperms_builds_deb(tmp_path, cli):
     assert _mode(f"{destdir}/back\\slash") == 0o604
     assert _mode(f"{destdir}/{nonutf8_name}") == 0o640
 
-    vartool = members["var/lib/tool"]
-    assert vartool.isdir()
-    assert (vartool.uname, vartool.gname) == ("daemon", "adm")
-    assert _mode("var/lib/tool") == 0o750
+    # A directory install without -T lands at <dest>/<source name>.
+    emptydir = members["var/lib/tool/emptysrc"]
+    assert emptydir.isdir()
+    assert (emptydir.uname, emptydir.gname) == ("daemon", "adm")
+    assert _mode("var/lib/tool/emptysrc") == 0o750
