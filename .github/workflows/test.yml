@@ -206,24 +206,68 @@ jobs:
   # tests/test_consumers.py feeds a real dbdump manifest to the tool it
   # targets; both tools are absent from the plain test matrix above, so
   # every test in that file is tool-gated (skipif) and silently skips there.
+  # Matrix over every rpm major.minor this project has measured with
+  # tests/rpm_probe.py: fedora:latest is the rpm 4.19+ baseline,
+  # rockylinux:9/8 are the required/best-effort old-rpm legs. Each container
+  # leg's pip is too old to editable-install a pyproject-only project,
+  # hence `pip install -U pip` before `-e ".[dev]"`.
   consumers-rpm:
-    name: Consumer test (rpmbuild, fedora:latest)
+    name: Consumer test (rpmbuild, ${{ matrix.label }})
     runs-on: ubuntu-latest
-    container: fedora:latest
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: fedora:latest
+            label: fedora:latest
+            python: python3
+            packages: "rpm-build python3"
+          - image: rockylinux:9
+            label: rockylinux:9
+            python: python3
+            packages: "rpm-build python3 python3-pip"
+          - image: rockylinux:8
+            label: rockylinux:8
+            python: python3.9
+            packages: "rpm-build python39 python39-pip"
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref || github.ref }}
-      - name: Install rpmbuild and python3
-        run: dnf install -y rpm-build python3
+      - name: Install rpmbuild and python
+        run: dnf install -y ${{ matrix.packages }}
       - name: Report the rpm version under test
         run: rpm --version
       - name: Create a venv and install the package
         run: |
-          python3 -m venv /tmp/venv
+          ${{ matrix.python }} -m venv /tmp/venv
+          /tmp/venv/bin/pip install -U pip
           /tmp/venv/bin/pip install -e ".[dev]"
       - name: Run the rpmbuild consumer tests
         run: /tmp/venv/bin/python -m pytest -p no:cacheprovider -q -rxs -k rpmbuild tests/test_consumers.py
+
+  # Ubuntu's own "rpm" apt package (not a container image): a fourth
+  # measured rpm build, installed the way a real Debian/Ubuntu-hosted build
+  # would get it.
+  consumers-rpm-ubuntu:
+    name: Consumer test (rpmbuild, ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Install rpmbuild
+        run: sudo apt-get update && sudo apt-get install -y rpm
+      - name: Report the rpm version under test
+        run: rpm --version
+      - name: Install package with dev extras
+        run: python -m pip install -e ".[dev]"
+      - name: Run the rpmbuild consumer tests
+        run: python -m pytest -p no:cacheprovider -q -rxs -k rpmbuild tests/test_consumers.py
 
   consumers-deb:
     name: Consumer test (dh_install, ubuntu)
