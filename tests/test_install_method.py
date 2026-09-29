@@ -262,6 +262,10 @@ def test_method_ignored_for_stdin_and_archive(tmp_path, monkeypatch):
     assert (root / "out").read_bytes() == b"stdin content"
 
     # An archive source is extracted fresh; --method move never touches it.
+    # Extraction needs tarfile's PEP 706 filter or bsdtar (3.9.13 binary
+    # builds have neither on Windows).
+    if not hasattr(tarfile, "data_filter") and shutil.which("bsdtar") is None:
+        pytest.skip("no safe extractor: tarfile lacks PEP 706 and bsdtar is absent")
     archive = tmp_path / "data.tar"
     with tarfile.open(archive, "w") as tf:
         data = b"archived"
