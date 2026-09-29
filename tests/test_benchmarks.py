@@ -47,6 +47,7 @@ _EXPECTED_METRICS = {
     "install.tree_copy",
     "install.tree_link",
     "install.tree_move",
+    "install.tree_record",
 }
 
 _EXPECTED_ITERATIONS = {

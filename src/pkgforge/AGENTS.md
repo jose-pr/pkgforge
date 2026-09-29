@@ -466,12 +466,15 @@ or all of them with `logging.getLogger("pkgforge")` (a bare `--loglevel
 pkgforge:LEVEL` has no effect on a CLI-dispatched command; see `PkgForgeCmd`
 above).
 
-- **`install.Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd, install.staging._Staging)`**
+- **`install.Install(FileEntryArgs, ExcludeArgs, install.record._RecordTree,
+  PkgForgeCmd, install.staging._Staging)`**
   (`pkgforge install`) — `install` is a package: `install/__init__.py` (the
   `Install` class itself), `install/decompress.py` (the `-x`/`--decompress`
   KIND table), `install/archive.py` (the tar-family/bsdtar extraction policy),
   `install/staging.py` (the `_Staging` mixin: `Install`'s own file/symlink/
-  directory staging methods, plus `install()` itself) —
+  directory staging methods, plus `install()` itself), `install/record.py`
+  (the `_RecordTree` mixin: `--record-tree` plus the walk itself, built on
+  the shared `pkgforge._tree.TreeRecorder`) —
   stage a source (file / directory / symlink / tar-family archive /
   decompress-on-copy) into the build root, apply mode/ownership, and record
   the entry. `-D` = `-Tp` shortcut, `-d` = `--type directory` shortcut.
@@ -605,6 +608,34 @@ above).
   first, so a special or escaping member is refused even when `-X`
   matches it. With only file or symlink sources it logs a warning, since
   there is nothing to filter.
+  `--record-tree` (env `PKGFORGE_INSTALL_RECORD_TREE`; off by default) also
+  records, right after DESTINATION's own entry, every path below a
+  directory or archive DESTINATION the DB does not already hold (a `-o`/`-g`
+  of `--` still resolves per child from disk, same as any entry): `owner`/
+  `group`/`meta` come from this install's own `-o`/`-g`/`-O`; `mode` and
+  `type` always come from disk (`AUTO`) for both files and directories --
+  DESTINATION's own `-m` never inherits down, and there is no `--dir-mode`
+  equivalent; a symlink's mode is always `-`. Silently ignored for a file or
+  symlink install, and a no-op under `--noentry` (nothing recorded, no
+  error). Only fills gaps (a fresh `loaddb()` per clone) -- an entry a
+  different install already recorded for the same key (e.g. a setuid binary
+  installed on its own beforehand) is left alone. `-X` applies the same way
+  it does everywhere else: `PathMatch(self.exclude, dest,
+  installroot=self.buildpath(dest).as_posix())`, built directly (not via
+  `_exclude_matcher`, so it never repeats the `unreachable()` warning
+  staging's own matcher already logged); an excluded directory's subtree is
+  pruned, including a leftover from an earlier run still sitting in
+  DESTINATION. With several merging SOURCEs, each clone's own
+  `--record-tree` pass walks the same shared destination, but gap-filling
+  means a child two sources both produced is still written only once. The
+  DB write batches (`_db_batch()`, a no-op except sqlite) so
+  DESTINATION's own entry and every child share one connection; a
+  `--record-tree` failure (e.g. an unsupported file type already sitting
+  under DESTINATION) exits 1 with the tree staged and the top entry
+  recorded -- nothing is rolled back, since staging itself already
+  succeeded. Replaces the `scan --missing DEST` step for a tree `install`
+  itself just staged; `scan --missing` is still what to use for a tree
+  staged by something else.
 - **`scan.ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd)`** (`pkgforge scan`) — walk
   PATH, recording an entry for every directory and file **below** it (never
   PATH itself); `--missing` only fills gaps not already in the DB, else scan
@@ -698,6 +729,10 @@ value as of import. An empty value counts as unset for all three.
 - **`PKGFORGE_INSTALL_METHOD`** — default `install`'s `--method` (`copy`,
   `link` or `move`; an empty value counts as unset, same as the three
   above). CLI wins over it the same way.
+- **`PKGFORGE_INSTALL_RECORD_TREE`** — default `install`'s `--record-tree`
+  (a boolean; truthy tokens `1 true yes on y t`, case-insensitive; anything
+  else, including empty/unset, is off). CLI (`--record-tree`/
+  `--no-record-tree`) wins over it the same way.
 - **`PKGFORGE_MCP`** — set to `stdio` to serve the command tree as MCP tools
   over stdio instead of running a command (duho's launch trigger; any other
   value exits 2). Unset, it does nothing. It is removed from the environment
@@ -721,10 +756,13 @@ value as of import. An empty value counts as unset for all three.
   import guarded to `None` off POSIX, so `.apply(chown=True, ...)` raises
   `RuntimeError` there. Parser/`--help` construction still works everywhere.
 - A tree or archive install records **one** entry, for the destination
-  itself; `scan --missing --mode=-- -o OWNER -g GROUP <dest>` records its
-  contents, honouring `-X`, with real (not default) attributes -- skip it
-  and `rpmspecfiles` gets only a `%dir` line and `debian`'s `install`
-  artifact gets no files for the tree.
+  itself, unless `--record-tree` is set: it also records every path below
+  the destination the DB doesn't already hold, with owner/group/meta from
+  this install and mode/type from disk, honouring `-X`. For a tree staged
+  by something else, `scan --missing --mode=-- -o OWNER -g GROUP <dest>`
+  does the same from disk-derived attributes. Skip both and `rpmspecfiles`
+  gets only a `%dir` line and `debian`'s `install` artifact gets no files
+  for the tree.
 - A `PathMatchStmt`/`PathMatch` result of `None` is not "no match" — it
   means "keep evaluating"; only `PathMatch.match`'s exhausted fallthrough
   (`_default`) is a real default.

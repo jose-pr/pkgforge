@@ -224,12 +224,12 @@ def measure():
         def _run_install(inst: Install) -> None:
             inst()
 
-        def _install_setup(method: str, db_path: Path):
+        def _install_setup(method: str, db_path: Path, **extra):
             def _setup() -> Install:
                 src = Path(tempfile.mkdtemp(dir=td))
                 shutil.copytree(template, src, dirs_exist_ok=True)
                 buildroot = Path(tempfile.mkdtemp(dir=td))
-                return Install(
+                kwargs = dict(
                     source=src,
                     destination=Path("/tree"),
                     buildroot=buildroot,
@@ -239,6 +239,8 @@ def measure():
                     parents=True,
                     method=method,
                 )
+                kwargs.update(extra)
+                return Install(**kwargs)
 
             return _setup
 
@@ -249,6 +251,17 @@ def measure():
                 INSTALL_TREE_INNER,
                 setup=_install_setup(method, db_path),
             )
+
+        # install.tree_record: the same tree, staged with the plain "copy"
+        # method, but with --record-tree also recording every child --
+        # compared against install.tree_copy above (same run) to see the
+        # walk's own added cost.
+        record_db_path = Path(td) / "install.record.jsonl"
+        metrics["install.tree_record"] = sample(
+            _run_install,
+            INSTALL_TREE_INNER,
+            setup=_install_setup("copy", record_db_path, record_tree=True),
+        )
 
     return metrics
 

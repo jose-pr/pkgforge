@@ -31,6 +31,10 @@ measure against a real, on-disk build-root tree.
 | `scan.cmd_yaml` | The same scan against the yaml DB backend |
 | `scan.cmd_sqlite` | The same scan against the sqlite DB backend (one fsync-backed commit per row today) |
 | `scan.cmd_auto_owner` | The same jsonl scan with `--owner=-- --group=--`, so every entry also resolves owner/group from disk (`pwd`/`grp` lookups) |
+| `install.tree_copy` | `Install.__call__` staging a synthetic directory tree with `--method copy` (the default) |
+| `install.tree_link` | The same tree staged with `--method link` (hardlink, falling back to a copy per file it can't span) |
+| `install.tree_move` | The same tree staged with `--method move` (whole-tree rename fast path) |
+| `install.tree_record` | The same tree staged with the plain `copy` method and `--record-tree` set, so every child is also walked and recorded -- compare against `install.tree_copy` (same run) for the walk's own added cost |
 
 Compare two results on **median**, not mean or min -- a single `timeit`
 average hides real run-to-run noise, median does not.

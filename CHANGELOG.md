@@ -7,6 +7,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `install --record-tree` (env `PKGFORGE_INSTALL_RECORD_TREE`) also records
+  every path below a directory or archive DESTINATION that the DB does not
+  already hold: owner/group/`-O` from the install, mode and type from disk
+  (symlinks `-`), honouring `-X`. It replaces the `scan --missing` step after
+  a tree install; without it an install still records only DESTINATION.
 - `install` gains `--method {copy,link,move}` (env `PKGFORGE_INSTALL_METHOD`),
   applying only to a real file/directory source (a `-` stdin, `-x`, archive or
   symlink source is unaffected). `copy` (the default) is unchanged. `link`

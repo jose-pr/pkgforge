@@ -41,11 +41,12 @@ from ..command import PkgForgeCmd, parsepath
 from ..exclude import ExcludeArgs
 from .archive import _archive_dir_name
 from .decompress import _DECOMPRESSORS, _SUFFIX_TO_KIND, _looks_like_path, _resolve_kind
+from .record import _RecordTree
 from .staging import _Staging, _detect_source_type, _require_stdin
 from .transfer import _env_method
 
 
-class Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd, _Staging):
+class Install(FileEntryArgs, ExcludeArgs, _RecordTree, PkgForgeCmd, _Staging):
     """Install a source into the build root and record its file entry."""
 
     _parsername_ = "install"
@@ -406,15 +407,22 @@ class Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd, _Staging):
 
         if not self.noentry:
             fspath = os.fspath(self.buildpath(dest))
-            try:
-                self.add_entry(fspath, fileentry)
-            except BaseException:
-                if self._move_atomic:
-                    # The entry is already applied and (if it needed one) a
-                    # temp already replaced onto dest -- the moved data now
-                    # lives at dest itself.
-                    self._rollback_move(dest)
-                raise
+            # Batched (a no-op except sqlite) so --record-tree's children
+            # share one connection with the top entry below.
+            with self._db_batch():
+                try:
+                    self.add_entry(fspath, fileentry)
+                except BaseException:
+                    if self._move_atomic:
+                        # The entry is already applied and (if it needed
+                        # one) a temp already replaced onto dest -- the
+                        # moved data now lives at dest itself.
+                        self._rollback_move(dest)
+                    raise
+                # After the top entry is committed: a --record-tree failure
+                # exits 1 with the tree staged and the top entry recorded --
+                # nothing to roll back, staging itself already succeeded.
+                self._record_tree(dest)
 
         if self.remove_source and self.source not in [DEFAULT, None]:
             # Runs LAST: after apply/replace/record succeed, so a failure
