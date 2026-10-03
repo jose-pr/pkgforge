@@ -1,8 +1,7 @@
 """New regression/guard tests added while fixing the ``--exclude`` grammar.
 
-The exclude tests that predate this pass stay in ``test_pkgforge.py``; every
-test added by this pass lands here instead (see the plan's own decision on
-this split).
+The older exclude tests stay in ``test_pkgforge.py``; the tests added with
+the grammar fix live here, so that change's coverage stays in one place.
 """
 
 from __future__ import annotations
