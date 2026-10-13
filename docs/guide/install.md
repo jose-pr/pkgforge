@@ -5,7 +5,7 @@ pip install pkgforge
 ```
 
 pkgforge requires **Python 3.9+**. Its runtime dependencies, as declared in
-`pyproject.toml`, are [duho](https://pypi.org/project/duho/)`>=0.6.0,<0.7`
+`pyproject.toml`, are [duho](https://pypi.org/project/duho/)`>=0.7.3,<0.8`
 (the CLI framework) and [PyYAML](https://pypi.org/project/pyyaml/)`>=6.0,<7`
 (for the `yaml` DB backend; JSON Lines, the default backend, needs no
 third-party parser).

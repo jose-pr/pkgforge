@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- Requires `duho>=0.7.3,<0.8` (was `>=0.6.0,<0.7`). The command line is
+  unchanged: the same flags, exit statuses and `--help` text.
+
 ## [0.2.0] - 2026-09-29
 
 ### Upgrading from 0.1.2
