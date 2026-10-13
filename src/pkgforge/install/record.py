@@ -37,7 +37,7 @@ class _RecordTree(duho.Cmd):
     ``loaddb``/``add_entry``/``buildpath``.
     """
 
-    record_tree: duho.Arg[bool, duho.NS(env="PKGFORGE_INSTALL_RECORD_TREE")] = (
+    record_tree: duho.Arg[bool, duho.Meta(env="PKGFORGE_INSTALL_RECORD_TREE")] = (
         _env_flag(os.environ.get("PKGFORGE_INSTALL_RECORD_TREE", ""))
     )
     (

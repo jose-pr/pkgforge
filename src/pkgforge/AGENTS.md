@@ -313,7 +313,7 @@ that one line.
 
 ## Exclude / filter grammar (`exclude.py`)
 
-- **`PathMatchStmt(duho.NS)`** — one parsed `--exclude` statement: `negate:
+- **`PathMatchStmt(argparse.Namespace)`** — one parsed `--exclude` statement: `negate:
   bool`, `tests: list[PathTest]`, `pattern: str`. `PathMatchStmt.parse(s) ->
   PathMatchStmt` parses `[!](?name:arg)*<glob>` (leading `!` negates the
   whole statement; each `(?name:arg)` or `(?!name:arg)` is an inline test,

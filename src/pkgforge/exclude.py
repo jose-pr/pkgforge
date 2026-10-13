@@ -28,7 +28,6 @@ import typing
 from pathlib import Path, PurePath
 
 import duho
-from duho import NS
 
 from .entry import FileEntry, FileType, entry_from_path
 from .errors import UsageError
@@ -253,7 +252,7 @@ PathTest.GENERATORS = _TESTS  # type: ignore[attr-defined]
 PathTest.factory = staticmethod(_make_test)  # type: ignore[attr-defined]
 
 
-class PathMatchStmt(NS):
+class PathMatchStmt(argparse.Namespace):
     """One parsed ``--exclude`` statement: ``negate``, ``tests`` (a list of
     :class:`PathTest`) and ``pattern``. :meth:`parse` builds one from
     ``[!](?name:arg)*<glob>``; :meth:`match` evaluates it against a path."""

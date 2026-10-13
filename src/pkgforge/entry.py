@@ -222,7 +222,7 @@ class FileEntryArgs(Cmd):
     ``--type/-t`` and ``-O/--meta KEY=VALUE`` -- the fields every leaf command
     that stages or records a :class:`FileEntry` shares."""
 
-    mode: duho.Arg[str, duho.NS(type=_parse_mode)] = DEFAULT
+    mode: duho.Arg[str, duho.Meta(type=_parse_mode)] = DEFAULT
     "permission mode: 1-4 octal digits, '-' (leave default), '--' or 'auto' (resolve from the staged file)"
     ("--mode", "-m")
     group: str = DEFAULT
@@ -233,13 +233,13 @@ class FileEntryArgs(Cmd):
     ("--owner", "-o")
     type: duho.Arg[
         typing.Optional[FileType],
-        duho.NS(type=_parse_filetype, metavar="{file,directory,symlink}"),
+        duho.Meta(type=_parse_filetype, metavar="{file,directory,symlink}"),
     ] = None
     "file, directory or symlink, in any case (auto-detected if unset, or given as '--')"
     ("--type", "-t")
     meta: duho.Arg[
         typing.Dict[str, str],
-        duho.NS(
+        duho.Meta(
             action=duho.UpdateAction,
             type=_key_value,
             metavar="KEY=VALUE",

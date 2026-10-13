@@ -60,7 +60,7 @@ class Install(FileEntryArgs, ExcludeArgs, _RecordTree, PkgForgeCmd, _Staging):
     ("--chown",)
     method: duho.Arg[
         str,
-        duho.NS(
+        duho.Meta(
             env="PKGFORGE_INSTALL_METHOD",
             type=_env_method,
             choices=_INSTALL_METHODS,
@@ -79,7 +79,7 @@ class Install(FileEntryArgs, ExcludeArgs, _RecordTree, PkgForgeCmd, _Staging):
     ("--method",)
     type: duho.Arg[
         typing.Union[FileType, str],
-        duho.NS(
+        duho.Meta(
             type=_parse_filetype,
             metavar="{file,directory,symlink}",
             conflicts="type",
@@ -94,7 +94,7 @@ class Install(FileEntryArgs, ExcludeArgs, _RecordTree, PkgForgeCmd, _Staging):
     "treat destination as the final path, not a directory"
     ("--no-target-directory", "-T")
     decompress: duho.Arg[
-        typing.Union[str, bool], duho.NS(nargs="?", metavar="KIND")
+        typing.Union[str, bool], duho.Meta(nargs="?", metavar="KIND")
     ] = False
     "decompress the source (gz/xz/bz2); KIND is optional: write -x KIND SRC DST, or a bare -x after the paths to infer it from the suffix"
     ("-x", "--decompress")
@@ -104,7 +104,7 @@ class Install(FileEntryArgs, ExcludeArgs, _RecordTree, PkgForgeCmd, _Staging):
     D: bool = False
     "shortcut for -Tp"
     ("-D",)
-    d: duho.Arg[bool, duho.NS(conflicts="type")] = False
+    d: duho.Arg[bool, duho.Meta(conflicts="type")] = False
     "shortcut for --type directory (not allowed with -t/--type)"
     ("-d",)
     # Declared as a plain ``List[Path]``, not a ``Union[List[Path], Path]``:
@@ -116,7 +116,7 @@ class Install(FileEntryArgs, ExcludeArgs, _RecordTree, PkgForgeCmd, _Staging):
     #: One or more source paths; a bare ``Path`` is accepted from the Python API.
     source: duho.Arg[
         typing.List[Path],
-        duho.NS(type=parsepath, nargs="+"),
+        duho.Meta(type=parsepath, nargs="+"),
     ] = []
     "one or more files, directories or archives to stage"
     ("source",)
