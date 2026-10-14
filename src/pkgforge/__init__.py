@@ -7,14 +7,10 @@ root's subcommand tree.
 
 from __future__ import annotations
 
-import os
-import subprocess
 import sys
-import traceback
 from importlib.metadata import PackageNotFoundError, version as _version
 
 import duho
-from duho.logging import traceback_enabled
 
 from .errors import PkgForgeError, UsageError
 from .entry import (
@@ -27,7 +23,7 @@ from .entry import (
     normalize_mode,
     resolve_entry,
 )
-from .command import PkgForgeCmd, PkgForge
+from .command import PkgForgeCmd, PkgForge, silence_broken_pipe
 from .db import DbError, DbProvider, open_db
 from . import compact, dbdump, initdb, install, scan
 
@@ -62,49 +58,28 @@ __all__ = [
 ]
 
 
-#: Truthy spellings for the DUHO_TRACEBACK opt-in (stripped, case-insensitive).
-def _print_error(exc: BaseException) -> None:
-    if traceback_enabled():
-        traceback.print_exc()
-    print(f"pkgforge: error: {exc}", file=sys.stderr)
-
-
-def _silence_broken_pipe() -> None:
-    """Redirect stdout to ``os.devnull`` so a later implicit flush/close does
-    not raise a second time (the recipe from the Python signal-handling docs).
-
-    Best-effort: gives up quietly if stdout has no real file descriptor (e.g.
-    a captured, non-fd stream in tests).
-    """
-    try:
-        devnull = os.open(os.devnull, os.O_WRONLY)
-        try:
-            os.dup2(devnull, sys.stdout.fileno())
-        finally:
-            os.close(devnull)
-    except (OSError, ValueError, AttributeError):
-        pass
-
-
 def main(argv=None) -> int:
     """Console entry point: build the parser, dispatch the selected command.
 
-    This is pkgforge's only error boundary. It prints one
-    ``pkgforge: error: <message>`` line to stderr and returns a plain exit
-    code instead of a traceback: 2 for a :class:`~pkgforge.errors.UsageError`
-    (an argument-shaped mistake), 1 for any other
-    :class:`~pkgforge.errors.PkgForgeError`, ``OSError`` or
+    Errors are reported by :class:`PkgForge`'s ``_errors_`` and
+    ``_report_error_``: one ``pkgforge: error: <message>`` line to stderr and a
+    plain exit code instead of a traceback. That is 2 for a
+    :class:`~pkgforge.errors.UsageError` (an argument-shaped mistake), 1 for
+    any other :class:`~pkgforge.errors.PkgForgeError`, ``OSError`` or
     ``subprocess.CalledProcessError``, and 1 silently for a closed output
     pipe (``BrokenPipeError``). Anything else propagates with its traceback,
     so a real bug stays visible. Set ``DUHO_TRACEBACK`` to a true value (duho's boolean tokens, e.g. ``1``;
     ``0``/``n``/``f`` mean off) to also print the traceback before that one line.
+
+    ``--help``, ``--version`` and a usage error from the parser raise
+    ``SystemExit``; every other outcome is returned.
 
     Python-API callers that invoke a command directly (not through
     ``main()``) still get the raw exception -- this boundary only wraps the
     CLI entry point.
     """
     try:
-        rc = duho.main(PkgForge, argv)
+        rc = duho.run(PkgForge, argv, exit="parse")
         # A broken downstream pipe (e.g. `pkgforge dbdump ... | head -1`) can
         # surface only here, on the final flush, after the command itself
         # already returned -- catch it inside the boundary, not as an
@@ -112,11 +87,5 @@ def main(argv=None) -> int:
         sys.stdout.flush()
         return rc
     except BrokenPipeError:
-        _silence_broken_pipe()
-        return 1
-    except UsageError as exc:
-        _print_error(exc)
-        return 2
-    except (PkgForgeError, OSError, subprocess.CalledProcessError) as exc:
-        _print_error(exc)
+        silence_broken_pipe()
         return 1

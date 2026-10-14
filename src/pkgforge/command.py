@@ -21,6 +21,8 @@ from __future__ import annotations
 import contextlib
 import os
 import posixpath
+import subprocess
+import sys
 import typing
 from pathlib import Path, PurePath, PurePosixPath
 
@@ -28,7 +30,24 @@ import duho
 from duho import Cli, Cmd, LoggingArgs
 
 from .entry import FileEntry
-from .errors import UsageError
+from .errors import PkgForgeError, UsageError
+
+
+def silence_broken_pipe() -> None:
+    """Redirect stdout to ``os.devnull`` so a later implicit flush/close does
+    not raise a second time (the recipe from the Python signal-handling docs).
+
+    Best-effort: gives up quietly if stdout has no real file descriptor (e.g.
+    a captured, non-fd stream in tests).
+    """
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(devnull, sys.stdout.fileno())
+        finally:
+            os.close(devnull)
+    except (OSError, ValueError, AttributeError):
+        pass
 
 
 def parsepath(path: str) -> typing.Optional[typing.Union[str, Path]]:
@@ -327,3 +346,20 @@ class PkgForge(PkgForgeCmd, Cli):
     # "PkgForge" instead of the invoked command, and shell completion (which
     # binds by exact, case-sensitive name) would never fire on bash/zsh/fish.
     _parsername_ = "pkgforge"
+    # First match wins, so a closed pipe (an OSError) and a usage mistake
+    # (a PkgForgeError) are listed before the classes they belong to.
+    _errors_ = {
+        BrokenPipeError: 1,
+        UsageError: 2,
+        PkgForgeError: 1,
+        OSError: 1,
+        subprocess.CalledProcessError: 1,
+    }
+
+    @staticmethod
+    def _report_error_(message: str, code: int, error: BaseException) -> None:
+        """Print one ``pkgforge: error:`` line; a closed pipe prints nothing."""
+        if isinstance(error, BrokenPipeError):
+            silence_broken_pipe()
+        else:
+            print(f"pkgforge: error: {message}", file=sys.stderr)

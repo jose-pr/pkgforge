@@ -114,7 +114,7 @@ def test_main_broken_pipe_is_silent(monkeypatch, capsys):
     def _raise(*_a, **_kw):
         raise BrokenPipeError()
 
-    monkeypatch.setattr(pkgforge.duho, "main", _raise)
+    monkeypatch.setattr(pkgforge.dbdump.DbDump, "__call__", _raise)
     rc = pkgforge.main(["dbdump", "-f", "rpmspecfiles"])
     assert rc == 1
     captured = capsys.readouterr()
@@ -186,6 +186,25 @@ def test_unexpected_exception_propagates(monkeypatch):
     def _raise(*_a, **_kw):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(pkgforge.duho, "main", _raise)
+    monkeypatch.setattr(pkgforge.dbdump.DbDump, "__call__", _raise)
     with pytest.raises(RuntimeError, match="boom"):
-        pkgforge.main([])
+        pkgforge.main(["dbdump", "-f", "rpmspecfiles"])
+
+
+def test_broken_pipe_with_traceback_prints_it_without_an_error_line(
+    monkeypatch, capsys
+):
+    # Under DUHO_TRACEBACK duho prints the traceback of every error it
+    # catches, a closed pipe included; the status stays 1 and no
+    # `pkgforge: error:` line follows.
+    def _raise(*_a, **_kw):
+        raise BrokenPipeError()
+
+    monkeypatch.setenv("DUHO_TRACEBACK", "1")
+    monkeypatch.setattr(pkgforge.dbdump.DbDump, "__call__", _raise)
+    rc = pkgforge.main(["dbdump", "-f", "rpmspecfiles"])
+    assert rc == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "BrokenPipeError" in captured.err
+    assert "pkgforge: error:" not in captured.err

@@ -982,3 +982,23 @@ def test_version_matches_distribution(cli):
     result = cli("--version")
     assert result.rc == 0
     assert version in result.out.decode()
+
+
+def test_unknown_db_format_after_subcommand_is_usage_error(cli):
+    # The error is raised while the command is constructed during the parse.
+    result = cli("initdb", "--db-format", "toml")
+    assert result.rc == 2
+    err = result.err.decode()
+    assert err.count("\n") == 1
+    assert err.startswith("pkgforge: error:")
+    assert "choose from" in err
+    assert "Traceback" not in err
+
+
+def test_unknown_db_format_after_subcommand_with_traceback(cli, monkeypatch):
+    monkeypatch.setenv("DUHO_TRACEBACK", "1")
+    result = cli("initdb", "--db-format", "toml")
+    assert result.rc == 2
+    lines = [line for line in result.err.decode().splitlines() if line]
+    assert lines[-1].startswith("pkgforge: error:")
+    assert any("Traceback" in line for line in lines[:-1])
