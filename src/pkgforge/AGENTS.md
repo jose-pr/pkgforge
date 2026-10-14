@@ -17,9 +17,11 @@ tree).
 ## Entry point
 
 - **`main(argv=None) -> int`** — build the parser and dispatch the selected
-  subcommand (`duho.main(PkgForge, argv)`). Bound as the `pkgforge` console
-  script and `python -m pkgforge`. This is pkgforge's only error boundary --
-  see [Exit status](#exit-status) for its exit codes. Calling a command
+  subcommand (`duho.run(PkgForge, argv, exit="parse")`: `--help`, `--version`
+  and a parser usage error raise `SystemExit`, every other outcome is
+  returned). Bound as the `pkgforge` console script and `python -m pkgforge`.
+  This is pkgforge's only error boundary (`PkgForge._errors_` and
+  `_report_error_`) -- see [Exit status](#exit-status) for its exit codes. Calling a command
   directly (not through `main()`) still raises the plain exception -- the
   boundary only wraps the CLI entry point.
 - **`__version__: str`** — the installed distribution version
@@ -35,7 +37,8 @@ and returns `1`; a `BrokenPipeError` (a closed output pipe) returns `1`
 silently; anything else propagates with its traceback. Set `DUHO_TRACEBACK`
 to a true value (duho's boolean tokens: `1`/`true`/`yes`/`on`;
 `0`/`false`/`no`/`off`/`n`/`f` are off) to also print the traceback before
-that one line.
+that one line. Under it a closed pipe raised by a command also prints its
+traceback (and no error line); the status stays `1`.
 
 ## Errors (`errors.py`)
 

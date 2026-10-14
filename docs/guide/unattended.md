@@ -56,7 +56,8 @@ other failure, including a closed output pipe (e.g. `pkgforge dbdump ... |
 head`). On a `1` or `2`, one `pkgforge: error: ...` line goes to stderr, no
 traceback. Set `DUHO_TRACEBACK=1` (duho's boolean tokens: `1`/`true`/`yes`/
 `on`; `0`/`false`/`no`/`off`/`n`/`f` are off) to also print the traceback
-before that line.
+before that line. A closed pipe prints no line; under `DUHO_TRACEBACK` it
+prints its traceback.
 
 Install shell completion by writing `pkgforge --print-completion <shell>`
 where the shell looks for it:

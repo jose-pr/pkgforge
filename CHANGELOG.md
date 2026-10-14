@@ -7,8 +7,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
-- Requires `duho>=0.7.3,<0.8` (was `>=0.6.0,<0.7`). The command line is
+- Requires `duho>=0.7.5,<0.8` (was `>=0.6.0,<0.7`). The command line is
   unchanged: the same flags, exit statuses and `--help` text.
+- `pkgforge.main()` runs through `duho.run`, and `PkgForge` reports its errors
+  with duho's `_errors_` and `_report_error_`. The `pkgforge: error:` line, its
+  stream and the statuses (2 for a usage mistake, 1 otherwise) are the same, and
+  `--help`, `--version` and a parser usage error still raise `SystemExit`.
+  Ctrl-C now ends with status 130 and no traceback.
+- With `DUHO_TRACEBACK` set, a closed output pipe now prints its traceback
+  (status 1, no error line); it used to stay silent.
 
 ## [0.2.0] - 2026-09-29
 
