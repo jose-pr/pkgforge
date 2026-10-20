@@ -8,6 +8,7 @@ are cheap when skipped.
 from __future__ import annotations
 
 import io
+import json
 import os
 import re
 import shutil
@@ -877,7 +878,12 @@ def _build_deb_with_recipe(tmp_path: Path, recipe: str, pkg: str):
     (debian_dir / "rules").write_text(rules, encoding="utf-8")
     (debian_dir / "rules").chmod(0o755)
 
-    # The recipe calls `pkgforge` by name, as a user would.
+    return _run_dpkg_buildpackage(tmp_path, pkgroot)
+
+
+def _pkgforge_on_path(tmp_path: Path) -> dict:
+    """An environment whose PATH starts with a ``pkgforge`` wrapper around
+    this interpreter: the recipes call ``pkgforge`` by name, as a user would."""
     bindir = tmp_path / "bin"
     bindir.mkdir()
     wrapper = bindir / "pkgforge"
@@ -885,16 +891,21 @@ def _build_deb_with_recipe(tmp_path: Path, recipe: str, pkg: str):
         f'#!/bin/sh\nexec "{sys.executable}" -m pkgforge "$@"\n', encoding="utf-8"
     )
     wrapper.chmod(0o755)
+    return {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"}
 
+
+def _run_dpkg_buildpackage(tmp_path: Path, pkgroot: Path):
+    """``dpkg-buildpackage -b`` in ``pkgroot``; returns the build result and
+    the built ``.deb``'s tar members keyed by path without the leading ``./``."""
     result = subprocess.run(
         ["dpkg-buildpackage", "-b", "-us", "-uc", "-d"],
         cwd=pkgroot,
         capture_output=True,
         text=True,
-        env={**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"},
+        env=_pkgforge_on_path(tmp_path),
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    debs = list(work.glob("*.deb"))
+    debs = list(pkgroot.parent.glob("*.deb"))
     assert len(debs) == 1, debs
     fsys_tarfile = subprocess.run(
         ["dpkg-deb", "--fsys-tarfile", str(debs[0])], capture_output=True, check=True
@@ -943,3 +954,101 @@ def test_dh_install_full_sequence_debian_tmp(tmp_path):
     recipe = _doc_rules_recipe("\tdh_installdirs\n")
     result, members = _build_deb_with_recipe(tmp_path, recipe, "pf-seq-tmp")
     _assert_full_sequence_pins(result, members, "pf-seq-tmp")
+
+
+# --------------------------------------------------------------------------
+# examples/: the packages a user starts from must build
+# --------------------------------------------------------------------------
+
+EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
+
+
+@requires_dh_sequence
+def test_dh_install_example_debian_builds(tmp_path):
+    """examples/debian builds with the same flow as the recipe tests, from a
+    copy of examples/ (dpkg-buildpackage writes next to the source tree)."""
+    pkgroot = tmp_path / "work" / "hello"
+    shutil.copytree(EXAMPLES, pkgroot)
+    (pkgroot / "debian" / "rules").chmod(0o755)
+    # dh_strip_nondeterminism is a separate package some hosts lack.
+    with (pkgroot / "debian" / "rules").open("a", encoding="utf-8") as rules:
+        rules.write("\noverride_dh_strip_nondeterminism:\n")
+
+    _result, members = _run_dpkg_buildpackage(tmp_path, pkgroot)
+
+    def pinned(name: str, mode: int, owner: str, group: str):
+        member = members[name]
+        assert stat.S_IMODE(member.mode) == mode, name
+        assert (member.uname, member.gname) == (owner, group), name
+
+    pinned("usr/bin/hello", 0o755, "root", "root")
+    pinned("usr/libexec/hello/helper", 0o4755, "root", "root")
+    pinned("etc/hello/hello.conf", 0o640, "root", "adm")
+    pinned("var/lib/hello", 0o750, "root", "adm")
+    assert members["usr/bin/hi"].issym()
+
+
+@requires_rpmbuild
+def test_rpmbuild_example_hello_spec(tmp_path):
+    """examples/hello.spec stages with stage.sh inside %install, and the RPM
+    it builds carries the modes and owners the file DB recorded."""
+    topdir = tmp_path / "top"
+    for sub in ("BUILD", "RPMS", "SOURCES", "SPECS", "SRPMS", "BUILDROOT"):
+        (topdir / sub).mkdir(parents=True)
+    result = subprocess.run(
+        [
+            "rpmbuild",
+            "-bb",
+            "--nodeps",
+            "--noclean",  # keep the build dir: it holds the file DB
+            "--define",
+            f"_topdir {topdir}",
+            "--define",
+            f"proj {EXAMPLES}",
+            "--define",
+            "__os_install_post %{nil}",
+            str(EXAMPLES / "hello.spec"),
+        ],
+        capture_output=True,
+        text=True,
+        env=_pkgforge_on_path(tmp_path),
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    rpms = list((topdir / "RPMS").rglob("*.rpm"))
+    assert len(rpms) == 1, rpms
+
+    listing = subprocess.run(
+        [
+            "rpm",
+            "-qp",
+            "--qf",
+            "[%{FILENAMES}|%{FILEMODES:octal}|%{FILEUSERNAME}|%{FILEGROUPNAME}\\n]",
+            str(rpms[0]),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    packaged = {}
+    for row in listing.splitlines():
+        path, mode, user, group = row.split("|")
+        packaged[path] = (int(mode, 8) & 0o7777, user, group)
+
+    dbs = list(topdir.rglob("files.jsonl"))
+    assert len(dbs) == 1, dbs
+    recorded = [
+        json.loads(line)
+        for line in dbs[0].read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert packaged["/usr/libexec/hello/helper"][0] == 0o4755
+    for entry in recorded:
+        path = entry["path"]
+        assert path in packaged, path
+        mode, user, group = packaged[path]
+        if entry["mode"] != "-":
+            assert mode == int(entry["mode"], 8), path
+        if entry["owner"] != "-":
+            assert user == entry["owner"], path
+        if entry["group"] != "-":
+            assert group == entry["group"], path

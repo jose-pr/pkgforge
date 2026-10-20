@@ -46,7 +46,10 @@ pkgforge dbdump -f debian debian/
 ```
 
 See [`examples/stage_and_package.sh`](https://github.com/jose-pr/pkgforge/blob/main/examples/stage_and_package.sh)
-for a runnable end-to-end walkthrough.
+for a runnable end-to-end walkthrough, and
+[`examples/hello.spec`](https://github.com/jose-pr/pkgforge/blob/main/examples/hello.spec)
+and [`examples/debian/`](https://github.com/jose-pr/pkgforge/tree/main/examples/debian)
+for packages that build from a file DB with `rpmbuild` and `dpkg-buildpackage`.
 
 ## Commands
 

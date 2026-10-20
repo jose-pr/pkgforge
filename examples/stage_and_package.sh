@@ -51,3 +51,17 @@ echo "-- debian/install --";     cat "$work/debian/install"
 echo "-- debian/permissions --"; cat "$work/debian/permissions"
 echo "-- debian/dirs --";        cat "$work/debian/dirs"
 echo "-- debian/fixperms --";    cat "$work/debian/fixperms"
+
+echo
+echo "== build real packages from this directory =="
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cat <<MSG
+RPM (hello.spec stages with stage.sh inside %install):
+  cd $here && rpmbuild -bb --define "proj \$PWD" hello.spec
+
+Debian (debian/rules stages into debian/tmp with stage.sh; build in a copy,
+since dpkg-buildpackage writes next to the source tree):
+  cp -r $here /tmp/hello && cd /tmp/hello && dpkg-buildpackage -b -us -uc -d
+
+Both need pkgforge on PATH; the .deb build needs debhelper and fakeroot.
+MSG

@@ -1,0 +1,19 @@
+#!/usr/bin/make -f
+# Stages into debian/tmp with examples/stage.sh, records the file DB, and
+# applies its pins after dh_fixperms. Needs pkgforge on PATH and
+# Rules-Requires-Root: binary-targets in debian/control (see
+# docs/guide/formats.md, "Debian recipes").
+export PKGFORGE_ROOT := $(CURDIR)/debian/tmp
+export PKGFORGE_DB := $(CURDIR)/debian/pkgforge.jsonl
+
+%:
+	dh $@
+
+override_dh_auto_install:
+	sh stage.sh
+	pkgforge dbdump -f debian debian/
+	dh_installdirs
+
+override_dh_fixperms:
+	dh_fixperms
+	sh debian/fixperms debian/hello

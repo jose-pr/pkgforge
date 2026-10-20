@@ -1,0 +1,13 @@
+Source: hello
+Section: misc
+Priority: optional
+Maintainer: Example <example@example.invalid>
+Build-Depends: debhelper-compat (= 13)
+Rules-Requires-Root: binary-targets
+Standards-Version: 4.7.0
+
+Package: hello
+Architecture: all
+Depends: ${misc:Depends}
+Description: pkgforge example
+ Built from a pkgforge file DB (see examples/stage.sh).
