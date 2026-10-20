@@ -699,6 +699,43 @@ def test_scan_drop_stale_tombstones_deleted(tmp_path, cli, fmt, ext):
 
 
 @pytest.mark.posix
+def test_scan_drop_stale_sqlite_uses_one_connection(tmp_path, cli, monkeypatch):
+    from pkgforge.db import SqliteDb
+
+    root = tmp_path / "root" / "d"
+    root.mkdir(parents=True)
+    for i in range(30):
+        (root / f"f{i}").write_text("x")
+    db = tmp_path / "files.db"
+    argv = ["--db", str(db), "--buildroot", str(tmp_path / "root")]
+    assert cli(*argv, "scan", "/d").rc == 0
+    for child in root.iterdir():
+        child.unlink()
+
+    opened = []
+    original_batch = SqliteDb.batch
+    original_connect = SqliteDb._connect
+
+    def counting_batch(self):
+        opened.append("batch")
+        return original_batch(self)
+
+    def counting_connect(self, **kwargs):
+        opened.append("connect")
+        return original_connect(self, **kwargs)
+
+    monkeypatch.setattr(SqliteDb, "batch", counting_batch)
+    monkeypatch.setattr(SqliteDb, "_connect", counting_connect)
+    assert cli(*argv, "scan", "--drop-stale", "/d").rc == 0
+
+    # One load, then one batch holding a single connection for all 30 removals
+    # (the walk itself batches too, but records nothing here).
+    assert opened.count("connect") == 1
+    loaded = PkgForgeCmd(db=db, db_format=None, buildroot=tmp_path).loaddb()
+    assert len(loaded) == 30 and all(entry is None for entry in loaded.values())
+
+
+@pytest.mark.posix
 def test_scan_drop_stale_bounded_to_path(tmp_path, cli):
     root = tmp_path / "root"
     (root / "usr" / "share" / "app").mkdir(parents=True)

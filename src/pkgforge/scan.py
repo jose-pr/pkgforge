@@ -155,18 +155,23 @@ class ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
             scan_buildpath = filter.installroot
             prefix = scan_buildpath if scan_buildpath == "/" else scan_buildpath + "/"
             dropped = 0
-            for key, entry in dropdb.items():
-                if entry is None or key == scan_buildpath or not key.startswith(prefix):
-                    continue
-                real_path = self.localpath(key)
-                if self.exclude and filter.match(real_path, entry=entry):
-                    self._logger_.debug("Keeping excluded stale entry: %s", key)
-                    continue
-                if os.path.lexists(real_path):
-                    continue
-                self._logger_.debug("Dropping stale entry for: %s", key)
-                self.remove_entry(key)
-                dropped += 1
+            with self._db_batch():
+                for key, entry in dropdb.items():
+                    if (
+                        entry is None
+                        or key == scan_buildpath
+                        or not key.startswith(prefix)
+                    ):
+                        continue
+                    real_path = self.localpath(key)
+                    if self.exclude and filter.match(real_path, entry=entry):
+                        self._logger_.debug("Keeping excluded stale entry: %s", key)
+                        continue
+                    if os.path.lexists(real_path):
+                        continue
+                    self._logger_.debug("Dropping stale entry for: %s", key)
+                    self.remove_entry(key)
+                    dropped += 1
             self._logger_.info(
                 "Dropped %d stale entr%s below %s",
                 dropped,
