@@ -208,7 +208,7 @@ def test_archive_exclude_keeps_hardlink_to_excluded_member(tmp_path, cli, route)
 
 @pytest.mark.posix
 @pytest.mark.parametrize("route", ROUTES)
-def test_archive_exclude_matches_install_path(tmp_path, cli, caplog, route):
+def test_archive_exclude_is_member_relative(tmp_path, cli, caplog, route):
     import logging
 
     archive = _archive_path(tmp_path, route)
@@ -226,7 +226,7 @@ def test_archive_exclude_matches_install_path(tmp_path, cli, caplog, route):
         "-d",
         "-D",
         "-X",
-        "/opt/app/docs",
+        "/docs",
         str(archive),
         "/opt/app",
     )
@@ -246,16 +246,48 @@ def test_archive_exclude_matches_install_path(tmp_path, cli, caplog, route):
             "-d",
             "-D",
             "-X",
-            "/docs",
+            "/opt/app/docs",
             str(archive),
             "/opt/app",
         )
     assert result2.rc == 0, result2.err.decode()
     assert (root2 / "opt" / "app" / "docs" / "readme.txt").read_text() == "hi"
+    assert [r for r in caplog.records if r.levelno == logging.WARNING] == []
 
-    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
-    assert len(warnings) == 1
-    assert "/docs" in warnings[0].message
+
+@pytest.mark.posix
+@pytest.mark.parametrize("route", ROUTES)
+def test_archive_exclude_doublestar_is_member_root(tmp_path, cli, route):
+    # "/docs/**" is relative to the member root, as `tar -tf` lists names:
+    # it prunes docs/ contents but not a nested docs/ directory elsewhere.
+    archive = _archive_path(tmp_path, route)
+
+    def _build(tf):
+        _add_file(tf, "docs/readme.txt", b"hi")
+        _add_file(tf, "keep.txt", b"keep")
+        _add_file(tf, "lib/docs/inner.txt", b"inner")
+
+    _write_archive(archive, _build)
+    root = tmp_path / "root"
+    result = cli(
+        "--db",
+        str(tmp_path / "files.jsonl"),
+        "--buildroot",
+        str(root),
+        "install",
+        "-p",
+        "-d",
+        "-D",
+        "-X",
+        "/docs/**",
+        str(archive),
+        "/opt/app",
+    )
+    assert result.rc == 0, result.err.decode()
+    staged = root / "opt" / "app"
+    assert not (staged / "docs" / "readme.txt").exists()
+    assert (staged / "keep.txt").exists()
+    assert (staged / "lib" / "docs" / "inner.txt").exists()
 
 
 @pytest.mark.posix
@@ -431,7 +463,7 @@ def test_prune_excluded_never_follows_symlinks(tmp_path):
     # would refuse a symlink anyway) and never followed into "outside".
     (root / "escape.la").symlink_to(outside)
 
-    matcher = PathMatch([PathMatchStmt.parse("**/*.la")], root, installroot="/opt/app")
+    matcher = PathMatch([PathMatchStmt.parse("**/*.la")], root)
     removed = _prune_excluded(root, matcher, {})
 
     assert removed == 2  # drop.la and the escape.la symlink itself

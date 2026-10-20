@@ -120,11 +120,10 @@ def test_relative_pattern_stays_inside_root(tmp_path, make_entry):
     assert m.match(root / "main.conf", make_entry()) is None
     assert m.match(root / "app" / "x.conf", make_entry()) is True
 
-    # A path outside the root entirely (only reachable via the Python API)
-    # keeps matching by its own text, with no ValueError from relative_to().
+    # A path outside the root is a caller bug, never a silent non-match.
     outside = PathMatch([PathMatchStmt.parse("*.conf")], root)
-    elsewhere = tmp_path.parent / "elsewhere" / "x.conf"
-    assert outside.match(elsewhere, make_entry()) is True
+    with pytest.raises(ValueError, match="not under"):
+        outside.match(tmp_path / "elsewhere" / "x.conf", make_entry())
 
 
 def test_relative_root_keeps_anchor(tmp_path, monkeypatch, make_entry):
@@ -146,13 +145,11 @@ def test_root_glob_characters_are_literal(tmp_path, monkeypatch, make_entry):
     assert m.match(root / "keep", make_entry()) is None
 
 
-def test_single_file_root_matches_name(tmp_path, make_entry):
-    # A single-file scan uses the file itself as the root; a relative
-    # pattern must still match it by its own install path -- installroot
-    # itself, since path == root, regardless of the file's local name.
+def test_single_file_root_is_slash(tmp_path, make_entry):
+    # A single-file scan uses the file itself as the root, which is "/".
     root = tmp_path / "z.pyc"
-    m = PathMatch([PathMatchStmt.parse("*.pyc")], root, installroot="/b/z.pyc")
-    assert m.match(root, make_entry()) is True
+    assert PathMatch([PathMatchStmt.parse("/")], root).match(root, make_entry())
+    assert PathMatch([PathMatchStmt.parse("*.pyc")], root).match(root) is None
 
 
 @pytest.mark.filterwarnings("error::FutureWarning")
@@ -170,44 +167,24 @@ def test_escaped_root_compiles_without_warning(tmp_path, make_entry):
 # --------------------------------------------------------------------------
 
 
-def test_pathmatch_candidate_is_install_path(tmp_path, make_entry):
-    # No pattern rewriting: PathMatch builds ONE install-path string per
-    # match() call (installroot joined with the path's own root-relative
-    # segments) and matches every statement -- absolute or relative --
-    # against it.
+@pytest.mark.parametrize(
+    "rel,candidate", [("a/b", "/a/b"), (".", "/"), ("a b/c", "/a b/c")]
+)
+def test_pathmatch_candidate_with_root(tmp_path, rel, candidate):
     root = tmp_path / "src"
-    for pattern in ("/opt/app/a/*.pyc", "a/*.pyc"):
-        m = PathMatch([PathMatchStmt.parse(pattern)], root, installroot="/opt/app")
-        assert m.match(root / "a" / "x.pyc", make_entry()) is True
-        assert m.match(root / "b" / "x.pyc", make_entry()) is None
-
-    # path == root: the candidate is installroot itself.
-    at_root = PathMatch([PathMatchStmt.parse("/opt/app")], root, installroot="/opt/app")
-    assert at_root.match(root, make_entry()) is True
-
-    # A path outside root entirely (only reachable via the Python API) keeps
-    # matching by its own absolute POSIX text, never installroot-based, and
-    # never raises.
-    elsewhere = tmp_path / "elsewhere" / "x.pyc"
-    outside = PathMatch(
-        [PathMatchStmt.parse(elsewhere.as_posix())], root, installroot="/opt/app"
-    )
-    assert outside.match(elsewhere, make_entry()) is True
+    assert PathMatch([], root)._candidate(root / rel) == candidate
 
 
-def test_pathmatch_rejects_relative_installroot():
-    with pytest.raises(ValueError):
-        PathMatch([], installroot="opt/app")
+def test_pathmatch_candidate_without_root():
+    m = PathMatch([])
+    assert m._candidate("/usr/x") == "/usr/x"
+    assert m._candidate(Path("/usr/x")) == "/usr/x"
 
 
-def test_unreachable_lists_only_impossible_absolute_patterns():
-    reachable = ["/**/*.pyc", "/opt", "/opt/app/src/tmp", "/opt/[ab]pp/x", "*.pyc"]
-    unreachable = ["/tmp", "/opt/other/**"]
-    m = PathMatch(
-        [PathMatchStmt.parse(p) for p in reachable + unreachable],
-        installroot="/opt/app/src",
-    )
-    assert {stmt.pattern for stmt in m.unreachable()} == set(unreachable)
+def test_pathmatch_str_key_without_root(make_entry):
+    m = PathMatch([PathMatchStmt.parse("/usr/share/doc/**")])
+    assert m.match("/usr/share/doc/x", make_entry()) is True
+    assert m.match("/usr/share/man/x", make_entry()) is None
 
 
 # --------------------------------------------------------------------------
@@ -520,7 +497,7 @@ def test_meta_test_sees_O(tmp_path, cli, command):
 
 
 @pytest.mark.posix
-@pytest.mark.parametrize("pattern", ["tmp", "/opt/src/tmp", "(?type:directory)**/tmp"])
+@pytest.mark.parametrize("pattern", ["tmp", "/tmp", "(?type:directory)**/tmp"])
 def test_scan_prunes_excluded_dir(tmp_path, cli, pattern):
     root = tmp_path / "root"
     (root / "opt" / "src" / "tmp" / "sub" / "deep").mkdir(parents=True)
@@ -623,9 +600,9 @@ def test_scan_install_prune_parity(tmp_path, cli):
 
 @pytest.mark.posix
 @pytest.mark.parametrize("command", ["install", "scan"])
-def test_absolute_pattern_is_install_path(tmp_path, cli, command):
-    # An absolute pattern names the install path directly -- the same text
-    # whether install or scan applies it -- instead of a command-local root.
+def test_absolute_pattern_is_source_relative(tmp_path, cli, command):
+    # An absolute pattern is relative to the input: the source directory for
+    # install, PATH for scan -- never the destination or install path.
     root = tmp_path / "root"
     db = tmp_path / "files.jsonl"
 
@@ -645,7 +622,7 @@ def test_absolute_pattern_is_install_path(tmp_path, cli, command):
             "-p",
             "-d",
             "-X",
-            "/opt/app/build/tmp",
+            "/tmp",
             str(src),
             "/opt/app",
         )
@@ -666,7 +643,7 @@ def test_absolute_pattern_is_install_path(tmp_path, cli, command):
             str(root),
             "scan",
             "-X",
-            "/opt/app/build/tmp",
+            "/tmp",
             "/opt/app/build",
         )
         assert result.rc == 0
@@ -683,10 +660,9 @@ def test_absolute_pattern_is_install_path(tmp_path, cli, command):
 
 @pytest.mark.posix
 @pytest.mark.parametrize("command", ["install", "scan"])
-def test_source_anchored_pattern_warns(tmp_path, cli, caplog, command):
-    # -X /tmp was written for the OLD source-/scan-root anchor; no install
-    # path can ever reach it now (the destination is /opt/app/build, not
-    # /), so it's kept -- rc 0 -- and warned about exactly once.
+def test_install_path_pattern_matches_nothing(tmp_path, cli, caplog, command):
+    # A pattern spelled with the destination (the install path) names
+    # nothing in the source, so everything is kept, silently.
     root = tmp_path / "root"
     db = tmp_path / "files.jsonl"
 
@@ -705,7 +681,7 @@ def test_source_anchored_pattern_warns(tmp_path, cli, caplog, command):
                 "-p",
                 "-d",
                 "-X",
-                "/tmp",
+                "/opt/app/build/tmp",
                 str(src),
                 "/opt/app",
             )
@@ -723,7 +699,7 @@ def test_source_anchored_pattern_warns(tmp_path, cli, caplog, command):
                 str(root),
                 "scan",
                 "-X",
-                "/tmp",
+                "/opt/app/build/tmp",
                 "/opt/app/build",
             )
         assert result.rc == 0
@@ -735,27 +711,23 @@ def test_source_anchored_pattern_warns(tmp_path, cli, caplog, command):
         }
         assert "/opt/app/build/tmp/x" in recorded
 
-    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
-    assert len(warnings) == 1
-    assert "/tmp" in warnings[0].message
+    assert [r for r in caplog.records if r.levelno == logging.WARNING] == []
 
 
 @pytest.mark.posix
 @pytest.mark.parametrize("command", ["install", "scan"])
-def test_relative_pattern_spans_destination(tmp_path, cli, command):
-    # A relative pattern matches at any depth against the install path, so
-    # it can span segments that come from DESTINATION/PATH itself --
-    # "app/*.conf" matches .../app/main.conf even though nothing under the
-    # source/scanned tree is itself named "app".
+def test_relative_pattern_ignores_destination(tmp_path, cli, command):
+    # A relative pattern matches trailing segments of the input's own names:
+    # "app/*.conf" excludes content/app/y.conf but not content/main.conf,
+    # although the destination or PATH is itself named "app".
     root = tmp_path / "root"
     db = tmp_path / "files.jsonl"
 
     if command == "install":
         src = tmp_path / "content"
-        src.mkdir()
+        (src / "app").mkdir(parents=True)
         (src / "main.conf").write_text("x")
-        (src / "sub").mkdir()
-        (src / "sub" / "x.conf").write_text("x")
+        (src / "app" / "y.conf").write_text("x")
 
         result = cli(
             "--db",
@@ -771,12 +743,12 @@ def test_relative_pattern_spans_destination(tmp_path, cli, command):
             "/srv/app",
         )
         assert result.rc == 0
-        assert not (root / "srv" / "app" / "main.conf").exists()
-        assert (root / "srv" / "app" / "sub" / "x.conf").exists()
+        assert (root / "srv" / "app" / "main.conf").exists()
+        assert not (root / "srv" / "app" / "app" / "y.conf").exists()
     else:
-        (root / "srv" / "app" / "sub").mkdir(parents=True)
+        (root / "srv" / "app" / "app").mkdir(parents=True)
         (root / "srv" / "app" / "main.conf").write_text("x")
-        (root / "srv" / "app" / "sub" / "x.conf").write_text("x")
+        (root / "srv" / "app" / "app" / "y.conf").write_text("x")
 
         result = cli(
             "--db",
@@ -795,22 +767,27 @@ def test_relative_pattern_spans_destination(tmp_path, cli, command):
             k.replace("\\", "/")
             for k in PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
         }
-        assert "/srv/app/main.conf" not in recorded
-        assert "/srv/app/sub/x.conf" in recorded
+        assert "/srv/app/main.conf" in recorded
+        assert "/srv/app/app/y.conf" not in recorded
 
 
 @pytest.mark.posix
 def test_exclude_parity_install_scan_dbdump(tmp_path, cli):
-    # Excluding at install time, at scan time, or at dbdump-render time,
-    # with the same three statements, decides the same surviving entries:
-    # dbdump's flat per-entry model (an exact directory row, its own
-    # trailing "/**", and a broad "**/*.pyc") is now equivalent to
-    # install/scan's directory-pruning walk, because every command judges
-    # a path the same way -- by its install path.
-    statements = ["/opt/app/build/tmp", "/opt/app/build/tmp/**", "**/*.pyc"]
-    exclude_flags = []
-    for stmt in statements:
-        exclude_flags += ["-X", stmt]
+    # Excluding at install time, at scan time, or at dbdump-render time
+    # decides the same surviving entries, each command reading the same
+    # three statements relative to its own input: the source directory
+    # (install), PATH (scan) and the DB path (dbdump).
+    def flags(prefix):
+        out = []
+        for stmt in (f"{prefix}/tmp", f"{prefix}/tmp/**", "**/*.pyc"):
+            out += ["-X", stmt]
+        return out
+
+    install_flags, scan_flags, dump_flags = (
+        flags(""),
+        flags("/build"),
+        flags("/opt/app/build"),
+    )
 
     def build_source(base):
         src = base / "build"
@@ -852,7 +829,7 @@ def test_exclude_parity_install_scan_dbdump(tmp_path, cli):
             "-p",
             "-d",
             "--noentry",
-            *exclude_flags,
+            *install_flags,
             str(src_a),
             "/opt/app",
         ).rc
@@ -898,7 +875,7 @@ def test_exclude_parity_install_scan_dbdump(tmp_path, cli):
             str(root_b),
             "scan",
             "--missing",
-            *exclude_flags,
+            *scan_flags,
             "/opt/app",
         ).rc
         == 0
@@ -947,7 +924,7 @@ def test_exclude_parity_install_scan_dbdump(tmp_path, cli):
             "dbdump",
             "-f",
             "rpmspecfiles",
-            *exclude_flags,
+            *dump_flags,
             str(out_c_path),
         ).rc
         == 0
@@ -1152,3 +1129,71 @@ def test_keep_rule_needs_pair(make_entry):
     )
     assert paired.match(Path("/opt/tmp/a"), make_entry(meta={"keep": "1"})) is False
     assert paired.match(Path("/opt/tmp/a"), make_entry(meta={})) is True
+
+
+# --------------------------------------------------------------------------
+# glob translation: linear time, class escaping, fnmatch equivalence
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "pattern,candidate",
+    [
+        ("/".join(["**"] * 8) + "/nomatch", "/" + "/".join(["seg"] * 30) + "/f"),
+        ("*a" * 8 + "*b", "/x/" + "a" * 60),
+        ("/" + "*a" * 8 + "*b", "/" + "a" * 60),
+    ],
+)
+def test_pathological_patterns_are_fast(pattern, candidate):
+    # Backtracking in the old translation took seconds here; the bound is
+    # loose so a slow runner does not flake it, yet far below that.
+    import time
+
+    stmt = PathMatchStmt.parse(pattern)
+    start = time.perf_counter()
+    assert stmt._pattern_matches(candidate) is False
+    assert time.perf_counter() - start < 0.05
+
+
+def test_doublestar_runs_collapse():
+    assert PathMatchStmt.parse("/a/**/**/**/b")._pattern_matches("/a/b")
+    assert PathMatchStmt.parse("/a/**/**/b")._pattern_matches("/a/x/y/b")
+    # A trailing run still needs at least one segment.
+    assert not PathMatchStmt.parse("/a/**/**")._pattern_matches("/a")
+    assert PathMatchStmt.parse("/a/**/**")._pattern_matches("/a/x/y")
+
+
+@pytest.mark.filterwarnings("error")
+@pytest.mark.parametrize(
+    "pattern,hit,miss",
+    [
+        ("*[a&&b]", "/x&", "/xc"),
+        ("*[a~~b]", "/x~", "/xc"),
+        ("*[a||b]", "/x|", "/xc"),
+        ("[!&]x", "/ax", "/&x"),
+    ],
+)
+def test_class_set_operators_are_literal(pattern, hit, miss):
+    # re warns about (and may one day interpret) "&&", "~~" and "||" in a
+    # class; the translation escapes them so they stay plain members.
+    stmt = PathMatchStmt.parse(pattern)
+    assert stmt._pattern_matches(hit)
+    assert not stmt._pattern_matches(miss)
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    ["*", "a*", "*a", "a*b", "*a*b*", "a**b", "?*?", "*[ab]*c", "a*?b*", "***x"],
+)
+def test_star_matches_like_fnmatch(pattern):
+    import fnmatch
+    import itertools
+
+    stmt = PathMatchStmt.parse("/" + pattern)
+    for n in range(0, 6):
+        for chars in itertools.product("abc", repeat=n):
+            name = "".join(chars)
+            assert stmt._pattern_matches("/" + name) == fnmatch.fnmatchcase(
+                name, pattern
+            ), (pattern, name)
+    assert not stmt._pattern_matches("/a/b")

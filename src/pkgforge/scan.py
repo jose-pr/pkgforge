@@ -22,7 +22,7 @@ from .entry import (
 )
 from ._tree import TreeRecorder
 from .command import PkgForgeCmd
-from .exclude import ExcludeArgs, PathMatch, log_unreachable
+from .exclude import ExcludeArgs, PathMatch
 
 
 class ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
@@ -111,13 +111,9 @@ class ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
             FileType.Directory: {**base, "mode": dirmode},
             FileType.Symlink: {**base, "mode": DEFAULT},
         }
-        # installroot is the install path scanpath itself will have in the
-        # DB (the same coordinate install/dbdump use); --drop-stale below
-        # reuses this same string instead of recomputing it.
-        filter = PathMatch(
-            self.exclude, scanpath, installroot=self.buildpath(scanpath).as_posix()
-        )
-        log_unreachable(filter, self._logger_)
+        # An absolute -X pattern is relative to PATH, in the walk and in
+        # --drop-stale alike.
+        filter = PathMatch(self.exclude, scanpath)
         self._logger_.info("Scanning %s", scanpath)
 
         # `dbdump` OUTPUT files (rpm-files.txt, debian/) are not recognizable
@@ -152,7 +148,7 @@ class ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
             # is {} without it): drop-stale reasons about the DB's current
             # state, not what the walk happened to see in memory.
             dropdb = self.loaddb()
-            scan_buildpath = filter.installroot
+            scan_buildpath = self.buildpath(scanpath).as_posix()
             prefix = scan_buildpath if scan_buildpath == "/" else scan_buildpath + "/"
             dropped = 0
             with self._db_batch():

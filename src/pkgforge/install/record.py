@@ -79,14 +79,9 @@ class _RecordTree(duho.Cmd):
             FileType.Symlink: {**base, "mode": DEFAULT},
         }
 
-        matcher = None
-        if self.exclude:
-            # Built directly (not via _Staging._exclude_matcher), so this
-            # never repeats the PathMatch.unreachable() warning staging's
-            # own matcher already logged once for the same statements.
-            matcher = PathMatch(
-                self.exclude, dest, installroot=self.buildpath(dest).as_posix()
-            )
+        # DEST holds the same tree as the source, so a pattern relative to
+        # the source is relative to DEST here.
+        matcher = PathMatch(self.exclude, dest) if self.exclude else None
 
         recorder = _tree.TreeRecorder(
             self, bases, matcher, dict(self.meta), self.loaddb()

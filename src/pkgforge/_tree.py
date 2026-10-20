@@ -33,10 +33,8 @@ class TreeRecorder:
     template per :class:`~pkgforge.entry.FileType`; :meth:`record` resolves
     each ``AUTO``-valued field from the path's own ``lstat``. ``matcher`` is
     ``None`` when there is nothing to filter (no ``-X`` given); callers build
-    their own -- ``scan``'s anchored at PATH, ``install --record-tree``'s at
-    DESTINATION -- since each warns about an unreachable statement
-    differently (or, for the latter, not at all -- staging's own matcher
-    already warned once).
+    their own, rooted at the tree they walk: ``scan``'s at PATH,
+    ``install --record-tree``'s at DESTINATION.
     """
 
     def __init__(

@@ -320,50 +320,36 @@ tool's last stderr line.
   returns `None`, "keep evaluating", so a statement never vetoes the ones
   after it and evaluation is order-independent for non-overlapping
   statements. `.anchored -> bool` is true when `pattern` is rooted (a
-  leading `/`, or a Windows drive): it is matched against the install
-  path's own leading segments rather than at any depth; also what
-  `PathMatch.unreachable()` uses to judge a pattern.
+  leading `/`, or a Windows drive): it is matched from the root of the
+  input rather than at any depth.
 - **Glob engine**: `pattern` is matched with a private, cached
   `_glob_regex(pattern) -> re.Pattern`, not `PurePath.match` (whose `**` is a
   single non-recursive segment and disagrees between Python versions on a
   root-level key). `**` as a whole segment matches zero or more segments; a
   *trailing* `/**` (or a bare `**`) matches one or more segments — "the
   contents of this directory", never the directory itself. `*`/`?` never
-  cross `/`; `[...]`/`[!...]` is a character class. A relative pattern gets
-  an implicit "at any depth" prefix, same as before.
-- **`PathMatch(list[PathMatchStmt], root=None, installroot="/")`** — an
-  ordered set of statements matched against the **install path**: the
-  `/`-rooted path an entry has (`dbdump`) or will have (`install`/`scan`) in
-  the file DB, the one coordinate all three commands share. No pattern
-  rewriting: statements are stored exactly as given (`ValueError` for an
-  `installroot` that does not start with `/`). `.match(path, entry=None,
-  _default=None, **overrides) -> bool | None` — builds ONE install-path
-  candidate string for the call (no root: `path` itself, as `dbdump`'s
-  already-`/`-rooted key is; `path == root`: `installroot` itself; below
-  `root`: `installroot` joined with the path's own root-relative POSIX
-  segments; outside `root`, reachable only via the Python API: the path's
-  own POSIX text, never a `ValueError`), then evaluates statements in order
-  against it, first non-`None` result wins. The entry is derived lazily via
-  `FileEntry.from_path`, at most once, and only for a statement whose glob
-  already matched and that actually has inline tests -- a glob-only
-  statement never lstats, types or does a pwd/grp lookup on the path, so
-  `-X '*.fifo'` excludes a FIFO or socket instead of raising for it.
-  `**overrides` are layered onto a COPY of the entry (never the caller's
+  cross `/` and a `*` is translated as `fnmatch` does (linear time);
+  `[...]`/`[!...]` is a character class, with `&`, `~` and `|` literal in
+  it. A run of `**` segments is one. A relative pattern gets an implicit
+  "at any depth" prefix.
+- **`PathMatch(list[PathMatchStmt], root=None)`** — an ordered set of
+  statements matched against the names of the input a command reads, the way
+  `tar --exclude` matches member names. With a `root`, `.match` matches `/`
+  plus the path's root-relative POSIX text (`/` for the root itself), so an
+  absolute pattern is relative to the root; a path outside `root` raises
+  `ValueError` (a caller bug). With no `root` (`dbdump`) the path is matched
+  as its own POSIX text, a `str` DB key included. Statements are stored
+  exactly as given. `.match(path, entry=None, _default=None, **overrides) ->
+  bool | None` builds ONE candidate string for the call, then evaluates
+  statements in order against it, first non-`None` result wins. The entry is
+  derived lazily via `FileEntry.from_path`, at most once, and only for a
+  statement whose glob already matched and that actually has inline tests --
+  a glob-only statement never lstats, types or does a pwd/grp lookup on the
+  path, so `-X '*.fifo'` excludes a FIFO or socket instead of raising for
+  it. `**overrides` are layered onto a COPY of the entry (never the caller's
   own dict, e.g. a live DB record in `dbdump`); an explicit `entry` of `{}`
   still counts as "the caller supplied one" (`is not None`, not a
   truthiness check). An empty `PathMatch` always matches (`True`).
-  `.unreachable() -> list[PathMatchStmt]` — anchored statements (negated
-  ones too) whose literal prefix (the segments before the first one
-  containing `*`/`?`/`[`) is neither an ancestor-or-self nor a
-  descendant-or-self of `installroot`: written for the OLD source-/
-  scan-root anchor, no install path can reach them any more. A
-  drive-anchored pattern is always included; a bare `/` prefix never is. A
-  relative statement is never included (it matches at any depth, so it is
-  never structurally impossible).
-- **`log_unreachable(matcher, logger)`** — logs one WARNING per
-  `matcher.unreachable()` statement, naming the pattern and `installroot`.
-  Called by `install` (`_Staging._exclude_matcher`, once per source) and
-  `scan` (once); `dbdump` has no root and never calls it.
 - **`ExcludeArgs(duho.Cmd)`** — the `--exclude`/`-X` field, declared once and
   shared: `Install`, `ScanCmd` and `DbDump` all take `--exclude` from this
   mixin instead of each declaring it separately. `--help` shows the
@@ -645,11 +631,10 @@ above).
   source is already gone) and a no-op there, rather than an error.
   `-d` cannot be combined with `-t`/`--type` (a declared `conflicts=`
   group; exit 2, enforced by argparse itself before `Install` is
-  constructed). `-X` matches install paths: `_Staging._exclude_matcher`
-  builds a `PathMatch(self.exclude, root, installroot=self.buildpath(dst)
-  .as_posix())` once per source (`root` the source directory, `dst` its
-  resolved destination), logging one WARNING per
-  `PathMatch.unreachable()` statement. `-X`'s `(?meta:k=v)` inline test
+  constructed). `-X` is source-relative: `_Staging._exclude_matcher(root)`
+  builds a `PathMatch(self.exclude, root)` once per source (`root` the
+  source directory, or an archive's extraction temp dir), so `/x` means
+  `SRC/x`, never the destination path. `-X`'s `(?meta:k=v)` inline test
   sees this run's `-O` values; a FIFO or socket the copy itself would
   otherwise reach raises `PkgForgeError` naming the path and the `-X`
   remedy, unless a glob-only `-X` already excluded it first. `-X` filters
@@ -675,10 +660,8 @@ above).
   error). Only fills gaps (a fresh `loaddb()` per clone) -- an entry a
   different install already recorded for the same key (e.g. a setuid binary
   installed on its own beforehand) is left alone. `-X` applies the same way
-  it does everywhere else: `PathMatch(self.exclude, dest,
-  installroot=self.buildpath(dest).as_posix())`, built directly (not via
-  `_exclude_matcher`, so it never repeats the `unreachable()` warning
-  staging's own matcher already logged); an excluded directory's subtree is
+  it does everywhere else: `PathMatch(self.exclude, dest)` (DESTINATION
+  holds the same tree as the source); an excluded directory's subtree is
   pruned, including a leftover from an earlier run still sitting in
   DESTINATION. With several merging SOURCEs, each clone's own
   `--record-tree` pass walks the same shared destination, but gap-filling
@@ -705,11 +688,9 @@ above).
   `-m`/`--dir-mode` say (Linux ignores it; rpm/debian consumers warn about
   or misreport an explicit one). `--type/-t` is hidden from `--help` and never
   applied (scan always records each path's own on-disk type); an explicit
-  value logs a warning instead of doing nothing silently. `-X` matches
-  install paths, the same as `install`: `PathMatch(self.exclude, scanpath,
-  installroot=self.buildpath(scanpath).as_posix())`, logging one WARNING
-  per `PathMatch.unreachable()` statement (once, not per path); the same
-  `installroot` string is reused as `--drop-stale`'s own path prefix. `-X`'s
+  value logs a warning instead of doing nothing silently. `-X` is
+  relative to PATH: `PathMatch(self.exclude, scanpath)`, for the walk and
+  for `--drop-stale`'s kept-entry check alike. `-X`'s
   `(?meta:k=v)` inline test sees this run's `-O` values, same as `install`;
   a FIFO or socket `scan` cannot record raises `PkgForgeError` naming the
   path and the `-X` remedy, unless a glob-only `-X` already excluded it

@@ -800,6 +800,60 @@ def test_scan_drop_stale_keeps_excluded(tmp_path, cli):
     assert loaded["/usr/share/app/a"] is not None
 
 
+@pytest.mark.posix
+def test_scan_drop_stale_exclude_is_path_relative(tmp_path, cli):
+    # -X /ghost is relative to PATH: it keeps PATH/ghost, while the same
+    # entry spelled with its full DB path matches nothing and is dropped.
+    root = tmp_path / "root"
+    app = root / "usr" / "share" / "app"
+    app.mkdir(parents=True)
+    for name in ("a", "ghost", "gone"):
+        (app / name).write_text("x")
+    db = tmp_path / "files.jsonl"
+    argv = ("--db", str(db), "--buildroot", str(root))
+
+    assert cli(*argv, "scan", "/usr/share/app").rc == 0
+    for name in ("ghost", "gone"):
+        (app / name).unlink()
+
+    assert (
+        cli(
+            *argv,
+            "scan",
+            "--drop-stale",
+            "-X",
+            "/ghost",
+            "-X",
+            "/usr/share/app/gone",
+            "/usr/share/app",
+        ).rc
+        == 0
+    )
+
+    loaded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    assert loaded["/usr/share/app/ghost"] is not None
+    assert loaded["/usr/share/app/a"] is not None
+    assert loaded["/usr/share/app/gone"] is None
+
+
+@pytest.mark.posix
+def test_scan_exclude_absolute_is_path_relative(tmp_path, cli):
+    root = tmp_path / "root"
+    app = root / "usr" / "share" / "app"
+    (app / "cache").mkdir(parents=True)
+    (app / "cache" / "c").write_text("x")
+    (app / "sub" / "cache").mkdir(parents=True)
+    db = tmp_path / "files.jsonl"
+
+    argv = ("--db", str(db), "--buildroot", str(root))
+    assert cli(*argv, "scan", "-X", "/cache", "/usr/share/app").rc == 0
+
+    recorded = set(PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb())
+    assert "/usr/share/app/cache" not in recorded
+    assert "/usr/share/app/cache/c" not in recorded
+    assert "/usr/share/app/sub/cache" in recorded
+
+
 def test_scan_drop_stale_needs_file_db(tmp_path, cli):
     root = tmp_path / "root"
     root.mkdir()

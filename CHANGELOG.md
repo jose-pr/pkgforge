@@ -7,6 +7,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
+- On `install` and `scan`, an absolute `-X` pattern is relative to the input,
+  like `tar --exclude`: `install -X /tmp ./build /opt/app` excludes
+  `./build/tmp`, `install -X '/docs/**' app-1.0.tgz /opt` excludes the
+  archive's `docs/` members, and `scan -X /cache /usr/share/app` excludes
+  `/usr/share/app/cache`. A pattern that carries the destination or install
+  path (`-X /opt/app/build/tmp`) now matches nothing: drop that prefix. A
+  pattern without a leading `/` still matches at any depth, and `dbdump` still
+  matches the DB paths.
+- `-X` accepts glob patterns that took seconds to reject a path before (eight
+  `**` segments, or many `*` in one segment) in microseconds, and no longer
+  warns about `&&`, `~~` or `||` inside a `[...]` class.
+- The `PathMatch` constructor takes `PathMatch(stmts, root=None)`; the
+  `installroot` argument is gone, and a path outside `root` raises
+  `ValueError`.
+- `dbdump` `-X` matching is faster on a large DB.
 - `dbdump` now refuses a DB entry that is not well formed, with one
   `pkgforge: error:` line naming the entry and status 2, and writes nothing:
   a key that is not an absolute path with no `.`/`..`/empty segment, a `type`
@@ -62,6 +77,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   BOM-prefixed `.jsonl` stays JSON Lines instead of being appended to as YAML.
 
 ### Removed
+- The warning that an absolute `-X` pattern could match no install path, and
+  `PathMatch.unreachable()` and `log_unreachable()` with it.
 - `dbdump --stdin`; use `--db -`.
 - Content sniffing of a file DB and the legacy leniency that came with it: an
   unrecognized text file was read as YAML, and a mode, owner or group written

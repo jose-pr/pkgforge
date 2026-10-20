@@ -312,11 +312,8 @@ def test_install_remove_source_directory(tmp_path):
 
 
 def test_install_multi_source_absolute_exclude(tmp_path):
-    # Guards: an absolute -X pattern is matched against the install path
-    # (DESTINATION/<source name>/...), the same text regardless of source --
-    # no per-source rebasing needed, so ONE pattern with a glob standing in
-    # for the varying source name excludes "sub/skip" under every source
-    # that shares DESTINATION.
+    # Guards: an absolute -X pattern is relative to each source, so ONE
+    # pattern excludes "sub/skip" under every source that shares DESTINATION.
     from pkgforge.install import Install
 
     root = tmp_path / "root"
@@ -329,9 +326,8 @@ def test_install_multi_source_absolute_exclude(tmp_path):
         (d / "keep").mkdir()
         (d / "keep" / "y").write_text("y")
 
-    # Absolute pattern against the shared DESTINATION, with a glob for each
-    # source's own directory name.
-    pattern = "/opt/out/*/sub/skip"
+    # An absolute pattern is relative to each source's own tree.
+    pattern = "/sub/skip"
     parser = Install._parser_()
     inst = parser.parse_args(
         [
@@ -615,7 +611,7 @@ def test_pathmatch_keeps_statements_unchanged(tmp_path, make_entry):
     assert first[0] is stmts[0]
     assert second[0] is stmts[0]
     # Each matcher still excludes under its own root, from the SAME
-    # unmodified pattern -- both installroots default to "/".
+    # unmodified pattern.
     assert first.match(src1 / "a" / "x", make_entry()) is True
     assert second.match(src2 / "a" / "x", make_entry()) is True
 

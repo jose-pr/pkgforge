@@ -20,7 +20,7 @@ from .transfer import _Transfer, _try_link
 from ..command import _refuse_mcp_stdin
 from ..entry import DEFAULT, FileType
 from ..errors import PkgForgeError, UsageError
-from ..exclude import PathMatch, log_unreachable
+from ..exclude import PathMatch
 
 
 def _require_stdin() -> typing.BinaryIO:
@@ -176,25 +176,16 @@ class _Staging(_Transfer):
     """Staging steps for Install; uses the host's meta, decompress,
     exclude, buildroot, buildpath, db, method and _logger_."""
 
-    def _exclude_matcher(self, root: Path, dst: Path) -> typing.Optional[PathMatch]:
+    def _exclude_matcher(self, root: Path) -> typing.Optional[PathMatch]:
         """Build this clone's ``-X`` matcher for an on-disk tree at
         ``root`` (a directory source being copied, or an archive's
-        extraction temp dir) onto ``dst``, anchored at the install path
-        ``dst`` will have in the DB (:meth:`~pkgforge.command.PkgForgeCmd.buildpath`)
-        -- the same coordinate ``scan`` and ``dbdump`` use. ``None`` without
-        ``self.exclude`` (nothing to filter: a plain ``copytree``, or an
-        archive staged whole). Logs one WARNING per pattern
-        :meth:`~pkgforge.exclude.PathMatch.unreachable` finds -- written for
-        the old source-anchored ``-X``, which no install path can reach any
-        more.
+        extraction temp dir): an absolute pattern is relative to ``root``.
+        ``None`` without ``self.exclude`` (nothing to filter: a plain
+        ``copytree``, or an archive staged whole).
         """
         if not self.exclude:
             return None
-        matcher = PathMatch(
-            self.exclude, root, installroot=self.buildpath(dst).as_posix()
-        )
-        log_unreachable(matcher, self._logger_)
-        return matcher
+        return PathMatch(self.exclude, root)
 
     def _stage_file(self, src: Path, dst: Path) -> Path:
         """Write this clone's file content into a temp file next to ``dst``.
@@ -394,7 +385,7 @@ class _Staging(_Transfer):
                 # same PathMatch a directory copy applies via
                 # _copy_ignore, evaluated directly over the on-disk
                 # extraction instead of copytree's own ignore= callback.
-                matcher = self._exclude_matcher(tmp, dst)
+                matcher = self._exclude_matcher(tmp)
                 if matcher is not None:
                     archive._prune_excluded(tmp, matcher, dict(self.meta))
                 if dst.exists():
@@ -441,7 +432,7 @@ class _Staging(_Transfer):
         created = not dst.exists()
         try:
             dst.mkdir(exist_ok=True)
-            matcher = self._exclude_matcher(src, dst)
+            matcher = self._exclude_matcher(src)
             skip = self._self_copy_skips(src, dst)
             copy_function_kwargs = {}
             if self.method == "move":

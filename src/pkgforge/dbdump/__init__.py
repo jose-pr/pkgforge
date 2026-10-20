@@ -428,7 +428,7 @@ class DbDump(ExcludeArgs, PkgForgeCmd):
         matcher = PathMatch(self.exclude)
         entries: Entries = []
         for path, entry in db.items():
-            if entry is None or (self.exclude and matcher.match(Path(path), entry)):
+            if entry is None or (self.exclude and matcher.match(path, entry)):
                 continue
             entries.append((path, entry))
         if db and self.exclude and not entries:

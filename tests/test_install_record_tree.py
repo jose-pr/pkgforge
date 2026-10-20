@@ -255,7 +255,7 @@ def test_record_tree_absolute_exclude(tmp_path, cli):
         "-D",
         "-d",
         "-X",
-        "/opt/app/cache",
+        "/cache",
         "--record-tree",
         str(src),
         "/opt/app",
