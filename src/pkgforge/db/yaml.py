@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import re
 import typing
 from pathlib import Path
 
@@ -16,6 +17,31 @@ if typing.TYPE_CHECKING:
 #: (every other implicit tag -- int, float, bool, timestamp -- is dropped so
 #: an unquoted scalar loads as the text it was written as).
 _YAML_NULL_TAG = "tag:yaml.org,2002:null"
+
+#: Far deeper than any record this backend writes (path, fields, meta).
+#: libyaml's C composer overflows the C stack on deep nesting before Python's
+#: recursion limit can stop it, so the text is checked before parsing.
+_MAX_DEPTH = 64
+_BRACKETS_RE = re.compile(r"[\[\]{}]")
+_DEEP_BLOCK_RE = re.compile(
+    rf"^(?:[ \t]{{{4 * _MAX_DEPTH},}}|[ \t]*(?:-[ \t]+){{{_MAX_DEPTH},}})", re.M
+)
+
+
+def _too_deep(text: str) -> bool:
+    """Whether ``text`` nests flow collections, indentation or compact block
+    sequences more than :data:`_MAX_DEPTH` levels."""
+    if _DEEP_BLOCK_RE.search(text):
+        return True
+    depth = 0
+    for match in _BRACKETS_RE.finditer(text):
+        if match.group() in "[{":
+            depth += 1
+            if depth > _MAX_DEPTH:
+                return True
+        elif depth:
+            depth -= 1
+    return False
 
 
 @functools.lru_cache(maxsize=None)
@@ -113,8 +139,10 @@ class YamlDb(AppendLogDb):
 
         hint = _format_hint(self.NAME)
         try:
-            with self.path.open(encoding="utf-8-sig") as fh:
-                data = yaml.load(fh, Loader=loader)
+            text = self.path.read_text(encoding="utf-8-sig")
+            if _too_deep(text):
+                raise DbError(f"{self.path}: nested too deeply")
+            data = yaml.load(text, Loader=loader)
         except UnicodeDecodeError as exc:
             raise DbError(f"{self.path}: {exc}{hint}") from exc
         except yaml.YAMLError as exc:

@@ -342,22 +342,13 @@ def test_sqlite_bad_meta_json_is_one_line(tmp_path, cli):
     assert "invalid meta_json" in err
 
 
-@pytest.mark.parametrize("name", ["deep.jsonl", "deep.yaml"])
-def test_deeply_nested_db_is_one_line(name, tmp_path, cli):
-    if name.endswith(".yaml") and sys.version_info < (3, 10):
-        pytest.skip("libyaml overflows the C stack on this nesting before Python 3.10")
-    db = tmp_path / name
+def test_deeply_nested_jsonl_is_one_line(tmp_path, cli):
+    db = tmp_path / "deep.jsonl"
     depth = 100_000
-    if name.endswith(".jsonl"):
-        db.write_text(
-            '{"path": "/a", "mode": "644", "owner": "-", "group": "-", '
-            '"type": "file", "meta": {"k": ' + "[" * depth + "]" * depth + "}}\n"
-        )
-    else:
-        db.write_text(
-            "/a:\n  mode: '644'\n  owner: '-'\n  group: '-'\n  type: file\n"
-            "  meta:\n    k: " + "[" * depth + "]" * depth + "\n"
-        )
+    db.write_text(
+        '{"path": "/a", "mode": "644", "owner": "-", "group": "-", '
+        '"type": "file", "meta": {"k": ' + "[" * depth + "]" * depth + "}}\n"
+    )
     result = cli("--db", str(db), "dbdump", "-f", "rpm")
     err = result.err.decode().strip()
     assert result.rc == 1
@@ -365,3 +356,28 @@ def test_deeply_nested_db_is_one_line(name, tmp_path, cli):
     # A parser with a deep enough stack reads it; the schema then refuses
     # the non-string meta value instead.
     assert "nested too deeply" in err or "meta" in err
+
+
+_YAML_HEAD = "/a:\n  mode: '644'\n  owner: '-'\n  group: '-'\n  type: file\n  meta:\n"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "    k: " + "[" * 100_000 + "]" * 100_000 + "\n",
+        "    k: " + "{a: " * 100 + "b" + "}" * 100 + "\n",
+        "    k:\n" + "      " + "- " * 100 + "x\n",
+        "    k:\n" + "".join(" " * (6 + 2 * i) + "a:\n" for i in range(200)),
+    ],
+    ids=["flow_list", "flow_map", "compact_sequence", "block_mapping"],
+)
+def test_deeply_nested_yaml_is_one_line(body, tmp_path, cli):
+    # Checked before libyaml parses: its C composer would crash the
+    # interpreter on deep nesting instead of raising.
+    db = tmp_path / "deep.yaml"
+    db.write_text(_YAML_HEAD + body)
+    result = cli("--db", str(db), "dbdump", "-f", "rpm")
+    err = result.err.decode().strip()
+    assert result.rc == 1
+    assert err.count("\n") == 0
+    assert "nested too deeply" in err
