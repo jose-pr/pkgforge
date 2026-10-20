@@ -66,9 +66,9 @@ is detached from the hardlink by the next compact.
 
 ## Adding a backend
 
-Backends are pluggable. A third-party package adds its own simply by
-subclassing `DbProvider` with its own `NAME` — core pkgforge never needs to
-know about it, and no separate registration call is needed:
+Backends are pluggable. A third-party package adds its own by subclassing
+`DbProvider` with its own `NAME` and advertising it in the `pkgforge.dbs`
+entry-point group — core pkgforge never needs to know about it:
 
 ```python
 import pkgforge
@@ -83,12 +83,27 @@ class TomlDb(pkgforge.DbProvider):
     def init(self): ...
 ```
 
-Once defined, the format is selectable with `--db-format toml`, by a `.toml`
-`--db` suffix. A `DbProvider` is constructed as `provider_cls(path)` and must
+```toml
+# the plugin's pyproject.toml
+[project.entry-points."pkgforge.dbs"]
+toml = "tomlplug:TomlDb"        # name = module:Class, the name equal to NAME
+```
+
+Once the package is installed, the format is selectable with
+`--db-format toml` and by a `.toml` `--db` suffix, with no import in the
+calling script. A `DbProvider` is constructed as `provider_cls(path)` and must
 implement `load`/`add`/`remove`/`compact`/`init`; `load()` returns
 `{path: entry-or-None}` like the built-ins. Look one up directly with
-`DbProvider.lookup("toml")`, or list every registered name with
-`DbProvider.names()`.
+`DbProvider.get("toml")`, or list every name with `DbProvider.names()` (which
+includes advertised backends without importing them). A script can also
+define the subclass itself: defining it registers it for that process.
+
+A `NAME`, alias or suffix that another backend already holds is a
+`ValueError` when the class is created, and the new class is not registered.
+An advertised backend that fails to import, or whose entry point does not
+name a `DbProvider` subclass with that `NAME`, stops the command with an error
+naming the entry point; while inferring a format from a suffix it is logged as
+a warning and skipped.
 
 A `SUFFIXES` entry without a leading dot gets one (`"toml"` registers the same
 as `".toml"`); a multi-dot suffix (e.g. `".tar.gz"`) is refused (raises

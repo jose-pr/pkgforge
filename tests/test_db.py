@@ -467,7 +467,7 @@ def test_db_provider_subclass_inherits_neither_aliases_nor_suffixes(
 ):
     # A subclass that does not redeclare ALIASES/SUFFIXES in its OWN body
     # must not silently claim its parent's: registration (and therefore
-    # lookup/format_for_suffix) reads only what a class's own __dict__ sets,
+    # get/format_for_suffix) reads only what a class's own __dict__ sets,
     # never what plain attribute access would show as inherited.
     Base = type(
         "TsvDb",
@@ -476,7 +476,7 @@ def test_db_provider_subclass_inherits_neither_aliases_nor_suffixes(
     )
     type("TsvDbSub", (Base,), {"NAME": "tsv2"})
 
-    assert DbProvider.lookup("tabsep") is Base
+    assert DbProvider.get("tabsep") is Base
     assert format_for_suffix(tmp_path / "x.tsv") == "tsv"
 
 

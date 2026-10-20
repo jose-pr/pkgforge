@@ -10,8 +10,11 @@ Two shapes of format are supported, each a :class:`DumpFormat` subclass:
   directory.
 
 A third party adds a format by subclassing one of the two with its own
-``NAME`` (and, optionally, ``ALIASES``) -- no registration call is needed,
-subclassing alone registers it (see :mod:`pkgforge._registry`).
+``NAME`` (and, optionally, ``ALIASES``): defining the subclass registers it,
+and listing it in the ``pkgforge.dump_formats`` entry-point group
+(``name = module:Class``) makes it selectable by ``dbdump -f`` once its
+package is installed. A name or alias another format holds is a
+:class:`ValueError`.
 """
 
 from __future__ import annotations
@@ -180,6 +183,7 @@ class DumpFormat(Registered, abc.ABC):
     ALIASES: typing.ClassVar[typing.Tuple[str, ...]] = ()
     _registry: typing.ClassVar[typing.Dict[str, type]] = {}
     _KIND = "format"
+    _GROUP = "pkgforge.dump_formats"
 
     @abc.abstractmethod
     def render(self, entries: FileEntries) -> Rendered:
@@ -288,7 +292,7 @@ def dump(
     format can render and :class:`~pkgforge.exceptions.DumpError` for one this
     format cannot.
     """
-    instance = DumpFormat.lookup(fmt)()
+    instance = DumpFormat.get(fmt)()
     target = None if output is None else Path(os.fspath(output))
     if target is not None:
         instance.check_output(target)

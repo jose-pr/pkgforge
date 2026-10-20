@@ -57,7 +57,7 @@ def _check_db_format(value: typing.Optional[str]) -> typing.Optional[str]:
     fails before any file is staged."""
     if not value:
         return None
-    return DbProvider.lookup(value).NAME
+    return DbProvider.get(value).NAME
 
 
 class Project:
@@ -521,7 +521,7 @@ class Project:
             InvalidEntryError: an entry no format can render.
             DumpError: an entry ``fmt`` cannot represent.
         """
-        fmt_cls = dbdump.DumpFormat.lookup(fmt)
+        fmt_cls = dbdump.DumpFormat.get(fmt)
         target = None if output is None else Path(os.fspath(output))
         if target is not None:
             fmt_cls().check_output(target)

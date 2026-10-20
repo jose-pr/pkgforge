@@ -275,3 +275,19 @@ override_dh_fixperms:
 	dh_fixperms
 	sh debian/fixperms debian/<pkg>
 ```
+
+## Adding a format
+
+A package adds a format by subclassing `PerEntryFormat` (one file of lines) or
+`MultiArtifactFormat` (several files in a directory) with its own `NAME`, and
+advertising it in the `pkgforge.dump_formats` entry-point group:
+
+```toml
+[project.entry-points."pkgforge.dump_formats"]
+lines = "myplug:LinesFormat"     # name = module:Class, the name equal to NAME
+```
+
+Once installed, `dbdump -f lines` finds it, and `DumpFormat.names()` lists it
+before anything is imported. A `NAME` or alias another format holds is a
+`ValueError` when the class is created. A format that fails to load stops the
+command with an error naming the entry point.

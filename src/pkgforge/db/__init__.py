@@ -13,14 +13,18 @@ content is not in the chosen format fails to load with a
 :class:`DbError`; its content is never inspected to pick a backend.
 
 A third party adds a backend by subclassing :class:`DbProvider` with its own
-``NAME`` (and, optionally, ``ALIASES``/``SUFFIXES``) -- no registration call
-is needed, subclassing alone registers it (see :mod:`pkgforge._registry`).
+``NAME`` (and, optionally, ``ALIASES``/``SUFFIXES``): defining the subclass
+registers it, and listing it in the ``pkgforge.dbs`` entry-point group
+(``name = module:Class``) makes it selectable by ``--db-format`` and by its
+suffix once its package is installed. A name, alias or suffix another backend
+holds is a :class:`ValueError`.
 """
 
 from __future__ import annotations
 
 import abc
 import contextlib
+import logging
 import typing
 from pathlib import Path
 
@@ -30,6 +34,8 @@ from ..exceptions import DbError, PkgForgeError
 if typing.TYPE_CHECKING:
     from ..entry import FileEntry
 
+
+_LOGGER = logging.getLogger("pkgforge.db")
 
 #: A loaded DB: build path -> entry, or ``None`` for a removed path.
 Db = typing.Dict[str, "typing.Optional[FileEntry]"]
@@ -67,6 +73,7 @@ class DbProvider(Registered, abc.ABC):
     SUFFIXES: typing.ClassVar[typing.Tuple[str, ...]] = ()
     _registry: typing.ClassVar[typing.Dict[str, type]] = {}
     _KIND = "db format"
+    _GROUP = "pkgforge.dbs"
 
     def __init__(self, path: Path):
         self.path = path
@@ -91,6 +98,12 @@ class DbProvider(Registered, abc.ABC):
                 normalized.append(suffix)
             cls.SUFFIXES = tuple(normalized)
         super().__init_subclass__(**kwargs)
+
+    @classmethod
+    def _claims(cls) -> typing.List[typing.Tuple[str, str]]:
+        return super()._claims() + [
+            ("suffix", suffix) for suffix in cls.__dict__.get("SUFFIXES", ())
+        ]
 
     @abc.abstractmethod
     def load(self) -> Db:
@@ -132,16 +145,20 @@ class DbProvider(Registered, abc.ABC):
 def format_for_suffix(path: Path) -> str:
     """Infer a format from ``path``'s suffix, else :data:`DEFAULT_FORMAT`.
 
-    Registered classes are tried newest-first, so a suffix claimed by two
-    classes resolves to whichever registered more recently.
+    A suffix no registered class holds loads the advertised ``pkgforge.dbs``
+    entry points (a plugin that fails to load is logged and skipped) and looks
+    again.
     """
     suffix = path.suffix.lower()
-    for registered in DbProvider._unique():
-        # Own class dict only: a subclass that does not redeclare SUFFIXES
-        # itself must not silently claim its parent's (plain attribute
-        # access would find the inherited value instead).
-        if suffix in registered.__dict__.get("SUFFIXES", ()):
-            return registered.NAME
+    for attempt in range(2):
+        for registered in set(DbProvider._registry.values()):
+            # Own class dict only: a subclass that does not redeclare SUFFIXES
+            # itself must not silently claim its parent's (plain attribute
+            # access would find the inherited value instead).
+            if suffix in registered.__dict__.get("SUFFIXES", ()):
+                return registered.NAME
+        if attempt == 0:
+            DbProvider._load_pending(_LOGGER)
     return DEFAULT_FORMAT
 
 
@@ -152,7 +169,7 @@ def open_db(path: Path, fmt: typing.Optional[str] = None) -> DbProvider:
     Lines. The file's content is never inspected: a file that is not in the
     resolved format fails when it is loaded.
     """
-    return DbProvider.lookup(fmt or format_for_suffix(path))(path)
+    return DbProvider.get(fmt or format_for_suffix(path))(path)
 
 
 def _format_hint(name: str) -> str:

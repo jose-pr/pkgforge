@@ -71,7 +71,7 @@ class DbDump(ExcludeArgs, ProjectCmd):
         Runs before the DB is read, so a bad ``--format`` or OUTPUT exits 2
         without touching stdin.
         """
-        fmt = DumpFormat.lookup(self.format)
+        fmt = DumpFormat.get(self.format)
         if str(self.output) == DEFAULT:
             return fmt.NAME, None
         fmt().check_output(self.output)

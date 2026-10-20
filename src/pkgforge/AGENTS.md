@@ -257,19 +257,27 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
 - **`DbProvider(pkgforge._registry.Registered, abc.ABC)`** — storage backend
   bound to a filesystem `path` (`provider_cls(path)`). Abstract methods:
   `load() -> Db`, `add(path, entry)`, `remove(path)`, `compact()`, `init()`.
-  A subclass registers itself simply by declaring its own `NAME: str` (e.g.
-  `NAME = "toml"`); `ALIASES: tuple[str, ...]` (extra selectable names) and
+  A subclass registers itself by declaring its own `NAME: str` (e.g.
+  `NAME = "toml"`), or is advertised in the `pkgforge.dbs` entry-point group
+  as `name = module:Class` (`name` equal to the class's `NAME`) and imported
+  when first selected; `ALIASES: tuple[str, ...]` (extra selectable names) and
   `SUFFIXES: tuple[str, ...]` (file suffixes that infer this format from a
   `--db` path -- case-insensitive; a missing leading dot is added, e.g.
   `"toml"` registers the same as `".toml"`; a suffix with more than one dot,
   e.g. `".tar.gz"`, raises `ValueError` when the class is created, and
-  registers nothing at all, not a half-registered class) are optional. An
+  registers nothing at all, not a half-registered class) are optional. A
+  `NAME`, alias or suffix another class holds raises `ValueError` naming both
+  classes, and the new class is not registered.
   Two classmethods (from `Registered`, shared with
-  `dbdump.DumpFormat`): `DbProvider.lookup(name) -> type[DbProvider]`
-  (`name` is `NAME` or an `ALIASES` entry; raises `UsageError`, also a
+  `dbdump.DumpFormat`): `DbProvider.get(name) -> type[DbProvider]`
+  (`name` is `NAME` or an `ALIASES` entry, else the name of an entry point in
+  the group, which is imported and registered; raises `UsageError`, also a
   `ValueError`, naming every registered name with its aliases for an
-  unrecognized one) and `DbProvider.names() -> list[str]` (every registered
-  `NAME`, sorted). Lookups are case-sensitive.
+  unrecognized one, and `PkgForgeError` naming the entry point when it fails
+  to import, is not a subclass of the family base with that `NAME`, or clashes
+  with a registered class) and `DbProvider.names() -> list[str]` (every
+  registered `NAME` plus every advertised name, sorted, nothing imported).
+  Lookups are case-sensitive.
   **`batch(self) -> ContextManager[DbProvider]`** — non-abstract; a
   `contextlib.contextmanager` yielding `self`. The default does nothing
   extra (every `add`/`remove` inside it still writes exactly as it would
@@ -291,7 +299,7 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   provider: an explicit `fmt` wins, else the `path` suffix decides, defaulting
   to `"jsonl"`. The file's content is never inspected; a file in another
   format fails in `load()`. Raises `UsageError` (also a `ValueError`) for an
-  unknown format name -- see `DbProvider.lookup` above.
+  unknown format name -- see `DbProvider.get` above.
 - **Built-in backends** (each its own module, imported -- and so registered
   -- at `pkgforge.db` import time): **`JSONLinesDb`** (`db/_jsonl.py`;
   `NAME = "jsonl"`, `SUFFIXES = (".jsonl", ".ndjson")`, default when unset) —
@@ -340,9 +348,10 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   `_append_text` and `_read_text`.
 - **`format_for_suffix(path: Path) -> str`** — suffix → registered format
   name, else `DEFAULT_FORMAT` (`"jsonl"`). Only a class's OWN `SUFFIXES`
-  count (never one inherited from a parent class); registered classes are
-  tried newest-first, so a suffix claimed by two classes resolves to
-  whichever registered most recently.
+  count (never one inherited from a parent class). A suffix no registered
+  class holds imports every advertised `pkgforge.dbs` entry point not yet
+  registered (a failure is one WARNING on logger `pkgforge.db`, then skipped)
+  and looks again.
 
 ## Exclude / filter grammar (`exclude.py`)
 
@@ -391,8 +400,9 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
 
 - **`DumpFormat(pkgforge._registry.Registered, abc.ABC)`** — a packaging
   manifest format, selected by `dbdump -f NAME`. A subclass registers
-  itself simply by declaring its own `NAME`/`ALIASES` (same mechanism as
-  `DbProvider`, see above; `DumpFormat.lookup(name)`/`DumpFormat.names()`
+  itself by declaring its own `NAME`/`ALIASES`, or is advertised in the
+  `pkgforge.dump_formats` entry-point group (same mechanism and duplicate rule
+  as `DbProvider`, see above; `DumpFormat.get(name)`/`DumpFormat.names()`
   work the same way too). Subclass one of the two shapes below, not
   `DumpFormat` directly.
 - **`Rendered`** — type alias `bytes | dict[str, bytes]`: one file's bytes

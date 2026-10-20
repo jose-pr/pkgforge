@@ -7,6 +7,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- Third-party DB backends and dump formats are found through the entry-point
+  groups `pkgforge.dbs` and `pkgforge.dump_formats` (`name = module:Class`):
+  installing the package is enough for `--db-format NAME`, a `--db` suffix
+  and `dbdump -f NAME` to select it, with no import in the calling code.
+  `DbProvider.names()` and `DumpFormat.names()` include advertised names
+  without loading them.
 - `--debug` prints the traceback of an error before its one-line
   `pkgforge: error:` message, like `PKGFORGE_TRACEBACK`.
 - `pkgforge.Project`, a Python API for build scripts: `Project(buildroot, db=None,
@@ -22,6 +28,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stores.
 
 ### Changed
+- A DB backend or dump format whose `NAME`, alias or suffix another one already
+  holds raises `ValueError` when the class is created, and is not registered.
+  It used to replace the earlier class silently (for a suffix, the newer class
+  won); rename the new one.
 - The console script is `pkgforge.cli:main` (was `pkgforge:main`); `python -m
   pkgforge` and every flag, exit status and `--help` text are unchanged. The
   commands live in `pkgforge.cli`, which is the command line and not library
@@ -123,6 +133,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `pkgforge.dbdump.Entries` is now `pkgforge.FileEntries`.
 
 ### Removed
+- `DbProvider.lookup(name)` and `DumpFormat.lookup(name)`: call `get(name)`.
 - `pkgforge.main`, `pkgforge.command`, the `pkgforge.install`, `pkgforge.scan`,
   `pkgforge.initdb` and `pkgforge.compact` modules, and `PkgForgeCmd`,
   `PkgForge`, `FileEntryArgs`, `FileEntryBaseArgs`, `entry_from_args`,

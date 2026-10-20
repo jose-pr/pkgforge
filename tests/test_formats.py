@@ -91,14 +91,14 @@ def test_dump_format_names_lists_rpm_and_debian():
     assert "rpmspecfiles" in names
     assert "rpmspecfiles-pre419" in names
     assert "debian" in names
-    assert DumpFormat.lookup("rpmspecfiles") is RPMSpecFiles
-    assert DumpFormat.lookup("rpmspecfiles-pre419") is RPMSpecFilesPre419
-    assert DumpFormat.lookup("debian") is DebianFiles
+    assert DumpFormat.get("rpmspecfiles") is RPMSpecFiles
+    assert DumpFormat.get("rpmspecfiles-pre419") is RPMSpecFilesPre419
+    assert DumpFormat.get("debian") is DebianFiles
 
 
 def test_dump_format_alias_pre419():
-    assert DumpFormat.lookup("rpm-pre419") is RPMSpecFilesPre419
-    assert DumpFormat.lookup("rpm-pre419").NAME == "rpmspecfiles-pre419"
+    assert DumpFormat.get("rpm-pre419") is RPMSpecFilesPre419
+    assert DumpFormat.get("rpm-pre419").NAME == "rpmspecfiles-pre419"
 
 
 @pytest.mark.parametrize(
@@ -106,13 +106,13 @@ def test_dump_format_alias_pre419():
     [("rpm", "rpmspecfiles"), ("rpmspec", "rpmspecfiles"), ("deb", "debian")],
 )
 def test_dump_format_alias_resolves_to_canonical(alias, canonical):
-    assert DumpFormat.lookup(alias) is DumpFormat.lookup(canonical)
-    assert DumpFormat.lookup(alias).NAME == canonical
+    assert DumpFormat.get(alias) is DumpFormat.get(canonical)
+    assert DumpFormat.get(alias).NAME == canonical
 
 
 def test_unknown_dump_format_lists_aliases():
     with pytest.raises(UsageError) as excinfo:
-        DumpFormat.lookup("nope")
+        DumpFormat.get("nope")
     err = str(excinfo.value)
     assert "rpm" in err
     assert "rpmspec" in err
