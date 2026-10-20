@@ -1,5 +1,4 @@
-"""``debian``: an ``install`` path list + ``permissions``/``dirs``/``fixperms``
-manifests."""
+"""``debian``: an ``install`` path list + ``dirs``/``fixperms`` manifests."""
 
 from __future__ import annotations
 
@@ -130,10 +129,6 @@ class Debian(MultiArtifactFormat):
       source is the build-root-relative path, debhelper-escaped; the
       destination is the entry's parent directory, escaped for ``$``/space
       only), one per non-directory entry;
-    * ``permissions`` -- a pkgforge-specific ``<path> <mode> <owner>
-      <group>`` manifest (unescaped: parse it right-to-left, since the path
-      itself may contain spaces) for every entry that pins a non-default
-      mode/owner/group;
     * ``dirs`` -- ``dh_installdirs``-style lines (dest-escaped, one per
       directory entry, in every case -- an already-populated directory is a
       harmless duplicate `mkdir`), so a directory recorded empty (``install
@@ -153,10 +148,10 @@ class Debian(MultiArtifactFormat):
       found there; one that is gone (dh_usrlocal) is reported on stderr and
       skipped. With no pinned entry, the script is just its own header.
 
-    Every entry is validated (path free of control characters; mode/owner/
-    group free of whitespace) while the artifacts are built in memory; they
-    are written only after :meth:`render` returns, so a
-    :class:`~pkgforge.dbdump.DumpError` leaves no partial output.
+    A path with a control character raises
+    :class:`~pkgforge.dbdump.DumpError` while the artifacts are built in
+    memory; they are written only after :meth:`render` returns, so nothing
+    partial is left behind.
     """
 
     NAME = "debian"
@@ -180,7 +175,6 @@ class Debian(MultiArtifactFormat):
                 _reject_control(path, "debian")
 
         install_lines: typing.List[str] = []
-        perm_lines: typing.List[str] = []
         dir_lines: typing.List[str] = []
         fixperms_lines: typing.List[str] = []
         for path, entry, mode, owner, group in resolved:
@@ -201,7 +195,6 @@ class Debian(MultiArtifactFormat):
                 dest = _dh_dest(rel.rpartition("/")[0].rstrip("/"))
                 install_lines.append(f"{_dh_src(rel)} {dest}".rstrip())
             if mode != DEFAULT or owner != DEFAULT or group != DEFAULT:
-                perm_lines.append(f"{path} {mode} {owner} {group}")
                 fixperms_lines.append(
                     _fixperms_line(path, mode, owner, group, is_symlink)
                 )
@@ -216,7 +209,6 @@ class Debian(MultiArtifactFormat):
 
         return {
             "install": _join(install_lines),
-            "permissions": _join(perm_lines),
             "dirs": _join(dir_lines),
             "fixperms": fixperms,
         }

@@ -342,7 +342,7 @@ class PkgForgeCmd(LoggingArgs, Cmd):
 class PkgForge(PkgForgeCmd, Cli):
     """Stage files into a build root and record their intended install
     metadata (mode, owner, group, type) in a file DB. Dump that DB into
-    packaging manifests (RPM %files, Debian install/permissions).
+    packaging manifests (RPM %files, Debian install/dirs/fixperms).
     """
 
     # Extends PkgForgeCmd (the shared --db/--buildroot options and the DB

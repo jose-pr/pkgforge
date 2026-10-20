@@ -116,8 +116,8 @@ def test_dbdump_debian_stdout_sections(tmp_path, cli):
     result = cli("--db", str(db), "dbdump", "-f", "debian", "-")
     assert result.rc == 0
     text = result.out.decode()
-    assert text.index("# === install ===") < text.index("# === permissions ===")
-    assert text.index("# === permissions ===") < text.index("# === dirs ===")
+    assert "# === permissions ===" not in text
+    assert text.index("# === install ===") < text.index("# === dirs ===")
     assert text.index("# === dirs ===") < text.index("# === fixperms ===")
 
 

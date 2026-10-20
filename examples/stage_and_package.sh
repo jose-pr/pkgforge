@@ -47,10 +47,9 @@ pkgforge dbdump -f rpmspecfiles -
 echo
 echo "== debian artifacts =="
 pkgforge dbdump -f debian "$work/debian"
-echo "-- debian/install --";     cat "$work/debian/install"
-echo "-- debian/permissions --"; cat "$work/debian/permissions"
-echo "-- debian/dirs --";        cat "$work/debian/dirs"
-echo "-- debian/fixperms --";    cat "$work/debian/fixperms"
+echo "-- debian/install --";  cat "$work/debian/install"
+echo "-- debian/dirs --";     cat "$work/debian/dirs"
+echo "-- debian/fixperms --"; cat "$work/debian/fixperms"
 
 echo
 echo "== build real packages from this directory =="

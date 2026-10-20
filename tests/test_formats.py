@@ -259,19 +259,6 @@ def test_debian_rejects_control_char():
         Debian().render(_one_entry("/usr/share/x\ny"))
 
 
-def test_debian_permissions_rsplit_keeps_path():
-    # Guard: the permissions format is unescaped, so a path containing
-    # spaces must still be parseable right-to-left.
-    entries = _one_entry(
-        "/usr/share/t/with space", mode="640", owner="root", group="adm"
-    )
-    arts = Debian().render(entries)
-    line = arts["permissions"].decode().strip()
-    path, mode, owner, group = line.rsplit(" ", 3)
-    assert path == "/usr/share/t/with space"
-    assert (mode, owner, group) == ("640", "root", "adm")
-
-
 def test_debian_non_utf8_keeps_bytes():
     entries = [
         (
@@ -526,7 +513,7 @@ def test_rpm_render_first_error_wins(fmt_cls, bad_paths):
         assert str(batch_exc.value) == str(single_exc.value)
 
 
-def test_debian_permissions_skip_empty_fields():
+def test_debian_fixperms_skips_empty_fields():
     entries = [
         (
             "/etc/tool",
@@ -534,25 +521,7 @@ def test_debian_permissions_skip_empty_fields():
         ),
     ]
     arts = Debian().render(entries)
-    assert arts["permissions"] == b""
-
-
-def test_debian_permissions_artifact():
-    arts = Debian().render(_entries())
-    perms = arts["permissions"].decode()
-    assert "/usr/bin/tool 755 root root" in perms
-    assert "/etc/tool/conf 640 root adm" in perms
-    # The all-default directory entry contributes no permission override.
-    assert "/etc/tool -" not in perms
-
-
-def test_debian_permissions_partial_pin_placeholder():
-    # Guard: '-' means "unpinned", not a dpkg-statoverride value (that tool
-    # rejects '-' outright); a real consumer parses this right-to-left, via
-    # override_dh_fixperms, and must skip a '-' field.
-    entries = [_dir_entry("/usr/share/tool/share", mode="755")]
-    arts = Debian().render(entries)
-    assert arts["permissions"].decode().strip() == "/usr/share/tool/share 755 - -"
+    assert arts["fixperms"] == FIXPERMS_HEADER
 
 
 FIXPERMS_HEADER = (
@@ -685,13 +654,6 @@ def test_debian_render_pinned():
 
     assert arts["dirs"] == b"etc/tool\n./#dirstate\n"
 
-    assert arts["permissions"] == (
-        "/usr/bin/tool 755 root root\n"
-        "/#comment/file 640 root adm\n"
-        "/usr/share/t/with space - svc -\n"
-        "/opt/app/caf\udce9 644 svc -\n"
-    ).encode("utf-8", "surrogateescape")
-
     assert arts["fixperms"] == (
         FIXPERMS_HEADER
         + line("/usr/bin/tool", 'chown -- root:root "$t"; chmod -- 755 "$t"')
@@ -745,7 +707,6 @@ def test_debian_render_first_error_wins(make_bad, message_fragment):
 def test_debian_render_empty_list():
     arts = Debian().render([])
     assert arts["install"] == b""
-    assert arts["permissions"] == b""
     assert arts["dirs"] == b""
     assert arts["fixperms"] == (FIXPERMS_HEADER)
 
@@ -1083,8 +1044,8 @@ def test_dbdump_debian_writes_directory(tmp_path):
     )
     cmd()
     assert (outdir / "install").read_text().strip() == "usr/bin/tool usr/bin"
-    perms = (outdir / "permissions").read_text()
-    assert "/usr/bin/tool 755 root root" in perms
+    assert not (outdir / "permissions").exists()
+    assert "chmod -- 755" in (outdir / "fixperms").read_text()
     # None (removed) entries skipped.
     assert "removed" not in (outdir / "install").read_text()
     # No directory entries in this DB -> an empty (but present) dirs file.
@@ -1254,3 +1215,75 @@ def test_debian_render_golden_hashes():
         "dirs": "95deb2467fc8e87027affcb7b9c3ccfa32f6ae74f3441ac215fed5e5d72c7a8f",
         "fixperms": "56e129fbca6d69dcf497c4c11caf824311702f62ae752ab691598e2a1a42d995",
     }
+
+
+# --------------------------------------------------------------------------
+# OUTPUT files are written whole or not at all
+# --------------------------------------------------------------------------
+
+
+def _seed_old_outputs(outdir, names):
+    outdir.mkdir(exist_ok=True)
+    for name in names:
+        (outdir / name).write_text("old")
+
+
+def _fail_on_nth_write(monkeypatch, nth):
+    from pathlib import Path
+
+    real = Path.write_bytes
+    calls = []
+
+    def write_bytes(self, data):
+        calls.append(self.name)
+        if len(calls) == nth:
+            raise OSError("disk full")
+        return real(self, data)
+
+    monkeypatch.setattr(Path, "write_bytes", write_bytes)
+
+
+def test_debian_output_untouched_when_a_later_write_fails(tmp_path, monkeypatch):
+    outdir = tmp_path / "debian"
+    _seed_old_outputs(outdir, ["install", "dirs", "fixperms"])
+    _fail_on_nth_write(monkeypatch, 2)
+    with pytest.raises(OSError):
+        Debian().dump(_one_entry("/opt/a"), outdir)
+    assert sorted(p.name for p in outdir.iterdir()) == ["dirs", "fixperms", "install"]
+    assert all((outdir / n).read_text() == "old" for n in ("install", "dirs"))
+
+
+def test_debian_output_untouched_when_a_rename_fails(tmp_path, monkeypatch):
+    outdir = tmp_path / "debian"
+    _seed_old_outputs(outdir, ["install", "dirs", "fixperms"])
+    real = os.replace
+    calls = []
+
+    def replace(src, dst):
+        calls.append(dst)
+        if len(calls) == 2:
+            raise OSError("cross-device")
+        return real(src, dst)
+
+    monkeypatch.setattr(os, "replace", replace)
+    with pytest.raises(OSError):
+        Debian().dump(_one_entry("/opt/a"), outdir)
+    assert not [p for p in outdir.iterdir() if p.name.endswith(".pkgforge-tmp")]
+
+
+def test_rpm_output_untouched_when_the_write_fails(tmp_path, monkeypatch):
+    out = tmp_path / "files.txt"
+    out.write_text("old")
+    _fail_on_nth_write(monkeypatch, 1)
+    with pytest.raises(OSError):
+        RpmSpecFiles().dump(_one_entry("/opt/a"), out)
+    assert out.read_text() == "old"
+    assert [p.name for p in tmp_path.iterdir()] == ["files.txt"]
+
+
+def test_dump_leaves_no_temp_file_on_success(tmp_path):
+    outdir = tmp_path / "debian"
+    Debian().dump(_one_entry("/opt/a"), outdir)
+    RpmSpecFiles().dump(_one_entry("/opt/a"), tmp_path / "files.txt")
+    assert sorted(p.name for p in outdir.iterdir()) == ["dirs", "fixperms", "install"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["debian", "files.txt"]

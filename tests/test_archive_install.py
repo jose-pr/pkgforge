@@ -1162,6 +1162,6 @@ def test_example_records_tree_contents():
     assert "/usr/share/tool/data.txt" in rpm_section
 
     debian_install_section = out.split("-- debian/install --", 1)[1].split(
-        "-- debian/permissions --", 1
+        "-- debian/dirs --", 1
     )[0]
     assert "usr/share/tool/data.txt" in debian_install_section

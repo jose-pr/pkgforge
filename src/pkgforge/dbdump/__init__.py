@@ -7,7 +7,7 @@ Two shapes of format are supported, each a :class:`DumpFormat` subclass:
   or ``-`` for stdout);
 * :class:`MultiArtifactFormat` (e.g. :class:`~pkgforge.dbdump.debian.Debian`)
   renders several related files (e.g. an ``install`` path list plus a
-  ``permissions`` manifest) into an output *directory* -- or, when the
+  ``fixperms`` script) into an output *directory* -- or, when the
   output is ``-``, concatenated to stdout under ``# === <name> ===`` section
   headers.
 
@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import abc
 import contextlib
+import os
 import re
 import sys
 import typing
@@ -181,10 +182,27 @@ def _validate_entries(entries: Entries) -> None:
             _check_entry(path, entry)
 
 
+def _write_files(files: typing.Dict[Path, bytes]) -> None:
+    """Write every file whole or not at all: each goes to a sibling
+    ``.<name>.pkgforge-tmp`` first, and only when all of those are written are
+    they renamed over their targets. A failure removes the temp files and
+    leaves every target as it was.
+    """
+    temps = {path: path.with_name(f".{path.name}.pkgforge-tmp") for path in files}
+    try:
+        for path, data in files.items():
+            temps[path].write_bytes(data)
+        for path, temp in temps.items():
+            os.replace(temp, path)
+    finally:
+        for temp in temps.values():
+            with contextlib.suppress(FileNotFoundError):
+                temp.unlink()
+
+
 @contextlib.contextmanager
-def _open_output(output: Path):
-    """Open OUTPUT for writing: the real file for a path, or a stream onto
-    the process's actual stdout for ``-``.
+def _open_stdout():
+    """A binary stream onto the process's actual stdout.
 
     Never wraps ``sys.stdout``'s raw file descriptor directly: that bypasses
     Python's own stdout buffer entirely, so it (a) raises
@@ -196,23 +214,19 @@ def _open_output(output: Path):
     ``surrogateescape`` and writing through ``sys.stdout`` itself), keeps
     both cases correct. Never closes ``sys.stdout``.
     """
-    if str(output) == DEFAULT:
+    sys.stdout.flush()
+    buf = getattr(sys.stdout, "buffer", None)
+    if buf is None:
+
+        class _TextAdapter:
+            def write(self, data: bytes) -> None:
+                sys.stdout.write(data.decode("utf-8", "surrogateescape"))
+
+        buf = _TextAdapter()
+    try:
+        yield buf
+    finally:
         sys.stdout.flush()
-        buf = getattr(sys.stdout, "buffer", None)
-        if buf is None:
-
-            class _TextAdapter:
-                def write(self, data: bytes) -> None:
-                    sys.stdout.write(data.decode("utf-8", "surrogateescape"))
-
-            buf = _TextAdapter()
-        try:
-            yield buf
-        finally:
-            sys.stdout.flush()
-    else:
-        with output.open("wb") as f:
-            yield f
 
 
 class DumpFormat(Registered, abc.ABC):
@@ -271,8 +285,11 @@ class PerEntryFormat(DumpFormat):
     ) -> None:
         self.check_output(output)
         rendered = self.render(entries)
-        with _open_output(output) as out:
-            out.write(rendered)
+        if str(output) == DEFAULT:
+            with _open_stdout() as out:
+                out.write(rendered)
+        else:
+            _write_files({output: rendered})
 
 
 class MultiArtifactFormat(DumpFormat):
@@ -301,15 +318,15 @@ class MultiArtifactFormat(DumpFormat):
         self.check_output(output)
         artifacts = self.render(entries)
         if str(output) == DEFAULT:
-            with _open_output(output) as out:
+            with _open_stdout() as out:
                 for name, data in artifacts.items():
                     out.write(f"# === {name} ===\n".encode())
                     out.write(data)
             return
         output.mkdir(parents=True, exist_ok=True)
-        for name, data in artifacts.items():
-            (output / name).write_bytes(data)
-            if logger is not None:
+        _write_files({output / name: data for name, data in artifacts.items()})
+        if logger is not None:
+            for name in artifacts:
                 logger.info("Wrote %s", output / name)
 
 
