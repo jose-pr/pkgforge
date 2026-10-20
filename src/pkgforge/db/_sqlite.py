@@ -7,10 +7,9 @@ import json
 import os
 import typing
 
-from ..errors import PkgForgeError
+from ..exceptions import DbError, PkgForgeError
 from . import (
     Db,
-    DbError,
     DbProvider,
     _check_record,
     _fields,
@@ -24,13 +23,13 @@ if typing.TYPE_CHECKING:
 #: SQLite file magic (first 16 bytes of any SQLite 3 database).
 _SQLITE_MAGIC = b"SQLite format 3\x00"
 
-#: Rows per commit inside :meth:`SqliteDb.batch` -- bounds how much work a
+#: Rows per commit inside :meth:`SQLiteDb.batch` -- bounds how much work a
 #: killed batch loses, without paying a durable (fsync-backed) commit per row.
 _BATCH_ROWS = 1000
 
 
 def _ensure_utf8(path: str, rec: dict) -> None:
-    """Raise :class:`~pkgforge.db.DbError` if ``path`` or any text field in
+    """Raise :class:`~pkgforge.exceptions.DbError` if ``path`` or any text field in
     ``rec`` is not valid UTF-8.
 
     ``sqlite3`` encodes ``str`` parameters strictly as UTF-8 and raises a
@@ -72,16 +71,16 @@ def _sqlite3():
 
 
 def _db_error(path: typing.Any, exc: Exception) -> DbError:
-    """Wrap a :class:`sqlite3.Error` as a :class:`~pkgforge.db.DbError`
+    """Wrap a :class:`sqlite3.Error` as a :class:`~pkgforge.exceptions.DbError`
     naming the DB file."""
     if "locked" in str(exc):
         return DbError(f"{path}: database is locked; another process holds it")
     if "not a database" in str(exc):
-        return DbError(f"{path}: {exc}{_format_hint(SqliteDb.NAME)}")
+        return DbError(f"{path}: {exc}{_format_hint(SQLiteDb.NAME)}")
     return DbError(f"{path}: {exc}")
 
 
-class SqliteDb(DbProvider):
+class SQLiteDb(DbProvider):
     """SQLite store: one row per path, upserted in place (no append log)."""
 
     NAME = "sqlite"
@@ -99,7 +98,7 @@ class SqliteDb(DbProvider):
     _batch_count = 0
 
     @contextlib.contextmanager
-    def batch(self) -> typing.Iterator["SqliteDb"]:
+    def batch(self) -> typing.Iterator["SQLiteDb"]:
         """Hold one connection open across many ``add``/``remove`` calls,
         committing every :data:`_BATCH_ROWS` rows and once more on exit
         (exception included, so a killed batch keeps whatever it already
@@ -139,7 +138,7 @@ class SqliteDb(DbProvider):
         ``sqlite3``'s own context manager commits/rolls back but does NOT close
         the connection -- leaving the file handle open, which blocks deletion on
         Windows. This wrapper guarantees ``close()``, and turns a
-        :class:`sqlite3.Error` into a :class:`~pkgforge.db.DbError`.
+        :class:`sqlite3.Error` into a :class:`~pkgforge.exceptions.DbError`.
         """
         sqlite3 = _sqlite3()
         try:
@@ -157,7 +156,7 @@ class SqliteDb(DbProvider):
     def _has_entries_table(self, conn) -> bool:
         """Return ``True`` if ``conn``'s database already has the
         ``entries`` table; ``False`` for a schema-less file (empty, or a
-        zero-byte file sqlite happily opens); raise :class:`~pkgforge.db.DbError`
+        zero-byte file sqlite happily opens); raise :class:`~pkgforge.exceptions.DbError`
         for a SQLite file that holds OTHER tables but not ``entries`` -- some
         other program's database, not one of ours."""
         tables = {

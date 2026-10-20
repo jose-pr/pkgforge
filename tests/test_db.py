@@ -16,12 +16,12 @@ import yaml
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 
 import pkgforge.db as dbmod
+from pkgforge.exceptions import DbError
 from pkgforge.db import (
-    DbError,
     DbProvider,
-    JsonlDb,
-    SqliteDb,
-    YamlDb,
+    JSONLinesDb,
+    SQLiteDb,
+    YAMLDb,
     format_for_suffix,
     open_db,
 )
@@ -105,14 +105,14 @@ def test_format_for_suffix():
 
 
 def test_open_db_by_suffix(tmp_path):
-    assert isinstance(open_db(tmp_path / "a.jsonl"), JsonlDb)
-    assert isinstance(open_db(tmp_path / "a.yaml"), YamlDb)
-    assert isinstance(open_db(tmp_path / "a.db"), SqliteDb)
+    assert isinstance(open_db(tmp_path / "a.jsonl"), JSONLinesDb)
+    assert isinstance(open_db(tmp_path / "a.yaml"), YAMLDb)
+    assert isinstance(open_db(tmp_path / "a.db"), SQLiteDb)
 
 
 def test_explicit_format_overrides_suffix(tmp_path):
     # A .yaml suffix but forced sqlite.
-    assert isinstance(open_db(tmp_path / "a.yaml", "sqlite"), SqliteDb)
+    assert isinstance(open_db(tmp_path / "a.yaml", "sqlite"), SQLiteDb)
 
 
 def test_unknown_format_raises(tmp_path):
@@ -135,11 +135,11 @@ def test_import_without_sqlite3_or_yaml(tmp_path):
         "sys.modules['yaml'] = None\n"
         "import pathlib\n"
         "import pkgforge\n"
-        "from pkgforge.db import JsonlDb\n"
-        f"p = JsonlDb(pathlib.Path({str(db_path)!r}))\n"
+        "from pkgforge.db import JSONLinesDb\n"
+        f"p = JSONLinesDb(pathlib.Path({str(db_path)!r}))\n"
         "p.init()\n"
         "p.add('/a', {'mode': '644', 'owner': '-', 'group': '-', 'type': 'file', 'meta': {}})\n"
-        "loaded = JsonlDb(p.path).load()\n"
+        "loaded = JSONLinesDb(p.path).load()\n"
         "assert loaded['/a']['mode'] == '644'\n"
         "try:\n"
         "    rc = pkgforge.main(['--help'])\n"
@@ -179,7 +179,7 @@ def test_missing_backend_module_is_one_line_error(tmp_path, block, ext, fmt, act
         f"sys.modules[{block!r}] = None\n"
         "import pathlib\n"
         "from pkgforge.db import open_db\n"
-        "from pkgforge.errors import PkgForgeError\n"
+        "from pkgforge.exceptions import PkgForgeError\n"
         f"p = open_db(pathlib.Path({str(path)!r}), {fmt!r})\n"
         "try:\n"
         f"    {action}\n"
@@ -210,7 +210,7 @@ def test_yaml_uses_libyaml_when_available():
     if not getattr(yaml, "__with_libyaml__", False):
         pytest.skip("PyYAML installed without libyaml (no CSafeLoader/CSafeDumper)")
 
-    from pkgforge.db.yaml import _yaml_io
+    from pkgforge.db._yaml import _yaml_io
 
     _yaml_io.cache_clear()
     try:
@@ -238,7 +238,7 @@ def test_yaml_uses_libyaml_when_available():
 def test_yaml_loader_parity(tmp_path, monkeypatch, make_entry, which):
     # Whichever loader/dumper _yaml_io() picks, behavior (last-wins,
     # tombstones) and the exact bytes compact() writes must be unchanged.
-    import pkgforge.db.yaml as db_yaml
+    import pkgforge.db._yaml as db_yaml
 
     if which == "pure":
         loader, dumper = yaml.SafeLoader, yaml.SafeDumper
@@ -270,8 +270,8 @@ def test_open_db_unknown_format_has_no_context(tmp_path):
 
 def test_stdout_record_matches_jsonl_line(cmd, make_entry, capsys):
     # _write_entry's stdout fallback (no --db) must emit exactly the same
-    # bytes JsonlDb.add/remove would append to a real file.
-    from pkgforge.db.jsonl import _jsonl_line
+    # bytes JSONLinesDb.add/remove would append to a real file.
+    from pkgforge.db._jsonl import _jsonl_line
 
     inst = cmd(db=None)
     entry = make_entry(mode="755")
@@ -431,7 +431,7 @@ def test_db_provider_subclass_selectable_by_suffix(restore_registries, tmp_path)
 
 
 def test_db_provider_subclass_accepted_as_db_format(restore_registries, tmp_path):
-    from pkgforge.errors import UsageError
+    from pkgforge.exceptions import UsageError
     from pkgforge.initdb import InitDb
 
     with pytest.raises(UsageError) as excinfo:
@@ -503,7 +503,7 @@ def test_append_repairs_missing_newline(tmp_path, fmt, make_entry):
 
 
 def test_jsonl_error_names_file_and_line(tmp_path):
-    from pkgforge.db import DbError
+    from pkgforge.exceptions import DbError
 
     path = tmp_path / "f.jsonl"
     path.write_text(
@@ -520,7 +520,7 @@ def test_jsonl_error_names_file_and_line(tmp_path):
 
 
 def test_yaml_error_names_file(tmp_path):
-    from pkgforge.db import DbError
+    from pkgforge.exceptions import DbError
 
     path = tmp_path / "f.yaml"
     path.write_text("a:\n  b: [1, 2\n", encoding="utf-8")  # unterminated flow seq
@@ -553,7 +553,7 @@ def _write_malformed(tmp_path: Path, kind: str):
     "kind", ["yaml_list", "yaml_scalar", "jsonl_array", "latin1_bytes"]
 )
 def test_malformed_db_raises(tmp_path, kind):
-    from pkgforge.db import DbError
+    from pkgforge.exceptions import DbError
 
     path, fmt = _write_malformed(tmp_path, kind)
     with pytest.raises(DbError) as excinfo:
@@ -642,7 +642,7 @@ def test_yaml_scalars_load_as_strings(tmp_path):
 
 
 def test_jsonl_load_errors_pinned(tmp_path):
-    from pkgforge.db import DbError
+    from pkgforge.exceptions import DbError
 
     path = tmp_path / "f.jsonl"
 
@@ -737,8 +737,8 @@ def test_sqlite_load_meta_pinned(tmp_path, make_entry):
 def _counting_json_loads(monkeypatch):
     """Wrap the shared :mod:`json` module's ``loads`` with a call counter,
     for every module that does ``import json`` -- there is only ever one
-    ``json`` module object, so patching it here reaches ``pkgforge.db.jsonl``
-    and ``pkgforge.db.sqlite`` too without patching either by name."""
+    ``json`` module object, so patching it here reaches ``pkgforge.db._jsonl``
+    and ``pkgforge.db._sqlite`` too without patching either by name."""
     calls = []
     real_loads = json.loads
 
@@ -765,7 +765,7 @@ def test_jsonl_load_skips_json_loads_for_valid_lines(tmp_path, monkeypatch, make
 
     # the fallback path is still exercised, and still raises the pinned
     # message, for a line the fast path can't parse on its own.
-    from pkgforge.db import DbError
+    from pkgforge.exceptions import DbError
 
     path.write_text('{"path": "/a", not valid json\n', encoding="utf-8")
     with pytest.raises(DbError) as excinfo:
@@ -838,7 +838,7 @@ def _write_bad_field(tmp_path: Path, kind: str) -> Path:
     ],
 )
 def test_bad_field_types_raise(tmp_path, kind):
-    from pkgforge.db import DbError
+    from pkgforge.exceptions import DbError
 
     path = _write_bad_field(tmp_path, kind)
     fmt = "yaml" if kind == "record_list" else "jsonl"
@@ -873,7 +873,7 @@ def test_flow_yaml_loads(tmp_path):
     ids=["flow", "empty", "comment_then_flow"],
 )
 def test_append_to_flow_yaml_refused(tmp_path, make_entry, content):
-    from pkgforge.db import DbError
+    from pkgforge.exceptions import DbError
 
     path = tmp_path / "flow.yaml"
     path.write_bytes(content.encode("utf-8"))
@@ -984,7 +984,7 @@ def test_compact_keeps_concurrent_append(tmp_path, monkeypatch, make_entry, fmt)
         [sys.executable, "-c", script],
         env={**os.environ, "PYTHONPATH": str(SRC_DIR)},
     )
-    provider_cls = dbmod.JsonlDb if fmt == "jsonl" else dbmod.YamlDb
+    provider_cls = dbmod.JSONLinesDb if fmt == "jsonl" else dbmod.YAMLDb
     real_load = provider_cls.load
 
     def _waiting_load(self):
@@ -1016,12 +1016,12 @@ def test_db_imports_without_fcntl(tmp_path):
         "sys.modules['fcntl'] = None\n"
         "import pathlib\n"
         "import pkgforge\n"
-        "from pkgforge.db import JsonlDb\n"
-        f"p = JsonlDb(pathlib.Path({str(db_path)!r}))\n"
+        "from pkgforge.db import JSONLinesDb\n"
+        f"p = JSONLinesDb(pathlib.Path({str(db_path)!r}))\n"
         "p.init()\n"
         "p.add('/a', {'mode': '644', 'owner': '-', 'group': '-', 'type': 'file', 'meta': {}})\n"
         "p.compact()\n"
-        "assert JsonlDb(p.path).load()['/a']['mode'] == '644'\n"
+        "assert JSONLinesDb(p.path).load()['/a']['mode'] == '644'\n"
         "print('OK')\n"
     )
     result = subprocess.run(
@@ -1042,7 +1042,7 @@ def test_db_imports_without_fcntl(tmp_path):
 def test_batch_commits_every_n_rows(tmp_path, monkeypatch, make_entry):
     import sqlite3
 
-    import pkgforge.db.sqlite as db_sqlite
+    import pkgforge.db._sqlite as db_sqlite
 
     monkeypatch.setattr(db_sqlite, "_BATCH_ROWS", 2)
     db_path = tmp_path / "f.db"
@@ -1163,7 +1163,7 @@ def test_sqlite_load_leaves_empty_file(tmp_path):
 def test_sqlite_foreign_db_rejected(tmp_path, op):
     import sqlite3
 
-    from pkgforge.db import DbError
+    from pkgforge.exceptions import DbError
 
     path = tmp_path / "foreign.db"
     conn = sqlite3.connect(str(path))
@@ -1190,7 +1190,7 @@ def test_sqlite_foreign_db_rejected(tmp_path, op):
 
 @pytest.mark.parametrize("which", ["path", "owner"])
 def test_sqlite_rejects_non_utf8_text(tmp_path, make_entry, which):
-    from pkgforge.db import DbError
+    from pkgforge.exceptions import DbError
 
     p = open_db(tmp_path / "f.db", "sqlite")
     p.init()

@@ -4,11 +4,15 @@ The packaging-manifest format registry and its built-in formats. A
 third-party format subclasses `PerEntryFormat` or `MultiArtifactFormat` with
 its own `NAME` -- no registration call needed.
 
-::: pkgforge.dbdump.DumpError
+::: pkgforge.exceptions.DumpError
     options:
       show_root_heading: true
 
-::: pkgforge.dbdump.UnsupportedOutputError
+::: pkgforge.exceptions.InvalidEntryError
+    options:
+      show_root_heading: true
+
+::: pkgforge.exceptions.UnsupportedOutputError
     options:
       show_root_heading: true
 
@@ -24,20 +28,16 @@ its own `NAME` -- no registration call needed.
     options:
       show_root_heading: true
 
-::: pkgforge.dbdump.Entries
-    options:
-      show_root_heading: true
-
 ## Built-in formats
 
-::: pkgforge.dbdump.rpm.RpmSpecFiles
+::: pkgforge.dbdump.RPMSpecFiles
     options:
       show_root_heading: true
 
-::: pkgforge.dbdump.rpm.RpmSpecFilesPre419
+::: pkgforge.dbdump.RPMSpecFilesPre419
     options:
       show_root_heading: true
 
-::: pkgforge.dbdump.debian.Debian
+::: pkgforge.dbdump.DebianFiles
     options:
       show_root_heading: true

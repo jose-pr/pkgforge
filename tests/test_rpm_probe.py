@@ -34,7 +34,7 @@ rpm_probe = _load_rpm_probe()
     [
         # G escapes each glob character with a backslash; rpm's own
         # quoted-string globbing already matches such a character literally
-        # (see src/pkgforge/dbdump/rpm.py), so this spelling exists only to
+        # (see src/pkgforge/dbdump/_rpm.py), so this spelling exists only to
         # measure whether escaping it anyway changes rpm's behavior.
         ("quoted_glob", "star*", '"star\\*"'),
         # GS additionally escapes a space; unquoted, so no surrounding

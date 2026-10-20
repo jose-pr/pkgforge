@@ -53,8 +53,8 @@ API_DIR = ROOT / "docs" / "api"
 REQUIRED_API_TARGETS = (
     "pkgforge.main",
     "pkgforge.command.PkgForge",
-    "pkgforge.errors.PkgForgeError",
-    "pkgforge.errors.UsageError",
+    "pkgforge.exceptions.PkgForgeError",
+    "pkgforge.exceptions.UsageError",
     "pkgforge.entry.FileType",
     "pkgforge.entry.FileEntry",
     "pkgforge.entry.FileEntryBaseArgs",
@@ -67,26 +67,27 @@ REQUIRED_API_TARGETS = (
     "pkgforge.entry.mode_to_octal",
     "pkgforge.command.parsepath",
     "pkgforge.command.PkgForgeCmd",
-    "pkgforge.db.DbError",
+    "pkgforge.exceptions.DbError",
     "pkgforge.db.DbProvider",
     "pkgforge.db.open_db",
     "pkgforge.db.format_for_suffix",
-    "pkgforge.db.jsonl.JsonlDb",
-    "pkgforge.db.yaml.YamlDb",
-    "pkgforge.db.sqlite.SqliteDb",
+    "pkgforge.db.JSONLinesDb",
+    "pkgforge.db.YAMLDb",
+    "pkgforge.db.SQLiteDb",
     "pkgforge.exclude.PathMatchStmt",
     "pkgforge.exclude.PathMatch",
     "pkgforge.exclude.PathTest",
     "pkgforge.exclude.ExcludeArgs",
-    "pkgforge.exclude.ExcludeSyntaxError",
-    "pkgforge.dbdump.DumpError",
-    "pkgforge.dbdump.UnsupportedOutputError",
+    "pkgforge.exceptions.ExcludeSyntaxError",
+    "pkgforge.exceptions.DumpError",
+    "pkgforge.exceptions.InvalidEntryError",
+    "pkgforge.exceptions.UnsupportedOutputError",
     "pkgforge.dbdump.DumpFormat",
     "pkgforge.dbdump.PerEntryFormat",
     "pkgforge.dbdump.MultiArtifactFormat",
-    "pkgforge.dbdump.rpm.RpmSpecFiles",
-    "pkgforge.dbdump.rpm.RpmSpecFilesPre419",
-    "pkgforge.dbdump.debian.Debian",
+    "pkgforge.dbdump.RPMSpecFiles",
+    "pkgforge.dbdump.RPMSpecFilesPre419",
+    "pkgforge.dbdump.DebianFiles",
     "pkgforge.install.Install",
     "pkgforge.scan.ScanCmd",
     "pkgforge.initdb.InitDb",
@@ -281,7 +282,7 @@ def test_api_reference_covers_all():
     missing = [t for t in REQUIRED_API_TARGETS if t not in targets]
     assert not missing, missing
 
-    private = [t for t in targets if t.rsplit(".", 1)[-1].startswith("_")]
+    private = [t for t in targets if any(s.startswith("_") for s in t.split("."))]
     assert not private, private
 
     # Every class/function pkgforge re-exports at the top level must be

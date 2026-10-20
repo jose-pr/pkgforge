@@ -19,10 +19,10 @@ module.
 
 ## Errors
 
-::: pkgforge.errors.PkgForgeError
+::: pkgforge.exceptions.PkgForgeError
     options:
       show_root_heading: true
 
-::: pkgforge.errors.UsageError
+::: pkgforge.exceptions.UsageError
     options:
       show_root_heading: true

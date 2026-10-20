@@ -4,7 +4,7 @@ The file-DB provider registry and its built-in backends. A third-party
 backend subclasses `DbProvider` with its own `NAME` -- no registration call
 needed.
 
-::: pkgforge.db.DbError
+::: pkgforge.exceptions.DbError
     options:
       show_root_heading: true
 
@@ -26,14 +26,14 @@ needed.
 
 ## Built-in backends
 
-::: pkgforge.db.jsonl.JsonlDb
+::: pkgforge.db.JSONLinesDb
     options:
       show_root_heading: true
 
-::: pkgforge.db.yaml.YamlDb
+::: pkgforge.db.YAMLDb
     options:
       show_root_heading: true
 
-::: pkgforge.db.sqlite.SqliteDb
+::: pkgforge.db.SQLiteDb
     options:
       show_root_heading: true

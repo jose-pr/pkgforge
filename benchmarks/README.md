@@ -21,10 +21,10 @@ measure against a real, on-disk build-root tree.
 
 | id | what it times |
 | --- | --- |
-| `db.load_jsonl` | Loading a `DB_SIZE`-entry DB through the JSON Lines backend (`JsonlDb.load`) |
-| `db.load_yaml` | Loading the same DB through the YAML backend (`YamlDb.load`) |
-| `db.load_sqlite` | Loading the same DB through the SQLite backend (`SqliteDb.load`) |
-| `dump.rpmspecfiles` | Rendering an RPM `%files` spec fragment for the DB entries (`RpmSpecFiles.render(entries)`, the same batch call `PerEntryFormat.dump` runs) |
+| `db.load_jsonl` | Loading a `DB_SIZE`-entry DB through the JSON Lines backend (`JSONLinesDb.load`) |
+| `db.load_yaml` | Loading the same DB through the YAML backend (`YAMLDb.load`) |
+| `db.load_sqlite` | Loading the same DB through the SQLite backend (`SQLiteDb.load`) |
+| `dump.rpmspecfiles` | Rendering an RPM `%files` spec fragment for the DB entries (`RPMSpecFiles.render(entries)`, the same batch call `PerEntryFormat.dump` runs) |
 | `dump.debian` | Rendering the Debian `install`/`dirs`/`fixperms` artifacts for the DB entries |
 | `fs.walk_baseline` | A bare `os.walk` over the scan tree -- the filesystem floor `scan.cmd_*` is read against |
 | `scan.cmd_jsonl` | `ScanCmd.__call__` end to end against a jsonl DB: walk the tree, resolve each entry, append it |

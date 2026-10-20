@@ -6,7 +6,9 @@ can be consumed without reading its source. Kept current with the public
 API. For the CLI overview see the shipped `README.md` or <https://github.com/jose-pr/pkgforge>.
 
 `pkgforge.__all__`: `PkgForgeCmd`, `PkgForge`, `PkgForgeError`, `DbError`,
-`DbProvider`, `FileEntry`, `FileEntryArgs`, `FileType`, `UsageError`,
+`DumpError`, `ExcludeSyntaxError`, `InvalidEntryError`,
+`UnsupportedOutputError`, `DbProvider`, `FileEntries`, `FileEntry`,
+`FileEntryArgs`, `FileType`, `UsageError`,
 `__version__`, `apply_entry`, `entry_from_args`, `entry_from_path`,
 `normalize_mode`, `resolve_entry`, `main`, `open_db`, plus the
 leaf-command submodules themselves
@@ -43,7 +45,7 @@ print the traceback before the error line. External tools (`bsdtar`, the
 decompressors) and `sqlite3` failures are reported the same way, with the
 tool's last stderr line.
 
-## Errors (`errors.py`)
+## Errors (`exceptions.py`)
 
 - **`PkgForgeError(Exception)`** — base class for pkgforge's own runtime
   failures; caught by `main()` and mapped to exit 1.
@@ -54,6 +56,64 @@ tool's last stderr line.
   (no `-O target=PATH`), an unresolvable stdin compression kind, a
   `--decompress` value that looks like a path, and an unknown `--chown`
   owner or group.
+- **`DbError(PkgForgeError, ValueError)`** — a backend's on-disk content
+  could not be read as one, or a value it was given could not be stored:
+  for `jsonl`/`yaml`, a JSON/YAML parse error, non-UTF-8 bytes, a JSON Lines
+  line or YAML top-level document that is not a mapping, or (once loaded) a
+  field of the wrong type; for `sqlite`, a `.db` path that holds tables but
+  no `entries` table (some other program's database, not one of pkgforge's
+  own), or a path/mode/owner/group/type value that is not valid UTF-8 (an
+  undecodable file name, or a `pwd`/`grp` entry containing one — `sqlite3`
+  encodes `str` parameters strictly). The message names the DB file (and,
+  for `jsonl`, the line number). Caught by `main()`'s error boundary
+  like any `PkgForgeError` (one stderr line, exit 1); also a `ValueError`
+  (malformed input). `jsonl`/`yaml` text
+  I/O is always UTF-8, regardless of locale; an append to a DB whose last
+  line lacks a trailing newline (e.g. a hand edit) repairs it first instead
+  of fusing the new record onto the old one.
+  Every loader (`jsonl`, `yaml`, `sqlite`) checks each record with the private
+  `db._check_record(path, rec, where)` and coerces and defaults nothing: `path`
+  is a `str` starting with `/`; a record is a mapping with exactly `mode`,
+  `owner`, `group` (all `str`), `type` (`file`, `directory` or `symlink`) and
+  `meta` (`str` to `str`), or a removal (jsonl `{"path": P, "_removed": true}`,
+  yaml `null`, sqlite `removed=1`). Anything else raises `DbError` naming the
+  file and the path. Content that is not in the chosen format (a YAML file read
+  as `jsonl`, a text file read as `sqlite`) raises `DbError` that names the
+  format and suggests `--db-format`. This never applies to a third-party
+  `load()`. `YAMLDb`'s loader keeps only YAML's `null` implicit resolver
+  (`~`/`null` still load as `None`, for tombstones) and drops
+  int/float/bool/timestamp guessing, so an unquoted scalar loads as the text
+  it was written as (`mode: 0755` is `"0755"`, not the int `493`). A UTF-8 byte
+  order mark at the start of a text DB is ignored; lines split on `\n` only.
+- **`ExcludeSyntaxError(UsageError)`** — raised for a malformed `-X` statement:
+  an unknown inline test name, an invalid `(?type:...)`/`(?meta:...)` argument,
+  or an unterminated `(?...`. Caught by `pkgforge.main()`'s error boundary like
+  any `UsageError` (one line, exit 2); the `-X` converter turns it into an
+  argparse usage error at parse time.
+- **`UnsupportedOutputError(UsageError, DumpError, NotImplementedError)`** —
+  OUTPUT is the wrong shape for the chosen format (an existing file for
+  `debian`, an existing directory for `rpmspecfiles`); raised by
+  `check_output`. Caught by `main()`'s error boundary as a `UsageError`
+  (one stderr line, exit 2, same as before); also a `DumpError` (the format
+  itself is refusing this OUTPUT) and, per its name, a `NotImplementedError`.
+- **`InvalidEntryError(UsageError, DumpError)`** — a DB entry that no format
+  can render safely, found by `DbDump` before any format renders (exit 2,
+  naming the first offending entry in entry order and the field). The rules:
+  the key is an absolute path with no empty, `.` or `..` segment and no
+  control character; `type` is `file`, `directory` or `symlink`; `mode` is
+  1-4 octal digits, `-` or `--`; `owner`/`group` are an account name
+  (`[A-Za-z_][A-Za-z0-9_.-]*`, optionally ending in `$`), `-` or `--`; and
+  `meta["rpmprefix"]` has no control character and no rpm expansion (`%(`,
+  `%{`, `%[`). `%`, whitespace and
+  control characters therefore cannot occur in mode/owner/group.
+  `meta["rpmprefix"]` is otherwise written verbatim, as an rpm directive
+  prefix. A format's `dump()` called directly does not run this check.
+- **`DumpError(PkgForgeError, ValueError)`** — a DB path that a dump
+  format's own tooling cannot represent (a `%` or a control character for
+  `rpmspecfiles`; a control character for `debian`).
+  Caught by `main()`'s error boundary like any `PkgForgeError` (one stderr
+  line, exit 1). Every entry is rendered before OUTPUT is opened, so
+  raising this leaves no partial file.
 
 ## File entries (`entry.py`)
 
@@ -128,6 +188,9 @@ tool's last stderr line.
   `apply`'s `usedefault`).
 - **`mode_to_octal(mode: int) -> str`** — render a raw `st_mode` as a bare
   octal permission string (`"644"`).
+- **`FileEntries`** — type alias `list[tuple[str, FileEntry]]` (surviving DB
+  entries after `--exclude` filtering), the shared input shape for both dump
+  format shapes.
 
 ## Command base (`command.py`)
 
@@ -186,35 +249,6 @@ tool's last stderr line.
 
 ## DB backends (`db/`)
 
-- **`DbError(PkgForgeError, ValueError)`** — a backend's on-disk content
-  could not be read as one, or a value it was given could not be stored:
-  for `jsonl`/`yaml`, a JSON/YAML parse error, non-UTF-8 bytes, a JSON Lines
-  line or YAML top-level document that is not a mapping, or (once loaded) a
-  field of the wrong type; for `sqlite`, a `.db` path that holds tables but
-  no `entries` table (some other program's database, not one of pkgforge's
-  own), or a path/mode/owner/group/type value that is not valid UTF-8 (an
-  undecodable file name, or a `pwd`/`grp` entry containing one — `sqlite3`
-  encodes `str` parameters strictly). The message names the DB file (and,
-  for `jsonl`, the line number). Caught by `main()`'s error boundary
-  like any `PkgForgeError` (one stderr line, exit 1); also a `ValueError`
-  (malformed input). `jsonl`/`yaml` text
-  I/O is always UTF-8, regardless of locale; an append to a DB whose last
-  line lacks a trailing newline (e.g. a hand edit) repairs it first instead
-  of fusing the new record onto the old one.
-  Every loader (`jsonl`, `yaml`, `sqlite`) checks each record with the private
-  `db._check_record(path, rec, where)` and coerces and defaults nothing: `path`
-  is a `str` starting with `/`; a record is a mapping with exactly `mode`,
-  `owner`, `group` (all `str`), `type` (`file`, `directory` or `symlink`) and
-  `meta` (`str` to `str`), or a removal (jsonl `{"path": P, "_removed": true}`,
-  yaml `null`, sqlite `removed=1`). Anything else raises `DbError` naming the
-  file and the path. Content that is not in the chosen format (a YAML file read
-  as `jsonl`, a text file read as `sqlite`) raises `DbError` that names the
-  format and suggests `--db-format`. This never applies to a third-party
-  `load()`. `YamlDb`'s loader keeps only YAML's `null` implicit resolver
-  (`~`/`null` still load as `None`, for tombstones) and drops
-  int/float/bool/timestamp guessing, so an unquoted scalar loads as the text
-  it was written as (`mode: 0755` is `"0755"`, not the int `493`). A UTF-8 byte
-  order mark at the start of a text DB is ignored; lines split on `\n` only.
 - **`Db`** — type alias `dict[str, FileEntry | None]` (a loaded DB; `None`
   marks a removed path).
 - **`DbProvider(pkgforge._registry.Registered, abc.ABC)`** — storage backend
@@ -237,7 +271,7 @@ tool's last stderr line.
   `contextlib.contextmanager` yielding `self`. The default does nothing
   extra (every `add`/`remove` inside it still writes exactly as it would
   outside one), so an existing or third-party provider that doesn't
-  override it keeps working unchanged. `SqliteDb` overrides it to hold one
+  override it keeps working unchanged. `SQLiteDb` overrides it to hold one
   connection open across the whole batch, committing every 1000 rows and
   once more on exit (exception included, so a killed batch keeps whatever
   it already committed) instead of connecting, creating the schema and
@@ -250,18 +284,18 @@ tool's last stderr line.
   format fails in `load()`. Raises `UsageError` (also a `ValueError`) for an
   unknown format name -- see `DbProvider.lookup` above.
 - **Built-in backends** (each its own module, imported -- and so registered
-  -- at `pkgforge.db` import time): **`JsonlDb`** (`db/jsonl.py`;
+  -- at `pkgforge.db` import time): **`JSONLinesDb`** (`db/_jsonl.py`;
   `NAME = "jsonl"`, `SUFFIXES = (".jsonl", ".ndjson")`, default when unset) —
   append-only JSON Lines, one object per line, last record per path wins on
-  load; **`YamlDb`** (`db/yaml.py`; `NAME = "yaml"`,
+  load; **`YAMLDb`** (`db/_yaml.py`; `NAME = "yaml"`,
   `SUFFIXES = (".yaml", ".yml")`) —
   append-only YAML: a single mapping, appended key by key (the last
   duplicate key wins); a flow-style
   top-level document (e.g. `{/usr/bin/x: {...}}`, or `{}`) is read fine, but
   `add`/`remove` raise `DbError` instead of appending a block-style mapping
   after it (which would be invalid YAML) -- `compact()` rewrites the file in
-  block style, unblocking further appends; **`SqliteDb`**
-  (`db/sqlite.py`; `NAME = "sqlite"`, `SUFFIXES = (".db", ".sqlite", ".sqlite3")`)
+  block style, unblocking further appends; **`SQLiteDb`**
+  (`db/_sqlite.py`; `NAME = "sqlite"`, `SUFFIXES = (".db", ".sqlite", ".sqlite3")`)
   — a real upserted-in-place table, no append log
   (`compact()` drops removed rows + `VACUUM`s). `load()`/`compact()` never
   write: an empty or schema-less file loads as (or compacts as a no-op on)
@@ -270,15 +304,15 @@ tool's last stderr line.
   getting one added to it. `add`/`remove` reject a `path` or a
   `mode`/`owner`/`group`/`type` value that is not valid UTF-8 with
   `DbError`, before any SQL runs for that record.
-  `JsonlDb`/`YamlDb` writes (`add`/`remove`/`init`) and `compact` serialize
+  `JSONLinesDb`/`YAMLDb` writes (`add`/`remove`/`init`) and `compact` serialize
   on an advisory `flock` of the DB file (a no-op off POSIX), so running
   `compact` alongside another pkgforge process appending to the same DB no
   longer drops that append. `compact` replaces the file with a new inode (a
   temp file written, fsynced and renamed into place) instead of truncating
   it in place, so a failed write (`ENOSPC`, a kill) leaves the original file
   untouched; a symlinked `--db` keeps its link, a hardlinked one is detached.
-  `sqlite3` and PyYAML are both imported lazily (inside `SqliteDb._connect`
-  and a private `db.yaml._yaml_io()` respectively), not at module top:
+  `sqlite3` and PyYAML are both imported lazily (inside `SQLiteDb._connect`
+  and a private `db._yaml._yaml_io()` respectively), not at module top:
   `import pkgforge`, `--help` and the `jsonl` backend all work on an
   interpreter that lacks one of them. Actually using the `sqlite`/`yaml`
   backend on such an interpreter raises `PkgForgeError` naming the missing
@@ -287,7 +321,7 @@ tool's last stderr line.
   `SafeLoader`/`SafeDumper` when the installed build has them (several
   times faster; the on-disk format and duplicate-key last-wins behavior
   are unaffected either way).
-- **`db/_appendlog.py`** — machinery shared by `JsonlDb`/`YamlDb`:
+- **`db/_appendlog.py`** — machinery shared by `JSONLinesDb`/`YAMLDb`:
   `AppendLogDb(DbProvider)` (declares no `NAME` of its own, so subclassing
   it alone registers nothing) implements `add`/`remove`/`compact`/`init` in
   terms of two hooks each backend supplies: `_record(path, entry) -> str`
@@ -348,14 +382,6 @@ tool's last stderr line.
   shared: `Install`, `ScanCmd` and `DbDump` all take `--exclude` from this
   mixin instead of each declaring it separately. `--help` shows the
   grammar (`[!][(?[!]test:arg)...]GLOB`).
-- **`ExcludeSyntaxError(UsageError, argparse.ArgumentTypeError)`** — raised
-  for a malformed `-X` statement: an unknown inline test name, an invalid
-  `(?type:...)`/`(?meta:...)` argument, or an unterminated `(?...` (which
-  used to silently become a literal glob that excluded nothing). Caught by
-  `pkgforge.main()`'s error boundary like any `UsageError` (one line, exit
-  2); also an `argparse.ArgumentTypeError`, so argparse itself reports it
-  cleanly rather than letting it escape as a traceback from the `-X`
-  `type=` converter.
 
 ## `dbdump` format registry (`dbdump/`)
 
@@ -369,11 +395,11 @@ tool's last stderr line.
   single output stream. Abstract `render_entry(path, entry) -> bytes`;
   concrete `render(entries) -> bytes` (default: joins every `render_entry`
   call -- a format MAY override `render` itself to validate/render a whole
-  batch at once, as `RpmSpecFiles` does below) and
+  batch at once, as `RPMSpecFiles` does below) and
   `dump(entries, output, logger=None)` (checks OUTPUT, renders, writes
   OUTPUT whole or not at all: a sibling `.<name>.pkgforge-tmp` is written
   first and renamed over OUTPUT; `-` writes stdout directly). `check_output` refuses an existing directory.
-  Built in: **`rpm.RpmSpecFiles`** (`NAME = "rpmspecfiles"`,
+  Built in: **`RPMSpecFiles`** (`dbdump/_rpm.py`; `NAME = "rpmspecfiles"`,
   `ALIASES = ("rpm", "rpmspec")`) — RPM `%files` lines:
   `%attr(mode,owner,group) "path"`, `%dir` prefix for directories,
   `meta["rpmprefix"]` prepended if set. The path is quoted for rpm's
@@ -383,7 +409,7 @@ tool's last stderr line.
   quoting already matches only the literal name). A `%` anywhere in the
   path raises `DumpError` -- no version of rpm treats a quoted `%` as
   literal, and `%(...)` runs a shell command -- as does any C0 control
-  character or DEL. `RpmSpecFiles` overrides `render(entries)`: it
+  character or DEL. `RPMSpecFiles` overrides `render(entries)`: it
   validates the whole batch's paths in one pass (a single check over every
   path joined together decides whether ANY entry needs the slower per-entry
   rejection at all -- a clean batch, the common case, never runs a
@@ -396,8 +422,8 @@ tool's last stderr line.
   `render`/`render_entry` themselves. Targets rpm 4.19+; below that, a
   quoted name is macro-expanded twice and glob characters are matched
   unescaped, so this quoting is not safe there -- use
-  **`rpm.RpmSpecFilesPre419`** (`NAME = "rpmspecfiles-pre419"`,
-  `ALIASES = ("rpm-pre419",)`) instead. It subclasses `RpmSpecFiles`,
+  **`RPMSpecFilesPre419`** (`NAME = "rpmspecfiles-pre419"`,
+  `ALIASES = ("rpm-pre419",)`) instead. It subclasses `RPMSpecFiles`,
   overriding only the three hooks above: the path is written completely
   unquoted (rpm's bare-token reader passes a literal `"`/`\` straight
   through, unescaped), and it raises `DumpError` for a path containing a
@@ -414,7 +440,7 @@ tool's last stderr line.
   renders, then writes every artifact to a sibling `.<name>.pkgforge-tmp`
   and renames them all into place only once every write succeeded; a failure
   removes the temp files and leaves earlier OUTPUT content as it was). `check_output` refuses an existing non-directory.
-  Built in: **`debian.Debian`** (`NAME = "debian"`, `ALIASES = ("deb",)`) —
+  Built in: **`DebianFiles`** (`dbdump/_debian.py`; `NAME = "debian"`, `ALIASES = ("deb",)`) —
   `install` (`dh_install`-style `<src> <dest-dir>` lines, non-directory
   entries only) + `dirs`
   (`dh_installdirs`-style dest-escaped lines, one
@@ -456,33 +482,6 @@ tool's last stderr line.
   ("/"-separated), and `ntpath` also treats a literal backslash as a
   separator, which split a path containing one (e.g. a source named
   `back\slash`) in the wrong place on Windows.
-- **`UnsupportedOutputError(UsageError, DumpError, NotImplementedError)`** —
-  OUTPUT is the wrong shape for the chosen format (an existing file for
-  `debian`, an existing directory for `rpmspecfiles`); raised by
-  `check_output`. Caught by `main()`'s error boundary as a `UsageError`
-  (one stderr line, exit 2, same as before); also a `DumpError` (the format
-  itself is refusing this OUTPUT) and, per its name, a `NotImplementedError`.
-- **`InvalidEntryError(UsageError, DumpError)`** — a DB entry that no format
-  can render safely, found by `DbDump` before any format renders (exit 2,
-  naming the first offending entry in entry order and the field). The rules:
-  the key is an absolute path with no empty, `.` or `..` segment and no
-  control character; `type` is `file`, `directory` or `symlink`; `mode` is
-  1-4 octal digits, `-` or `--`; `owner`/`group` are an account name
-  (`[A-Za-z_][A-Za-z0-9_.-]*`, optionally ending in `$`), `-` or `--`; and
-  `meta["rpmprefix"]` has no control character and no rpm expansion (`%(`,
-  `%{`, `%[`). `%`, whitespace and
-  control characters therefore cannot occur in mode/owner/group.
-  `meta["rpmprefix"]` is otherwise written verbatim, as an rpm directive
-  prefix. A format's `dump()` called directly does not run this check.
-- **`DumpError(PkgForgeError, ValueError)`** — a DB path that a dump
-  format's own tooling cannot represent (a `%` or a control character for
-  `rpmspecfiles`; a control character for `debian`).
-  Caught by `main()`'s error boundary like any `PkgForgeError` (one stderr
-  line, exit 1). Every entry is rendered before OUTPUT is opened, so
-  raising this leaves no partial file.
-- **`Entries`** — type alias `list[tuple[str, FileEntry]]` (surviving DB
-  entries after `--exclude` filtering), the shared input shape for both
-  format shapes above.
 
 ## CLI subcommands
 
@@ -742,7 +741,7 @@ above).
   is the protocol channel). Otherwise it reads to EOF, blocking on a pipe that
   is never closed. Empty input logs a WARNING and dumps an empty manifest,
   exit 0. A leading BOM is ignored. Parsing is shared with the `jsonl` backend
-  via `db.jsonl._parse_jsonl(text, source, hint="")` (`source` is the file path
+  via `db._jsonl._parse_jsonl(text, source, hint="")` (`source` is the file path
   or `"<stdin>"`), so both report an error the same way
   (`{source}:{lineno}: ...`); non-UTF-8 input raises `DbError` prefixed
   `<stdin>:`.

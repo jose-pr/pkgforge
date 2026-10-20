@@ -10,7 +10,7 @@ import sys
 import pytest
 
 import pkgforge
-from pkgforge.errors import PkgForgeError, UsageError
+from pkgforge.exceptions import PkgForgeError, UsageError
 
 
 def test_no_subcommand_exits_2():

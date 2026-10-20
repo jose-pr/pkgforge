@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import re
 
-from ..entry import DEFAULT, FileEntry, FileType
-from . import Entries, PerEntryFormat, DumpError, _has_control, _reject_control
+from ..entry import DEFAULT, FileEntries, FileEntry, FileType
+from ..exceptions import DumpError
+from . import PerEntryFormat, _has_control, _reject_control
 
 #: Plain strings, compared with a DB's own (str) type values: cheaper per
 #: entry than a ``FileType`` member comparison, and equal to the members.
@@ -89,7 +90,7 @@ def _rpm_reject_pre419(path: str) -> None:
             )
 
 
-class RpmSpecFiles(PerEntryFormat):
+class RPMSpecFiles(PerEntryFormat):
     """RPM ``%files`` lines: ``%attr(mode,owner,group) "path"``, a ``%dir``
     prefix for directories, ``meta["rpmprefix"]`` prepended if set.
 
@@ -99,8 +100,8 @@ class RpmSpecFiles(PerEntryFormat):
     its original bytes). Glob characters are never escaped -- rpm's own
     quoted-string globbing already matches only the literal name. A ``%``
     anywhere in the path, or a control character (including a tab), raises
-    :class:`~pkgforge.dbdump.DumpError`. Below rpm 4.19, use
-    :class:`RpmSpecFilesPre419` instead -- this quoting is not safe there.
+    :class:`~pkgforge.exceptions.DumpError`. Below rpm 4.19, use
+    :class:`RPMSpecFilesPre419` instead -- this quoting is not safe there.
     """
 
     NAME = "rpmspecfiles"
@@ -121,7 +122,7 @@ class RpmSpecFiles(PerEntryFormat):
         """
         return _has_control([joined]) or "%" in joined
 
-    def render(self, entries: Entries) -> bytes:
+    def render(self, entries: FileEntries) -> bytes:
         """Render every entry, validating the whole batch's paths once: a
         single check over every path joined together decides whether
         anything needs the slower per-entry rejection at all, so a clean
@@ -177,17 +178,17 @@ class RpmSpecFiles(PerEntryFormat):
         return self.render([(path, entry)])
 
 
-class RpmSpecFilesPre419(RpmSpecFiles):
+class RPMSpecFilesPre419(RPMSpecFiles):
     """RPM ``%files`` lines for rpm older than 4.19 (measured against real
     rpmbuild runs on 4.14.3, 4.16.1 and 4.18.2).
 
-    Inherits :class:`RpmSpecFiles`'s ``%attr``/``%dir``/``rpmprefix``
+    Inherits :class:`RPMSpecFiles`'s ``%attr``/``%dir``/``rpmprefix``
     rendering and batch-then-per-entry validation, overriding only the
     escaping/rejection hooks: the path is written completely unquoted, and a
     path containing a space, a glob character (``* ? [ ] { }``), ``%`` (in
     any form), or a byte that is not valid UTF-8 raises
-    :class:`~pkgforge.dbdump.DumpError` instead of risking a silently wrong
-    or overmatched package. Use :class:`RpmSpecFiles` instead when the rpm
+    :class:`~pkgforge.exceptions.DumpError` instead of risking a silently wrong
+    or overmatched package. Use :class:`RPMSpecFiles` instead when the rpm
     that builds the package is 4.19 or newer.
     """
 

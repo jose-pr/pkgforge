@@ -2,10 +2,10 @@
 
 Two shapes of format are supported, each a :class:`DumpFormat` subclass:
 
-* :class:`PerEntryFormat` (e.g. :class:`~pkgforge.dbdump.rpm.RpmSpecFiles`)
+* :class:`PerEntryFormat` (e.g. :class:`~pkgforge.dbdump.RPMSpecFiles`)
   renders one line per DB entry, written to a single output stream (a file,
   or ``-`` for stdout);
-* :class:`MultiArtifactFormat` (e.g. :class:`~pkgforge.dbdump.debian.Debian`)
+* :class:`MultiArtifactFormat` (e.g. :class:`~pkgforge.dbdump.DebianFiles`)
   renders several related files (e.g. an ``install`` path list plus a
   ``fixperms`` script) into an output *directory* -- or, when the
   output is ``-``, concatenated to stdout under ``# === <name> ===`` section
@@ -28,74 +28,42 @@ import typing
 from pathlib import Path
 
 from .._registry import Registered
-from ..db import Db, DbError
-from ..db.jsonl import _parse_jsonl
+from ..db import Db
+from ..db._jsonl import _parse_jsonl
 from ..entry import (
-    CONTROL_PATTERN,
-    RPM_EXPANSION_PATTERN,
+    _CONTROL_PATTERN,
+    _RPM_EXPANSION_PATTERN,
     DEFAULT,
-    MODE_PATTERN,
-    NAME_PATTERN,
+    _MODE_PATTERN,
+    _NAME_PATTERN,
+    FileEntries,
     FileEntry,
     FileType,
 )
-from ..errors import PkgForgeError, UsageError
+from ..exceptions import (
+    DbError,
+    DumpError,
+    InvalidEntryError,
+    PkgForgeError,
+    UnsupportedOutputError,
+    UsageError,
+)
 from ..command import PkgForgeCmd, _refuse_mcp_stdin
 from ..exclude import ExcludeArgs, PathMatch
-
-#: An entry that survived filtering: (db-path, FileEntry).
-Entries = typing.List[typing.Tuple[str, FileEntry]]
-
-
-class DumpError(PkgForgeError, ValueError):
-    """A DB entry cannot be rendered in the chosen format.
-
-    Raised for a path the target format's own tooling cannot represent -- a
-    control character, or (rpm only) a ``%``. Caught by
-    :func:`pkgforge.main`'s error boundary like any
-    :class:`~pkgforge.errors.PkgForgeError`: one stderr line, exit 1. Nothing
-    is written to OUTPUT first: every entry is rendered before OUTPUT is
-    opened, so this leaves no partial file.
-    """
-
-
-class InvalidEntryError(UsageError, DumpError):
-    """A DB entry is malformed for every format: a key that is not an absolute
-    normalized path, an unknown ``type``, a ``mode``/``owner``/``group`` outside
-    the recorded grammar, or a control character or rpm expansion in
-    ``meta["rpmprefix"]``.
-
-    Raised by :func:`_validate_entries` before any format renders, so it
-    leaves no output behind. A :class:`~pkgforge.errors.UsageError` (exit 2):
-    the DB, not the format, holds the bad value.
-    """
-
-
-class UnsupportedOutputError(UsageError, DumpError, NotImplementedError):
-    """OUTPUT is the wrong shape for the chosen format: a file for a
-    multi-artifact format, or an existing directory for a per-entry one.
-
-    Subclasses :class:`~pkgforge.errors.UsageError` (exit 2, same as this
-    replaces two separate raises with) and :class:`DumpError` (the format
-    itself is refusing this OUTPUT, not a bad argument in general) and, on
-    top of both, :class:`NotImplementedError` (this format cannot write
-    this output shape) -- a valid MRO (measured, py3.14).
-    """
-
 
 #: Every C0 control character (0x00-0x1f) plus DEL (0x7f): rpm and debhelper
 #: both choke on these one way or another (a bare newline splits a line, a
 #: literal DEL is simply illegal), and neither format has an escape for them.
-_CONTROL_RE = re.compile(CONTROL_PATTERN)
-_RPM_EXPANSION_RE = re.compile(RPM_EXPANSION_PATTERN)
+_CONTROL_RE = re.compile(_CONTROL_PATTERN)
+_RPM_EXPANSION_RE = re.compile(_RPM_EXPANSION_PATTERN)
 
-_NAME_RE = re.compile(NAME_PATTERN)
-_MODE_RE = re.compile(MODE_PATTERN)
+_NAME_RE = re.compile(_NAME_PATTERN)
+_MODE_RE = re.compile(_MODE_PATTERN)
 #: Finds a line of newline-joined values that is not a valid name / mode.
 #: Empty values (rendered as ``-``) never match. Run only after
 #: :data:`_CONTROL_RE` found no newline in the values.
-_BAD_NAMES_RE = re.compile(rf"^(?!(?:{NAME_PATTERN})$).+", re.M)
-_BAD_MODES_RE = re.compile(rf"^(?!(?:{MODE_PATTERN})$).+", re.M)
+_BAD_NAMES_RE = re.compile(rf"^(?!(?:{_NAME_PATTERN})$).+", re.M)
+_BAD_MODES_RE = re.compile(rf"^(?!(?:{_MODE_PATTERN})$).+", re.M)
 #: Finds a key that is not an absolute path with no empty, ``.`` or ``..``
 #: segment (the key ``/`` alone is allowed), over newline-joined keys.
 _BAD_KEYS_RE = re.compile(r"^(?!/)|//|/\.\.?(?:/|$)|(?<=.)/$", re.M)
@@ -151,7 +119,7 @@ def _check_entry(path: str, entry: FileEntry) -> None:
         raise _entry_error(path, "meta rpmprefix", prefix)
 
 
-def _validate_entries(entries: Entries) -> None:
+def _validate_entries(entries: FileEntries) -> None:
     """Refuse the first entry (in entry order) that no format can render
     safely: see :class:`InvalidEntryError`.
 
@@ -257,7 +225,7 @@ class DumpFormat(Registered, abc.ABC):
     @abc.abstractmethod
     def dump(
         self,
-        entries: Entries,
+        entries: FileEntries,
         output: Path,
         logger: typing.Optional[typing.Any] = None,
     ) -> None:
@@ -271,7 +239,7 @@ class PerEntryFormat(DumpFormat):
     def render_entry(self, path: str, entry: FileEntry) -> bytes:
         """Render one DB entry to its line of bytes."""
 
-    def render(self, entries: Entries) -> bytes:
+    def render(self, entries: FileEntries) -> bytes:
         return b"".join(self.render_entry(path, entry) for path, entry in entries)
 
     def check_output(self, output: Path) -> None:
@@ -284,7 +252,7 @@ class PerEntryFormat(DumpFormat):
 
     def dump(
         self,
-        entries: Entries,
+        entries: FileEntries,
         output: Path,
         logger: typing.Optional[typing.Any] = None,
     ) -> None:
@@ -302,7 +270,7 @@ class MultiArtifactFormat(DumpFormat):
     for ``-``, concatenates them to stdout under section headers)."""
 
     @abc.abstractmethod
-    def render(self, entries: Entries) -> typing.Dict[str, bytes]:
+    def render(self, entries: FileEntries) -> typing.Dict[str, bytes]:
         """Render every artifact this format produces: ``{filename: bytes}``."""
 
     def check_output(self, output: Path) -> None:
@@ -316,7 +284,7 @@ class MultiArtifactFormat(DumpFormat):
 
     def dump(
         self,
-        entries: Entries,
+        entries: FileEntries,
         output: Path,
         logger: typing.Optional[typing.Any] = None,
     ) -> None:
@@ -423,10 +391,10 @@ class DbDump(ExcludeArgs, PkgForgeCmd):
             self._logger_.warning("stdin held no DB records; dumping an empty manifest")
         return db
 
-    def _surviving_entries(self) -> Entries:
+    def _surviving_entries(self) -> FileEntries:
         db = self._stdin_db() if str(self.db) == "-" else self._file_db()
         matcher = PathMatch(self.exclude)
-        entries: Entries = []
+        entries: FileEntries = []
         for path, entry in db.items():
             if entry is None or (self.exclude and matcher.match(path, entry)):
                 continue
@@ -456,21 +424,17 @@ class DbDump(ExcludeArgs, PkgForgeCmd):
 # Built-in formats: importing each module registers its format class.
 # --------------------------------------------------------------------------
 
-from .rpm import RpmSpecFiles, RpmSpecFilesPre419  # noqa: E402
-from .debian import Debian  # noqa: E402
+from ._rpm import RPMSpecFiles, RPMSpecFilesPre419  # noqa: E402
+from ._debian import DebianFiles  # noqa: E402
 
 DbDump._register()
 
 __all__ = [
-    "Debian",
     "DbDump",
-    "DumpError",
+    "DebianFiles",
     "DumpFormat",
-    "Entries",
-    "InvalidEntryError",
     "MultiArtifactFormat",
     "PerEntryFormat",
-    "RpmSpecFiles",
-    "RpmSpecFilesPre419",
-    "UnsupportedOutputError",
+    "RPMSpecFiles",
+    "RPMSpecFilesPre419",
 ]

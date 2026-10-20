@@ -1,12 +1,12 @@
 """One way to run an external tool for ``install``: a failure becomes a
-:class:`~pkgforge.errors.PkgForgeError` carrying the tool's last stderr line."""
+:class:`~pkgforge.exceptions.PkgForgeError` carrying the tool's last stderr line."""
 
 from __future__ import annotations
 
 import subprocess
 import typing
 
-from ..errors import PkgForgeError
+from ..exceptions import PkgForgeError
 
 
 def _run_tool(

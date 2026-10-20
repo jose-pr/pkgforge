@@ -6,7 +6,7 @@ from __future__ import annotations
 import os
 import typing
 
-from ..errors import UsageError
+from ..exceptions import UsageError
 
 #: Kind -> (argv prefix, canonical suffix). ``argv`` always includes ``-d``
 #: (or the tool's own always-decompressing form), so a compressor's name

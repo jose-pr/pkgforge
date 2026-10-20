@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from .command import PkgForgeCmd
-from .errors import UsageError
+from .exceptions import UsageError
 
 
 class Compact(PkgForgeCmd):

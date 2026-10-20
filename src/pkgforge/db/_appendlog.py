@@ -3,7 +3,7 @@
 An append-log DB is a file that is only ever appended to (``add``/``remove``
 write one new record) and, on :meth:`AppendLogDb.compact`, rewritten from
 scratch with just the live records. :class:`AppendLogDb` owns that shared
-shape; :mod:`pkgforge.db.jsonl` and :mod:`pkgforge.db.yaml` each supply only
+shape; :mod:`pkgforge.db._jsonl` and :mod:`pkgforge.db._yaml` each supply only
 their own text encoding via :meth:`AppendLogDb._record` (one record's text)
 and :meth:`AppendLogDb._render_all` (the whole compacted file's text).
 """
@@ -23,7 +23,8 @@ try:  # POSIX-only; pkgforge's runtime is Linux-only, but this module (and
 except ImportError:  # pragma: no cover - non-POSIX (Windows dev box)
     fcntl = None
 
-from . import Db, DbError, DbProvider
+from ..exceptions import DbError
+from . import Db, DbProvider
 
 if typing.TYPE_CHECKING:
     from ..entry import FileEntry
@@ -155,7 +156,7 @@ def _append_text(path: Path, text: str) -> None:
 def _read_text(path: Path, hint: str = "") -> str:
     """``path``'s content as UTF-8 text, a leading byte-order mark dropped.
 
-    Raises :class:`~pkgforge.db.DbError` (with ``hint`` appended) for bytes
+    Raises :class:`~pkgforge.exceptions.DbError` (with ``hint`` appended) for bytes
     that are not UTF-8.
     """
     try:

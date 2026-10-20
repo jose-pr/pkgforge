@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import typing
 
-from . import Db, DbError, _check_record, _fields, _format_hint, _record_ok
+from ..exceptions import DbError
+from . import Db, _check_record, _fields, _format_hint, _record_ok
 from ._appendlog import AppendLogDb, _read_text
 
 if typing.TYPE_CHECKING:
@@ -30,7 +31,7 @@ def _jsonl_line(path: str, entry: typing.Optional["FileEntry"]) -> str:
 def _parse_jsonl(text: str, source: typing.Union["Path", str], hint: str = "") -> Db:
     """Parse JSON Lines ``text`` into a :data:`~pkgforge.db.Db` mapping.
 
-    Shared by :meth:`JsonlDb.load` (``source`` is the DB file's own path)
+    Shared by :meth:`JSONLinesDb.load` (``source`` is the DB file's own path)
     and ``dbdump --db -`` (``source`` is the literal string ``"<stdin>"``):
     every error is tagged ``{source}:{lineno}:``. ``hint`` is appended to an
     error that means the text is not JSON Lines at all.
@@ -94,7 +95,7 @@ def _parse_jsonl(text: str, source: typing.Union["Path", str], hint: str = "") -
     return db
 
 
-class JsonlDb(AppendLogDb):
+class JSONLinesDb(AppendLogDb):
     """Append-only JSON Lines: one JSON object per line, last per path wins."""
 
     NAME = "jsonl"

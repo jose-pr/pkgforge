@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from pkgforge.command import PkgForgeCmd
-from pkgforge.dbdump import RpmSpecFiles
+from pkgforge.dbdump import RPMSpecFiles
 
 # --------------------------------------------------------------------------
 # What scan records: below PATH, not PATH itself; '-' unless AUTO; replaces
@@ -197,7 +197,7 @@ def test_scan_documented_recipe_owns_no_shared_dirs(tmp_path, cli):
 
     db_entries = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
     lines = {
-        path: RpmSpecFiles().render_entry(path, entry).decode()
+        path: RPMSpecFiles().render_entry(path, entry).decode()
         for path, entry in db_entries.items()
         if entry is not None
     }
@@ -690,7 +690,7 @@ def test_scan_drop_stale_tombstones_deleted(tmp_path, cli, fmt, ext):
     assert loaded[a_key] is not None
 
     lines = {
-        path: RpmSpecFiles().render_entry(path, entry).decode()
+        path: RPMSpecFiles().render_entry(path, entry).decode()
         for path, entry in loaded.items()
         if entry is not None
     }
@@ -700,7 +700,7 @@ def test_scan_drop_stale_tombstones_deleted(tmp_path, cli, fmt, ext):
 
 @pytest.mark.posix
 def test_scan_drop_stale_sqlite_uses_one_connection(tmp_path, cli, monkeypatch):
-    from pkgforge.db import SqliteDb
+    from pkgforge.db import SQLiteDb
 
     root = tmp_path / "root" / "d"
     root.mkdir(parents=True)
@@ -713,8 +713,8 @@ def test_scan_drop_stale_sqlite_uses_one_connection(tmp_path, cli, monkeypatch):
         child.unlink()
 
     opened = []
-    original_batch = SqliteDb.batch
-    original_connect = SqliteDb._connect
+    original_batch = SQLiteDb.batch
+    original_connect = SQLiteDb._connect
 
     def counting_batch(self):
         opened.append("batch")
@@ -724,8 +724,8 @@ def test_scan_drop_stale_sqlite_uses_one_connection(tmp_path, cli, monkeypatch):
         opened.append("connect")
         return original_connect(self, **kwargs)
 
-    monkeypatch.setattr(SqliteDb, "batch", counting_batch)
-    monkeypatch.setattr(SqliteDb, "_connect", counting_connect)
+    monkeypatch.setattr(SQLiteDb, "batch", counting_batch)
+    monkeypatch.setattr(SQLiteDb, "_connect", counting_connect)
     assert cli(*argv, "scan", "--drop-stale", "/d").rc == 0
 
     # One load, then one batch holding a single connection for all 30 removals

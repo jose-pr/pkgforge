@@ -23,7 +23,7 @@ except ImportError:  # pragma: no cover - non-Unix
 
 import duho
 
-from ..errors import PkgForgeError, UsageError
+from ..exceptions import PkgForgeError, UsageError
 from ..entry import (
     AUTO,
     DEFAULT,

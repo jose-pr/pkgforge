@@ -8,7 +8,7 @@ from pathlib import Path
 
 import duho
 
-from .errors import UsageError
+from .exceptions import UsageError
 from .entry import (
     AUTO,
     DEFAULT,

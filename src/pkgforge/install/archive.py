@@ -17,7 +17,7 @@ from pathlib import Path
 
 from ..command import _refuse_mcp_stdin
 from ..entry import DEFAULT
-from ..errors import PkgForgeError
+from ..exceptions import PkgForgeError
 from ..exclude import PathMatch
 from ._tool import _run_tool
 

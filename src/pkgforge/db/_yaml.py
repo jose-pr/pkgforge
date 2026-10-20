@@ -7,7 +7,8 @@ import re
 import typing
 from pathlib import Path
 
-from . import Db, DbError, _check_record, _fields, _format_hint
+from ..exceptions import DbError
+from . import Db, _check_record, _fields, _format_hint
 from ._appendlog import AppendLogDb
 
 if typing.TYPE_CHECKING:
@@ -52,7 +53,7 @@ def _yaml_io() -> typing.Tuple[type, type]:
     so ``import pkgforge``, ``--help`` and the ``jsonl`` backend all work on
     an interpreter that lacks PyYAML; only actually touching the ``yaml``
     backend pays for the import. A missing module raises one clear
-    :class:`~pkgforge.errors.PkgForgeError` instead of a bare ``ImportError``
+    :class:`~pkgforge.exceptions.PkgForgeError` instead of a bare ``ImportError``
     surfacing from wherever this was first called.
 
     Prefers PyYAML's libyaml-backed ``CSafeLoader``/``CSafeDumper`` (several
@@ -75,7 +76,7 @@ def _yaml_io() -> typing.Tuple[type, type]:
     try:
         import yaml
     except ImportError as exc:
-        from ..errors import PkgForgeError
+        from ..exceptions import PkgForgeError
 
         raise PkgForgeError(
             "the yaml DB backend needs PyYAML, which is not installed; "
@@ -101,7 +102,7 @@ def _is_flow_style_yaml(path: Path) -> bool:
     (skipping blank lines, ``#`` comments and a lone ``---`` document-start
     marker) opens a flow-style mapping (``{``).
 
-    ``YamlDb._record`` only ever writes a block-style top-level mapping;
+    ``YAMLDb._record`` only ever writes a block-style top-level mapping;
     appending that onto an existing flow-style document (e.g.
     ``{/usr/bin/x: {...}}``, or the empty mapping ``{}``) produces invalid
     YAML. pkgforge itself never writes flow style, so this only matters for
@@ -119,7 +120,7 @@ def _is_flow_style_yaml(path: Path) -> bool:
     return False
 
 
-class YamlDb(AppendLogDb):
+class YAMLDb(AppendLogDb):
     """Append-only YAML: a single mapping, appended key by key -- the last
     duplicate key wins.
 

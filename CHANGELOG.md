@@ -75,6 +75,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A text DB is split into records on `\n` only, and a leading UTF-8 byte-order
   mark is ignored, so a record containing U+2028, U+2029 or U+0085 loads and a
   BOM-prefixed `.jsonl` stays JSON Lines instead of being appended to as YAML.
+- Every exception class lives in `pkgforge.exceptions` (`pkgforge.errors` is
+  gone): import `DbError`, `DumpError`, `InvalidEntryError`,
+  `UnsupportedOutputError` and `ExcludeSyntaxError` from there or from
+  `pkgforge`, not from `pkgforge.db`, `pkgforge.dbdump` or `pkgforge.exclude`.
+  `ExcludeSyntaxError` is a `UsageError` only; it is no longer an
+  `argparse.ArgumentTypeError`.
+- Classes with an acronym in the name spell it in capitals: `JsonlDb` is now
+  `JSONLinesDb`, `YamlDb` `YAMLDb`, `SqliteDb` `SQLiteDb`, `RpmSpecFiles`
+  `RPMSpecFiles`, `RpmSpecFilesPre419` `RPMSpecFilesPre419`, and the `debian`
+  format class `Debian` is now `DebianFiles`. Format and DB names, aliases and
+  suffixes are unchanged.
+- `pkgforge.dbdump.Entries` is now `pkgforge.FileEntries`.
 
 ### Removed
 - The warning that an absolute `-X` pattern could match no install path, and
@@ -110,9 +122,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The `debian` format no longer writes the `permissions` artifact (and
   `dbdump -f debian -` no longer prints its section): nothing consumed it.
   The `fixperms` script applies the same pins.
-- The `RpmSpecFiles._quote` and `RpmSpecFilesPre419._quote` class hooks, which
+- The `RPMSpecFiles._quote` and `RPMSpecFilesPre419._quote` class hooks, which
   `render` never called. The `_escape`, `_reject` and `_batch_reject_needed`
   hooks remain.
+- The backend submodules `pkgforge.db.jsonl`, `pkgforge.db.yaml`,
+  `pkgforge.db.sqlite`, `pkgforge.dbdump.rpm` and `pkgforge.dbdump.debian`
+  (now private): import the classes from `pkgforge.db` and `pkgforge.dbdump`.
+- The public names `FilterTestRe`, `filetypetest` and `metatest` in
+  `pkgforge.exclude`, and `NAME_PATTERN`, `MODE_PATTERN`, `CONTROL_PATTERN` and
+  `RPM_EXPANSION_PATTERN` in `pkgforge.entry` (now private).
 
 ### Fixed
 - `install --method move` of a directory onto another filesystem failed with

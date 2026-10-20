@@ -1002,7 +1002,7 @@ def test_scan_missing_descends_into_recorded_dir(tmp_path, cli, cmd, make_entry)
     ],
 )
 def test_parse_rejects(stmt):
-    from pkgforge.exclude import ExcludeSyntaxError
+    from pkgforge.exceptions import ExcludeSyntaxError
 
     with pytest.raises(ExcludeSyntaxError):
         PathMatchStmt.parse(stmt)

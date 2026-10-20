@@ -34,7 +34,25 @@ except ImportError:  # pragma: no cover - non-Unix
 import duho
 from duho import Cmd
 
-from .errors import UsageError
+from .exceptions import UsageError
+
+__all__ = [
+    "AUTO",
+    "DEFAULT",
+    "FileEntries",
+    "FileEntry",
+    "FileEntryArgs",
+    "FileEntryBaseArgs",
+    "FileType",
+    "apply_entry",
+    "check_meta",
+    "entry_from_args",
+    "entry_from_path",
+    "mode_to_octal",
+    "normalize_mode",
+    "normalize_name",
+    "resolve_entry",
+]
 
 #: Sentinel meaning "resolve this field from the file on disk".
 AUTO = "--"
@@ -43,18 +61,18 @@ DEFAULT = "-"
 #: A portable account name, or one of the :data:`DEFAULT`/:data:`AUTO` sentinels.
 #: No ``%``, whitespace or control character can occur, so a recorded owner or
 #: group is safe in an rpm ``%attr`` and a shell word.
-NAME_PATTERN = r"--?|[A-Za-z_][A-Za-z0-9_.-]*\$?"
+_NAME_PATTERN = r"--?|[A-Za-z_][A-Za-z0-9_.-]*\$?"
 #: 1-4 octal digits, or a sentinel.
-MODE_PATTERN = r"--?|[0-7]{1,4}"
+_MODE_PATTERN = r"--?|[0-7]{1,4}"
 #: Every C0 control character plus DEL.
-CONTROL_PATTERN = "[\x00-\x1f\x7f]"
+_CONTROL_PATTERN = "[\x00-\x1f\x7f]"
 #: rpm's shell, macro and expression expansions; an ``rpmprefix`` such as
 #: ``%config(noreplace)`` never needs one.
-RPM_EXPANSION_PATTERN = r"%[({\[]"
+_RPM_EXPANSION_PATTERN = r"%[({\[]"
 
-_NAME_RE = re.compile(NAME_PATTERN)
-_CONTROL_RE = re.compile(CONTROL_PATTERN)
-_RPM_EXPANSION_RE = re.compile(RPM_EXPANSION_PATTERN)
+_NAME_RE = re.compile(_NAME_PATTERN)
+_CONTROL_RE = re.compile(_CONTROL_PATTERN)
+_RPM_EXPANSION_RE = re.compile(_RPM_EXPANSION_PATTERN)
 
 
 class FileType(str, enum.Enum):
@@ -162,7 +180,7 @@ def normalize_mode(value: typing.Union[str, typing.List[str]]) -> str:
 def normalize_name(value: typing.Union[str, typing.List[str]], field: str) -> str:
     """Validate an ``owner``/``group`` value (``field`` names it in the error).
 
-    Applies :func:`_normalize_field`, then requires :data:`NAME_PATTERN`.
+    Applies :func:`_normalize_field`, then requires the portable account-name pattern.
     Raises :class:`UsageError` otherwise.
     """
     value = _normalize_field(value)
@@ -321,6 +339,10 @@ class FileEntry(typing.TypedDict):
     group: str
     type: str
     meta: typing.Dict[str, str]
+
+
+#: Entries that survived filtering: ``(db path, entry)`` pairs.
+FileEntries = typing.List[typing.Tuple[str, FileEntry]]
 
 
 def entry_from_args(args: FileEntryBaseArgs, **overwrite) -> FileEntry:

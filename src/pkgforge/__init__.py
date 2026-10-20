@@ -12,8 +12,17 @@ from importlib.metadata import PackageNotFoundError, version as _version
 
 import duho
 
-from .errors import PkgForgeError, UsageError
+from .exceptions import (
+    DbError,
+    DumpError,
+    ExcludeSyntaxError,
+    InvalidEntryError,
+    PkgForgeError,
+    UnsupportedOutputError,
+    UsageError,
+)
 from .entry import (
+    FileEntries,
     FileEntry,
     FileEntryArgs,
     FileType,
@@ -24,7 +33,7 @@ from .entry import (
     resolve_entry,
 )
 from .command import PkgForgeCmd, PkgForge, _silence_broken_pipe
-from .db import DbError, DbProvider, open_db
+from .db import DbProvider, open_db
 from . import compact, dbdump, initdb, install, scan
 
 try:  # resolve the installed distribution version, if any
@@ -38,9 +47,14 @@ __all__ = [
     "PkgForgeError",
     "DbError",
     "DbProvider",
+    "DumpError",
+    "ExcludeSyntaxError",
+    "FileEntries",
     "FileEntry",
     "FileEntryArgs",
     "FileType",
+    "InvalidEntryError",
+    "UnsupportedOutputError",
     "UsageError",
     "__version__",
     "apply_entry",
@@ -64,8 +78,8 @@ def main(argv=None) -> int:
     Errors are reported by :class:`PkgForge`'s ``_errors_`` and
     ``_report_error_``: one ``pkgforge: error: <message>`` line to stderr and a
     plain exit code instead of a traceback. That is 2 for a
-    :class:`~pkgforge.errors.UsageError` (an argument-shaped mistake), 1 for
-    any other :class:`~pkgforge.errors.PkgForgeError`, ``OSError`` or
+    :class:`~pkgforge.exceptions.UsageError` (an argument-shaped mistake), 1 for
+    any other :class:`~pkgforge.exceptions.PkgForgeError`, ``OSError`` or
     ``subprocess.CalledProcessError``, and 1 silently for a closed output
     pipe (``BrokenPipeError``). 130 is Ctrl-C, silently. Anything else
     propagates with its traceback, so a real bug stays visible. Set

@@ -69,11 +69,11 @@ _ENTRY = {"mode": "644", "owner": "root", "group": "root", "type": "file", "meta
 def _pkgforge_spelling(path: str) -> str | None:
     """pkgforge's real quoting (strips render_entry's line wrapper back off,
     to match a SPELLINGS entry); ``None`` means refused (DumpError)."""
-    from pkgforge.dbdump import DumpError
-    from pkgforge.dbdump.rpm import RpmSpecFiles
+    from pkgforge.exceptions import DumpError
+    from pkgforge.dbdump._rpm import RPMSpecFiles
 
     try:
-        line = RpmSpecFiles().render_entry(path, _ENTRY)
+        line = RPMSpecFiles().render_entry(path, _ENTRY)
     except DumpError:
         return None
     prefix = "%attr(644,root,root) "

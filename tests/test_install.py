@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from pkgforge.errors import PkgForgeError, UsageError
+from pkgforge.exceptions import PkgForgeError, UsageError
 from pkgforge.install import Install
 
 
@@ -247,7 +247,7 @@ def test_install_decompress_kind_case(tmp_path, alias):
 
 @pytest.mark.parametrize("name", ["gzip", "unxz", "bzip2"])
 def test_decompress_tool_name_is_not_a_kind(name):
-    from pkgforge.errors import UsageError
+    from pkgforge.exceptions import UsageError
     from pkgforge.install.decompress import _resolve_kind
 
     with pytest.raises(UsageError, match="unknown compression kind"):

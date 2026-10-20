@@ -28,7 +28,7 @@ from duho import Cli, Cmd, LoggingArgs
 from duho.text import BOOL_TRUE
 
 from .entry import FileEntry
-from .errors import PkgForgeError, UsageError
+from .exceptions import PkgForgeError, UsageError
 
 
 def _silence_broken_pipe() -> None:
@@ -323,7 +323,7 @@ class PkgForgeCmd(LoggingArgs, Cmd):
         if self._no_file_db():
             # No file: emit the record as a JSON Lines line to stdout.
             # Function-local for the same reason as _provider() above.
-            from .db.jsonl import _jsonl_line
+            from .db._jsonl import _jsonl_line
 
             print(_jsonl_line(path, entry), end="")
             return

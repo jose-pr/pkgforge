@@ -13,15 +13,18 @@ import pytest
 import yaml
 
 from conftest import skip_if_fs_rejects_non_utf8
-from pkgforge.errors import UsageError
-from pkgforge.dbdump import (
-    Debian,
-    DbDump,
+from pkgforge.exceptions import (
     DumpError,
-    DumpFormat,
-    RpmSpecFiles,
-    RpmSpecFilesPre419,
+    InvalidEntryError,
     UnsupportedOutputError,
+    UsageError,
+)
+from pkgforge.dbdump import (
+    DebianFiles,
+    DbDump,
+    DumpFormat,
+    RPMSpecFiles,
+    RPMSpecFilesPre419,
 )
 from pkgforge.install.archive import _extract_tar, _is_tar_source
 
@@ -88,13 +91,13 @@ def test_dump_format_names_lists_rpm_and_debian():
     assert "rpmspecfiles" in names
     assert "rpmspecfiles-pre419" in names
     assert "debian" in names
-    assert DumpFormat.lookup("rpmspecfiles") is RpmSpecFiles
-    assert DumpFormat.lookup("rpmspecfiles-pre419") is RpmSpecFilesPre419
-    assert DumpFormat.lookup("debian") is Debian
+    assert DumpFormat.lookup("rpmspecfiles") is RPMSpecFiles
+    assert DumpFormat.lookup("rpmspecfiles-pre419") is RPMSpecFilesPre419
+    assert DumpFormat.lookup("debian") is DebianFiles
 
 
 def test_dump_format_alias_pre419():
-    assert DumpFormat.lookup("rpm-pre419") is RpmSpecFilesPre419
+    assert DumpFormat.lookup("rpm-pre419") is RPMSpecFilesPre419
     assert DumpFormat.lookup("rpm-pre419").NAME == "rpmspecfiles-pre419"
 
 
@@ -125,11 +128,11 @@ def test_unsupported_output_error(tmp_path, case):
     if case == "per_entry_dir":
         target = tmp_path / "outdir"
         target.mkdir()
-        fmt = RpmSpecFiles()
+        fmt = RPMSpecFiles()
     else:
         target = tmp_path / "out"
         target.write_text("existing", encoding="utf-8")
-        fmt = Debian()
+        fmt = DebianFiles()
 
     before = list(target.iterdir()) if target.is_dir() else target.read_text()
     with pytest.raises(UnsupportedOutputError) as excinfo:
@@ -176,7 +179,7 @@ def _entries():
 
 
 def test_debian_install_artifact():
-    arts = Debian().render(_entries())
+    arts = DebianFiles().render(_entries())
     install = arts["install"].decode()
     # Non-directory entries -> "<rel-src> <dest-dir>"
     assert "usr/bin/tool usr/bin" in install
@@ -249,14 +252,14 @@ def _one_entry(path, mode="644", owner="root", group="root"):
     ],
 )
 def test_debian_install_escapes(path, expected):
-    arts = Debian().render(_one_entry(path))
+    arts = DebianFiles().render(_one_entry(path))
     install = arts["install"].decode().strip()
     assert install == expected
 
 
 def test_debian_rejects_control_char():
     with pytest.raises(DumpError):
-        Debian().render(_one_entry("/usr/share/x\ny"))
+        DebianFiles().render(_one_entry("/usr/share/x\ny"))
 
 
 def test_debian_non_utf8_keeps_bytes():
@@ -266,7 +269,7 @@ def test_debian_non_utf8_keeps_bytes():
             {"mode": "644", "owner": "-", "group": "-", "type": "file", "meta": {}},
         )
     ]
-    arts = Debian().render(entries)
+    arts = DebianFiles().render(entries)
     assert b"opt/app/caf\xe9 opt/app\n" in arts["install"]
 
 
@@ -286,7 +289,7 @@ _UNPINNED_FILE = {"mode": "-", "owner": "-", "group": "-", "type": "file", "meta
     ids=["utf8", "plain", "space", "glob", "quote", "backslash"],
 )
 def test_rpmspecfile_quotes(path, expected):
-    line = RpmSpecFiles().render_entry(path, _UNPINNED_FILE)
+    line = RPMSpecFiles().render_entry(path, _UNPINNED_FILE)
     assert line == b"%attr(-,-,-) " + expected + b"\n"
 
 
@@ -297,7 +300,7 @@ def test_rpmspecfile_quotes(path, expected):
 )
 def test_rpmspecfile_rejects(path):
     with pytest.raises(DumpError):
-        RpmSpecFiles().render_entry(path, _UNPINNED_FILE)
+        RPMSpecFiles().render_entry(path, _UNPINNED_FILE)
 
 
 @pytest.mark.parametrize(
@@ -311,7 +314,7 @@ def test_rpmspecfile_rejects(path):
     ids=["plain", "utf8", "dquote", "backslash"],
 )
 def test_rpmspecfiles_pre419_quotes(path, expected):
-    line = RpmSpecFilesPre419().render_entry(path, _UNPINNED_FILE)
+    line = RPMSpecFilesPre419().render_entry(path, _UNPINNED_FILE)
     assert line == b"%attr(-,-,-) " + expected + b"\n"
 
 
@@ -331,12 +334,12 @@ def test_rpmspecfiles_pre419_quotes(path, expected):
 )
 def test_rpmspecfiles_pre419_rejects(path):
     with pytest.raises(DumpError):
-        RpmSpecFilesPre419().render_entry(path, _UNPINNED_FILE)
+        RPMSpecFilesPre419().render_entry(path, _UNPINNED_FILE)
 
 
 def test_rpmspecfile_non_utf8_keeps_bytes():
     entry = {"mode": "-", "owner": "-", "group": "-", "type": "file", "meta": {}}
-    line = RpmSpecFiles().render_entry("/opt/caf\udce9", entry)
+    line = RPMSpecFiles().render_entry("/opt/caf\udce9", entry)
     assert line == b'%attr(-,-,-) "/opt/caf\xe9"\n'
 
 
@@ -344,7 +347,7 @@ def test_rpmspecfile_empty_fields_render_default():
     # An empty mode/owner/group renders as "-" (DEFAULT), not verbatim
     # (rpmbuild rejects "%attr(,-,-)" with "Bad syntax").
     entry = {"mode": "", "owner": "", "group": "", "type": "file", "meta": {}}
-    assert RpmSpecFiles().render_entry("/x", entry) == b'%attr(-,-,-) "/x"\n'
+    assert RPMSpecFiles().render_entry("/x", entry) == b'%attr(-,-,-) "/x"\n'
 
 
 # --------------------------------------------------------------------------
@@ -416,11 +419,11 @@ def test_rpm_render_pinned():
         '%dir %attr(750,root,root) "/usr/share/t/with space"\n'
         '%attr(640,svc,svc) "/opt/app/caf\udce9"\n'
     ).encode("utf-8", "surrogateescape")
-    assert RpmSpecFiles().render(_rpm_corpus_entries()) == expected
+    assert RPMSpecFiles().render(_rpm_corpus_entries()) == expected
 
 
 def test_rpm_render_matches_render_entry():
-    fmt = RpmSpecFiles()
+    fmt = RPMSpecFiles()
     entries = _rpm_corpus_entries()
     assert fmt.render(entries) == b"".join(
         fmt.render_entry(path, entry) for path, entry in entries
@@ -428,8 +431,8 @@ def test_rpm_render_matches_render_entry():
 
 
 def test_rpm_render_empty_list():
-    assert RpmSpecFiles().render([]) == b""
-    assert RpmSpecFilesPre419().render([]) == b""
+    assert RPMSpecFiles().render([]) == b""
+    assert RPMSpecFilesPre419().render([]) == b""
 
 
 def _rpm_pre419_corpus_entries():
@@ -472,11 +475,11 @@ def test_rpm_pre419_render_pinned():
         '%attr(-,-,-) /usr/share/t/quo"te\n'
         "%attr(644,-,-) /usr/share/t/plain\n"
     ).encode("utf-8", "surrogateescape")
-    assert RpmSpecFilesPre419().render(_rpm_pre419_corpus_entries()) == expected
+    assert RPMSpecFilesPre419().render(_rpm_pre419_corpus_entries()) == expected
 
 
 def test_rpm_pre419_render_matches_render_entry():
-    fmt = RpmSpecFilesPre419()
+    fmt = RPMSpecFilesPre419()
     entries = _rpm_pre419_corpus_entries()
     assert fmt.render(entries) == b"".join(
         fmt.render_entry(path, entry) for path, entry in entries
@@ -486,8 +489,8 @@ def test_rpm_pre419_render_matches_render_entry():
 @pytest.mark.parametrize(
     "fmt_cls,bad_paths",
     [
-        (RpmSpecFiles, ["/a\nb", "/100%done"]),
-        (RpmSpecFilesPre419, ["/a\nb", "/star*", "/caf\udce9"]),
+        (RPMSpecFiles, ["/a\nb", "/100%done"]),
+        (RPMSpecFilesPre419, ["/a\nb", "/star*", "/caf\udce9"]),
     ],
     ids=["rpmspecfiles", "rpmspecfiles-pre419"],
 )
@@ -520,7 +523,7 @@ def test_debian_fixperms_skips_empty_fields():
             {"mode": "", "owner": "", "group": "", "type": "file", "meta": {}},
         ),
     ]
-    arts = Debian().render(entries)
+    arts = DebianFiles().render(entries)
     assert arts["fixperms"] == FIXPERMS_HEADER
 
 
@@ -559,7 +562,7 @@ def test_debian_dirs_artifact():
         _dir_entry("/var/lib/sp ace"),
         _dir_entry("/#state"),
     ]
-    arts = Debian().render(entries)
+    arts = DebianFiles().render(entries)
     dirs = arts["dirs"].decode().splitlines()
     assert dirs == ["var/lib/tool", "var/lib/sp${Space}ace", "./#state"]
     # A directory entry is never an install target.
@@ -627,7 +630,7 @@ def _debian_corpus_entries():
 
 
 def test_debian_render_pinned():
-    arts = Debian().render(_debian_corpus_entries())
+    arts = DebianFiles().render(_debian_corpus_entries())
 
     assert arts["install"] == (
         "usr/share/t/star"
@@ -671,7 +674,7 @@ def test_debian_render_matches_entries_rendered_alone():
     # subset one entry at a time, entry by entry, for install/dirs (order
     # preserved) built from a single-entry batch each.
     entries = _debian_corpus_entries()
-    fmt = Debian()
+    fmt = DebianFiles()
     whole = fmt.render(entries)
     install_lines = whole["install"].decode("utf-8", "surrogateescape").splitlines()
     dir_lines = whole["dirs"].decode("utf-8", "surrogateescape").splitlines()
@@ -697,15 +700,15 @@ def test_debian_render_first_error_wins(make_bad, message_fragment):
     bad = make_bad()[0]
     for entries in ([good, bad, good], [bad, good]):
         with pytest.raises(DumpError) as batch_exc:
-            Debian().render(entries)
+            DebianFiles().render(entries)
         with pytest.raises(DumpError) as single_exc:
-            Debian().render([bad])
+            DebianFiles().render([bad])
         assert message_fragment in str(batch_exc.value)
         assert str(batch_exc.value) == str(single_exc.value)
 
 
 def test_debian_render_empty_list():
-    arts = Debian().render([])
+    arts = DebianFiles().render([])
     assert arts["install"] == b""
     assert arts["dirs"] == b""
     assert arts["fixperms"] == (FIXPERMS_HEADER)
@@ -752,7 +755,7 @@ def test_rpm_render_checks_control_once(monkeypatch):
 
     counter = _CountingPattern(dbdump_mod._CONTROL_RE)
     monkeypatch.setattr(dbdump_mod, "_CONTROL_RE", counter)
-    RpmSpecFiles().render(_clean_entries(1000))
+    RPMSpecFiles().render(_clean_entries(1000))
     assert counter.calls == 1
 
 
@@ -761,7 +764,7 @@ def test_debian_render_checks_once(monkeypatch):
 
     control_counter = _CountingPattern(dbdump_mod._CONTROL_RE)
     monkeypatch.setattr(dbdump_mod, "_CONTROL_RE", control_counter)
-    Debian().render(_clean_entries(1000))
+    DebianFiles().render(_clean_entries(1000))
     assert control_counter.calls == 1
 
 
@@ -773,7 +776,7 @@ def test_debian_render_checks_once(monkeypatch):
 def test_debian_fixperms_header_only():
     # No pinned field anywhere -> the fixperms script is just its own
     # header.
-    arts = Debian().render([_dir_entry("/etc/tool")])
+    arts = DebianFiles().render([_dir_entry("/etc/tool")])
     assert arts["fixperms"] == FIXPERMS_HEADER
 
 
@@ -809,7 +812,7 @@ def test_debian_fixperms_bytes():
             },
         ),
     ]
-    arts = Debian().render(entries)
+    arts = DebianFiles().render(entries)
     assert arts["fixperms"] == (
         FIXPERMS_HEADER
         + line("/usr/bin/tool", 'chown -- root:root "$t"; chmod -- 4755 "$t"')
@@ -844,7 +847,7 @@ def test_debian_fixperms_quotes(path, mode, owner, expected):
     entries = [
         (path, {"mode": mode, "owner": owner, "group": "-", "type": "file", "meta": {}})
     ]
-    arts = Debian().render(entries)
+    arts = DebianFiles().render(entries)
     lines = arts["fixperms"].decode("utf-8", "surrogateescape").splitlines()
     assert f"if t=$(p {expected}" in lines
 
@@ -856,13 +859,13 @@ def test_debian_fixperms_non_utf8_keeps_bytes():
             {"mode": "644", "owner": "-", "group": "-", "type": "file", "meta": {}},
         )
     ]
-    arts = Debian().render(entries)
+    arts = DebianFiles().render(entries)
     assert b"'/opt/caf\xe9'" in arts["fixperms"]
 
 
 @pytest.mark.posix
 def test_debian_fixperms_requires_package_dir(tmp_path):
-    arts = Debian().render([_dir_entry("/etc/tool")])
+    arts = DebianFiles().render([_dir_entry("/etc/tool")])
     script = tmp_path / "fixperms"
     script.write_bytes(arts["fixperms"])
     for args in ([], [""]):
@@ -939,7 +942,7 @@ def test_debian_fixperms_script_applies_pins(tmp_path):
         )
     )
 
-    arts = Debian().render(entries)
+    arts = DebianFiles().render(entries)
     script = tmp_path / "fixperms"
     script.write_bytes(arts["fixperms"])
 
@@ -974,7 +977,7 @@ def test_debian_fixperms_follows_gz_and_skips_missing(tmp_path):
         _dir_entry("/usr/local/lib/pf", mode="755"),
     ]
     script = tmp_path / "fixperms"
-    script.write_bytes(Debian().render(entries)["fixperms"])
+    script.write_bytes(DebianFiles().render(entries)["fixperms"])
     result = subprocess.run(
         ["sh", str(script), str(tree)], capture_output=True, text=True
     )
@@ -1127,8 +1130,6 @@ def test_validate_entries_accepts(row):
     ],
 )
 def test_validate_entries_rejects(row, field):
-    from pkgforge.dbdump import InvalidEntryError
-
     with pytest.raises(InvalidEntryError) as excinfo:
         _validate(_row(), row, _row("/opt/also-bad", owner="%"))
     assert field in str(excinfo.value)
@@ -1173,7 +1174,7 @@ def test_dbdump_refuses_invalid_entry(tmp_path, cli, fmt, row):
     assert not out.exists()
 
 
-@pytest.mark.parametrize("fmt", [RpmSpecFiles, RpmSpecFilesPre419])
+@pytest.mark.parametrize("fmt", [RPMSpecFiles, RPMSpecFilesPre419])
 def test_rpm_symlink_pins_no_mode(fmt):
     entry = {**_UNPINNED_FILE, "type": "symlink", "mode": "777", "owner": "root"}
     line = fmt().render_entry("/usr/lib/libx.so", entry)
@@ -1213,7 +1214,7 @@ def test_debian_render_golden_hashes():
     # was simplified to one call per entry: the output must not change.
     import hashlib
 
-    arts = Debian().render(_golden_debian_entries())
+    arts = DebianFiles().render(_golden_debian_entries())
     digests = {
         name: hashlib.sha256(arts[name]).hexdigest()
         for name in ("install", "dirs", "fixperms")
@@ -1256,7 +1257,7 @@ def test_debian_output_untouched_when_a_later_write_fails(tmp_path, monkeypatch)
     _seed_old_outputs(outdir, ["install", "dirs", "fixperms"])
     _fail_on_nth_write(monkeypatch, 2)
     with pytest.raises(OSError):
-        Debian().dump(_one_entry("/opt/a"), outdir)
+        DebianFiles().dump(_one_entry("/opt/a"), outdir)
     assert sorted(p.name for p in outdir.iterdir()) == ["dirs", "fixperms", "install"]
     assert all((outdir / n).read_text() == "old" for n in ("install", "dirs"))
 
@@ -1275,7 +1276,7 @@ def test_debian_output_untouched_when_a_rename_fails(tmp_path, monkeypatch):
 
     monkeypatch.setattr(os, "replace", replace)
     with pytest.raises(OSError):
-        Debian().dump(_one_entry("/opt/a"), outdir)
+        DebianFiles().dump(_one_entry("/opt/a"), outdir)
     assert not [p for p in outdir.iterdir() if p.name.endswith(".pkgforge-tmp")]
 
 
@@ -1284,14 +1285,14 @@ def test_rpm_output_untouched_when_the_write_fails(tmp_path, monkeypatch):
     out.write_text("old")
     _fail_on_nth_write(monkeypatch, 1)
     with pytest.raises(OSError):
-        RpmSpecFiles().dump(_one_entry("/opt/a"), out)
+        RPMSpecFiles().dump(_one_entry("/opt/a"), out)
     assert out.read_text() == "old"
     assert [p.name for p in tmp_path.iterdir()] == ["files.txt"]
 
 
 def test_dump_leaves_no_temp_file_on_success(tmp_path):
     outdir = tmp_path / "debian"
-    Debian().dump(_one_entry("/opt/a"), outdir)
-    RpmSpecFiles().dump(_one_entry("/opt/a"), tmp_path / "files.txt")
+    DebianFiles().dump(_one_entry("/opt/a"), outdir)
+    RPMSpecFiles().dump(_one_entry("/opt/a"), tmp_path / "files.txt")
     assert sorted(p.name for p in outdir.iterdir()) == ["dirs", "fixperms", "install"]
     assert sorted(p.name for p in tmp_path.iterdir()) == ["debian", "files.txt"]

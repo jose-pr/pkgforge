@@ -8,8 +8,9 @@ import sqlite3
 
 import pytest
 
-from pkgforge.db import DbError, SqliteDb, _check_record, open_db
-from pkgforge.db.jsonl import _jsonl_line
+from pkgforge.exceptions import DbError
+from pkgforge.db import SQLiteDb, _check_record, open_db
+from pkgforge.db._jsonl import _jsonl_line
 
 
 def _record(**over):
@@ -114,7 +115,7 @@ def test_yaml_load_rejects_schema_violations(tmp_path):
 
 def _sqlite_rows(path, *rows):
     conn = sqlite3.connect(str(path))
-    conn.execute(SqliteDb._SCHEMA)
+    conn.execute(SQLiteDb._SCHEMA)
     for row in rows:
         conn.execute("INSERT INTO entries VALUES (?, ?, ?, ?, ?, ?, ?)", row)
     conn.commit()

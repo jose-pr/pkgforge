@@ -12,7 +12,7 @@ import sys
 import pytest
 
 from pkgforge.db import open_db
-from pkgforge.db.jsonl import _jsonl_line
+from pkgforge.db._jsonl import _jsonl_line
 
 
 def _stdin_bytes(data: bytes) -> io.TextIOWrapper:

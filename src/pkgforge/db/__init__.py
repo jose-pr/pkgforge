@@ -3,8 +3,8 @@
 A file DB maps a build-relative *path* to a :class:`~pkgforge.entry.FileEntry`
 (or ``None`` for a removed path). pkgforge supports three interchangeable
 storage backends behind one :class:`DbProvider` interface, each in its own
-module: :class:`~pkgforge.db.jsonl.JsonlDb`, :class:`~pkgforge.db.yaml.YamlDb`
-and :class:`~pkgforge.db.sqlite.SqliteDb`.
+module: :class:`~pkgforge.db.JSONLinesDb`, :class:`~pkgforge.db.YAMLDb`
+and :class:`~pkgforge.db.SQLiteDb`.
 
 All three return the **same** ``load()`` shape, so the rest of pkgforge is
 backend-agnostic. Pick a backend with :func:`open_db`: an explicit
@@ -25,22 +25,10 @@ import typing
 from pathlib import Path
 
 from .._registry import Registered
-from ..errors import PkgForgeError
+from ..exceptions import DbError, PkgForgeError
 
 if typing.TYPE_CHECKING:
     from ..entry import FileEntry
-
-
-class DbError(PkgForgeError, ValueError):
-    """A file DB's on-disk content could not be used as one.
-
-    Raised for a parse error, non-UTF-8 bytes, content that is not in the
-    chosen format, a JSON Lines line or YAML top-level document that is not a
-    mapping, or a record that breaks the schema (see :func:`_check_record`).
-    Caught by :func:`pkgforge.main`'s error boundary like any
-    :class:`~pkgforge.errors.PkgForgeError` (one stderr line, exit 1). A
-    :class:`ValueError` because it reports malformed input.
-    """
 
 
 #: A loaded DB: build path -> entry, or ``None`` for a removed path.
@@ -133,7 +121,7 @@ class DbProvider(Registered, abc.ABC):
         still writes (and, for the append-log backends, still locks)
         exactly as it would outside one -- so an existing or third-party
         provider that doesn't override this keeps working unchanged.
-        :class:`~pkgforge.db.sqlite.SqliteDb` overrides it to hold one
+        :class:`~pkgforge.db.SQLiteDb` overrides it to hold one
         connection open across the whole batch and commit periodically
         instead of connecting, creating the schema and committing once per
         call.
@@ -245,18 +233,17 @@ def _check_record(
 # Built-in backends: importing each module registers its provider class.
 # --------------------------------------------------------------------------
 
-from .jsonl import JsonlDb  # noqa: E402
-from .yaml import YamlDb  # noqa: E402
-from .sqlite import SqliteDb  # noqa: E402
+from ._jsonl import JSONLinesDb  # noqa: E402
+from ._yaml import YAMLDb  # noqa: E402
+from ._sqlite import SQLiteDb  # noqa: E402
 
 __all__ = [
-    "Db",
-    "DbError",
-    "DbProvider",
     "DEFAULT_FORMAT",
-    "JsonlDb",
-    "YamlDb",
-    "SqliteDb",
+    "Db",
+    "DbProvider",
+    "JSONLinesDb",
+    "SQLiteDb",
+    "YAMLDb",
     "format_for_suffix",
     "open_db",
 ]

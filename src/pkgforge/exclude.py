@@ -31,23 +31,11 @@ from pathlib import Path, PurePath
 import duho
 
 from .entry import FileEntry, FileType, entry_from_path
-from .errors import UsageError
+from .exceptions import ExcludeSyntaxError
 
-FilterTestRe = re.compile(r"^\(\?([^:()]+):([^()]+)\)")
+__all__ = ["ExcludeArgs", "PathMatch", "PathMatchStmt", "PathTest"]
 
-
-class ExcludeSyntaxError(UsageError, argparse.ArgumentTypeError):
-    """A malformed ``--exclude`` statement: an unknown inline test name, a
-    bad ``(?type:...)``/``(?meta:...)`` argument, or an unterminated
-    ``(?...`` that never closed.
-
-    Subclasses both :class:`~pkgforge.errors.UsageError` (so
-    ``pkgforge.main()``'s error boundary maps it to a clean one-line message
-    and exit 2; it is also a ``ValueError``)
-    and :class:`argparse.ArgumentTypeError` (the only exception type argparse
-    itself reports as a usage error rather than letting escape as a
-    traceback, since ``--exclude`` is parsed through a ``type=`` converter).
-    """
+_FILTER_TEST_RE = re.compile(r"^\(\?([^:()]+):([^()]+)\)")
 
 
 #: Characters escaped inside a translated ``[...]`` class.
@@ -173,7 +161,7 @@ def _glob_regex(pattern: str) -> "re.Pattern[str]":
     return re.compile(prefix + body + r"\Z")
 
 
-def filetypetest(name: str) -> PathTest:
+def _type_test(name: str) -> PathTest:
     try:
         ftype = FileType(name)
     except ValueError:
@@ -183,7 +171,7 @@ def filetypetest(name: str) -> PathTest:
     return lambda _path, e: e["type"] == ftype
 
 
-def metatest(arg: str) -> PathTest:
+def _meta_test(arg: str) -> PathTest:
     if "=" not in arg:
         raise ExcludeSyntaxError(f"meta test needs KEY=VALUE, got {arg!r}")
     k, v = arg.split("=", maxsplit=1)
@@ -204,8 +192,8 @@ class PathTest(typing.Protocol):
 #: Registered inline-test names -> a factory building a :class:`PathTest`
 #: from the test's argument text.
 _TESTS: typing.Dict[str, typing.Callable[[str], PathTest]] = {
-    "type": filetypetest,
-    "meta": metatest,
+    "type": _type_test,
+    "meta": _meta_test,
 }
 
 
@@ -278,7 +266,7 @@ class PathMatchStmt(argparse.Namespace):
             negate = False
 
         while True:
-            test = FilterTestRe.match(pattern)
+            test = _FILTER_TEST_RE.match(pattern)
             if not test:
                 break
             name = test[1]
@@ -292,7 +280,7 @@ class PathMatchStmt(argparse.Namespace):
             pattern = pattern[test.span()[1] :]
 
         if pattern.startswith("(?"):
-            # FilterTestRe stopped matching partway through a "(?...": the
+            # _FILTER_TEST_RE stopped matching partway through a "(?...": the
             # rest would silently become a literal glob that excludes
             # nothing. A leading "(" meant as a literal
             # character is written as the glob class "[(]" instead.
@@ -380,6 +368,15 @@ class PathMatch(typing.List[PathMatchStmt]):
         return _default
 
 
+def _exclude_stmt(text: str) -> PathMatchStmt:
+    """``PathMatchStmt.parse`` for argparse: a bad statement is a usage error
+    (argparse reports only ``ArgumentTypeError`` that way)."""
+    try:
+        return PathMatchStmt.parse(text)
+    except ExcludeSyntaxError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from None
+
+
 class ExcludeArgs(duho.Cmd):
     """Mixin supplying ``--exclude``/``-X`` -- shared by every command that
     filters paths against a :class:`PathMatch` (``install``, ``scan``,
@@ -395,7 +392,7 @@ class ExcludeArgs(duho.Cmd):
     # because passing `help=` to `duho.Append` itself fails at parser build.
     exclude: duho.Arg[
         typing.List[PathMatchStmt],
-        duho.Append(PathMatchStmt.parse, metavar="STMT"),
+        duho.Append(_exclude_stmt, metavar="STMT"),
         duho.Meta(
             help="exclude paths matching STMT (repeatable); "
             "STMT is [!][(?[!]test:arg)...]GLOB; an absolute GLOB is "

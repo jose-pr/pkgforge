@@ -6,10 +6,9 @@ import functools
 import shlex
 import typing
 
-from ..entry import DEFAULT, FileType, _or_default
+from ..entry import DEFAULT, FileEntries, FileType, _or_default
+from ..exceptions import DumpError
 from . import (
-    DumpError,
-    Entries,
     MultiArtifactFormat,
     _has_control,
     _reject_control,
@@ -122,7 +121,7 @@ def _fixperms_line(
     return f"if t=$(p \"$d\"{_sh_word(path)}); then {'; '.join(lines)}; fi"
 
 
-class Debian(MultiArtifactFormat):
+class DebianFiles(MultiArtifactFormat):
     """Debian packaging artifacts built from surviving DB entries:
 
     * ``install`` -- ``dh_install``-style lines ``<src> <dest-dir>`` (the
@@ -149,7 +148,7 @@ class Debian(MultiArtifactFormat):
       skipped. With no pinned entry, the script is just its own header.
 
     A path with a control character raises
-    :class:`~pkgforge.dbdump.DumpError` while the artifacts are built in
+    :class:`~pkgforge.exceptions.DumpError` while the artifacts are built in
     memory; they are written only after :meth:`render` returns, so nothing
     partial is left behind.
     """
@@ -157,7 +156,7 @@ class Debian(MultiArtifactFormat):
     NAME = "debian"
     ALIASES = ("deb",)
 
-    def render(self, entries: Entries) -> typing.Dict[str, bytes]:
+    def render(self, entries: FileEntries) -> typing.Dict[str, bytes]:
         # A control character in a path is the one rule debian adds to the
         # shared entry validation: one batch search, a per-entry pass on a hit.
         resolved = [

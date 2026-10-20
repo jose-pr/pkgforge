@@ -11,7 +11,7 @@ import typing
 from pathlib import Path
 
 from .entry import AUTO, FileEntry, FileType, _file_type, _resolve_stat
-from .errors import PkgForgeError
+from .exceptions import PkgForgeError
 from .exclude import PathMatch
 
 if typing.TYPE_CHECKING:

@@ -19,7 +19,7 @@ from .decompress import _DECOMPRESSORS
 from .transfer import _Transfer, _try_link
 from ..command import _refuse_mcp_stdin
 from ..entry import DEFAULT, FileType
-from ..errors import PkgForgeError, UsageError
+from ..exceptions import PkgForgeError, UsageError
 from ..exclude import PathMatch
 
 

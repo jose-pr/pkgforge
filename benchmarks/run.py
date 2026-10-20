@@ -33,7 +33,7 @@ from pathlib import Path
 
 import pkgforge
 from pkgforge.db import open_db
-from pkgforge.dbdump import Debian, RpmSpecFiles
+from pkgforge.dbdump import DebianFiles, RPMSpecFiles
 from pkgforge.install import Install
 from pkgforge.scan import ScanCmd
 
@@ -133,8 +133,8 @@ def measure():
     db = _make_db(DB_SIZE)
     entries = list(db.items())
 
-    rpm_format = RpmSpecFiles()
-    debian_format = Debian()
+    rpm_format = RPMSpecFiles()
+    debian_format = DebianFiles()
 
     def _render_rpm():
         rpm_format.render(entries)

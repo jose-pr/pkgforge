@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from pkgforge.errors import PkgForgeError
+from pkgforge.exceptions import PkgForgeError
 from pkgforge.install import Install
 from pkgforge.install.archive import BSDTAR_EXTRACT_FLAGS, _extract_bsdtar
 
