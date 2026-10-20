@@ -409,8 +409,9 @@ class Project:
             nothing is written).
 
         Raises:
-            TypeError: ``sources`` is not a sequence of paths, or ``dest`` is
-                not text.
+            TypeError: ``sources`` is not a sequence of paths, ``dest`` is
+                not text, ``type`` is not a :class:`~pkgforge.entry.FileType`,
+                or an ``exclude`` statement is not text.
             UsageError: an argument or a source is unusable, or ``dest``
                 leaves the build root.
             PkgForgeError: staging failed (a missing decompressor or ``bsdtar``,
@@ -430,6 +431,10 @@ class Project:
             )
         if decompress is not None and not isinstance(decompress, str):
             raise TypeError("decompress must be a kind, 'auto' or None")
+        if type is not None and not isinstance(type, FileType):
+            raise TypeError(
+                f"type must be a FileType or None, not {type.__class__.__name__}"
+            )
         stmts = _statements(exclude)
         items = [_source(item) for item in sources]
         if sum(1 for item in items if item == DEFAULT) > 1:

@@ -3,6 +3,7 @@ command line."""
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -10,7 +11,9 @@ import pytest
 from pkgforge import Project
 from pkgforge.db import DbProvider, JSONLinesDb, open_db
 from pkgforge.dbdump import dump
+from pkgforge.entry import FileType
 from pkgforge.exceptions import UsageError
+from pkgforge.exclude import PathMatchStmt
 
 
 @pytest.fixture
@@ -153,3 +156,20 @@ def test_dbdump_dump_renders_an_in_memory_db(tmp_path, make_entry):
     assert dump(db, "rpm", out) == rendered
     assert out.read_bytes() == rendered
     assert dump(db, "rpm", exclude=["/a"]).count(b"%attr") == 1
+
+
+def test_install_takes_a_file_type_only(tmp_path):
+    project = Project(tmp_path)
+    with pytest.raises(TypeError, match="FileType"):
+        project.install([""], "/x", type="directory", into=False)
+    project.install([""], "/x", type=FileType.Directory, into=False)
+    assert (tmp_path / "x").is_dir()
+
+
+def test_exclude_takes_text_only(tmp_path):
+    project = Project(tmp_path)
+    with pytest.raises(TypeError, match="text, not PathMatchStmt"):
+        project.scan("/", exclude=[PathMatchStmt.parse("x")])
+    with pytest.raises(TypeError, match="text, not PathMatchStmt"):
+        project.install([""], "/y", exclude=[PathMatchStmt.parse("x")])
+    assert os.listdir(tmp_path) == []

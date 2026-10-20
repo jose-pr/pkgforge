@@ -245,7 +245,7 @@ class MultiArtifactFormat(DumpFormat):
 
 def _surviving_entries(
     db: typing.Mapping[str, typing.Optional[FileEntry]],
-    exclude: typing.Sequence[typing.Any],
+    exclude: typing.Sequence[str],
 ) -> FileEntries:
     """The live entries of ``db`` that no ``exclude`` statement drops,
     sorted by DB path."""

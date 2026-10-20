@@ -366,14 +366,16 @@ class PathMatch(typing.List[PathMatchStmt]):
         return _default
 
 
-def _statements(
-    exclude: typing.Sequence[typing.Union[str, PathMatchStmt]],
-) -> typing.List[PathMatchStmt]:
-    """``exclude`` as parsed statements: text is parsed (raising
-    :class:`~pkgforge.exceptions.ExcludeSyntaxError`), a statement is kept."""
+def _statements(exclude: typing.Sequence[str]) -> typing.List[PathMatchStmt]:
+    """``exclude`` as parsed statements (raising
+    :class:`~pkgforge.exceptions.ExcludeSyntaxError` for a bad one)."""
     if isinstance(exclude, (str, bytes)):
         raise TypeError("exclude must be a sequence of statements, not one string")
-    return [
-        stmt if isinstance(stmt, PathMatchStmt) else PathMatchStmt.parse(stmt)
-        for stmt in exclude
-    ]
+    stmts: typing.List[PathMatchStmt] = []
+    for item in exclude:
+        if not isinstance(item, str):
+            raise TypeError(
+                f"exclude statements must be text, not {item.__class__.__name__}"
+            )
+        stmts.append(PathMatchStmt.parse(item))
+    return stmts

@@ -157,7 +157,7 @@ class Install(EntryArgs, ExcludeArgs, ProjectCmd):
             mode=self.mode,
             owner=self.owner,
             group=self.group,
-            type=self.type,
+            type=None if _is_auto(self.type) else _filetype(self.type),
             meta=self.meta,
             into=not self.no_target_directory,
             parents=self.parents,

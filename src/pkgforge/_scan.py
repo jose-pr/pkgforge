@@ -37,7 +37,7 @@ def scan(
     dir_mode: typing.Optional[str],
     missing: bool,
     drop_stale: bool,
-    exclude: typing.Sequence[typing.Any],
+    exclude: typing.Sequence[str],
 ) -> FileRecords:
     """Record every path below ``path`` (a DB path); see
     :meth:`pkgforge.project.Project.scan`."""
