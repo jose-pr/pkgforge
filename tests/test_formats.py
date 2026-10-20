@@ -10,7 +10,6 @@ import subprocess
 import tarfile
 
 import pytest
-import yaml
 
 from conftest import skip_if_fs_rejects_non_utf8
 from pkgforge.exceptions import (
@@ -1030,10 +1029,10 @@ def test_dbdump_sorts_by_path(tmp_path, fmt):
     assert order == ["/a", "/m", "/z"]
 
 
-def test_dbdump_debian_writes_directory(tmp_path):
+def test_dbdump_debian_writes_directory(tmp_path, yaml_module):
     db = tmp_path / "files.yaml"
     db.write_text(
-        yaml.safe_dump(
+        yaml_module.safe_dump(
             {
                 "/usr/bin/tool": {
                     "mode": "755",

@@ -12,7 +12,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 export PKGFORGE_ROOT="$work/stage"
-export PKGFORGE_DB="$work/files.yaml"
+export PKGFORGE_DB="$work/files.jsonl"
 mkdir -p "$PKGFORGE_ROOT" "$work/src/share"
 
 # A tiny source tree to stage.

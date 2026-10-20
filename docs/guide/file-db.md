@@ -9,7 +9,7 @@ of which is used, because they all load to the same shape.
 | Format | Extensions | Model |
 | --- | --- | --- |
 | `jsonl` (default) | `.jsonl`, `.ndjson` | append-only JSON Lines, last record per path wins |
-| `yaml` | `.yaml`, `.yml` | append-only YAML: a single mapping, appended key by key; last duplicate key wins |
+| `yaml` | `.yaml`, `.yml` | append-only YAML: a single mapping, appended key by key; last duplicate key wins; needs `pip install 'pkgforge[yaml]'` |
 | `sqlite` | `.db`, `.sqlite`, `.sqlite3` | a real SQLite store, upserted in place |
 
 The backend is `--db-format` (or `PKGFORGE_DB_FORMAT`) when given, else the

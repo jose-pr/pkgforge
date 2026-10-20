@@ -68,6 +68,12 @@ def pytest_collection_modifyitems(config: pytest.Config, items) -> None:
             item.add_marker(skip_posix)
 
 
+@pytest.fixture
+def yaml_module():
+    """PyYAML, or a skip: it is the optional ``yaml`` extra."""
+    return pytest.importorskip("yaml")
+
+
 @pytest.fixture(autouse=True)
 def _isolated_env(monkeypatch: pytest.MonkeyPatch):
     """Scrub ``SCRUBBED_ENV`` around every test."""

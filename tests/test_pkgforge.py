@@ -14,7 +14,6 @@ import re
 from pathlib import Path
 
 import pytest
-import yaml
 
 from pkgforge.entry import (
     AUTO,
@@ -678,12 +677,12 @@ def test_rpmspecfile_rpmprefix_meta():
     assert line.startswith(b"%config(noreplace) %attr(")
 
 
-def test_dbdump_writes_manifest(tmp_path):
+def test_dbdump_writes_manifest(tmp_path, yaml_module):
     from pkgforge.cli.dbdump import DbDump
 
     db = tmp_path / "files.yaml"
     db.write_text(
-        yaml.safe_dump(
+        yaml_module.safe_dump(
             {
                 "/usr/bin/x": {
                     "mode": "755",

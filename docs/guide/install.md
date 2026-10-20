@@ -2,13 +2,16 @@
 
 ```bash
 pip install pkgforge
+pip install 'pkgforge[yaml]'   # adds the YAML DB backend
 ```
 
-pkgforge requires **Python 3.9+**. Its runtime dependencies, as declared in
-`pyproject.toml`, are [duho](https://pypi.org/project/duho/)`>=0.7.5,<0.8`
-(the CLI framework) and [PyYAML](https://pypi.org/project/pyyaml/)`>=6.0,<7`
-(for the `yaml` DB backend; JSON Lines, the default backend, needs no
-third-party parser).
+pkgforge requires **Python 3.9+**. Its one runtime dependency, as declared in
+`pyproject.toml`, is [duho](https://pypi.org/project/duho/)`>=0.7.7,<0.8`
+(the CLI framework). The `yaml` extra adds
+[PyYAML](https://pypi.org/project/pyyaml/)`>=6.0,<7`, which the `yaml` DB
+backend needs; without it, `--db-format yaml` (or a `.yaml` `--db`) exits 1 with
+a message naming the extra. JSON Lines, the default backend, and SQLite need
+no third-party parser.
 
 ## Platform support
 

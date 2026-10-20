@@ -20,6 +20,7 @@ permissioned, and emit that record for the packager.
 
 ```sh
 pip install pkgforge
+pip install 'pkgforge[yaml]'   # also the YAML DB backend (PyYAML)
 ```
 
 Requires Python 3.9+. Runtime operations use POSIX facilities (`chmod`, `chown`,
@@ -99,7 +100,7 @@ regardless of which is used:
 | Format | Extensions | Model |
 | --- | --- | --- |
 | `jsonl` (default) | `.jsonl`, `.ndjson` | append-only JSON Lines |
-| `yaml` | `.yaml`, `.yml` | append-only YAML |
+| `yaml` | `.yaml`, `.yml` | append-only YAML (needs `pip install 'pkgforge[yaml]'`) |
 | `sqlite` | `.db`, `.sqlite`, `.sqlite3` | SQLite store, upserted in place |
 
 The backend is picked from the `--db` extension (override with `--db-format`);

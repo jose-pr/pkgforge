@@ -33,6 +33,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stores.
 
 ### Changed
+- PyYAML is now the optional `yaml` extra instead of a core dependency. The
+  `jsonl` and `sqlite` backends need nothing extra; to use the `yaml` backend
+  run `pip install 'pkgforge[yaml]'`. Without it a `yaml` DB exits 1 with a
+  message naming the extra.
 - `DbProvider.compact()` is documented to drop the tombstones of removed
   paths (the built-in backends already did): a third-party `compact` that kept
   them fails the contract suite.

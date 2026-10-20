@@ -11,7 +11,6 @@ import time
 from pathlib import Path
 
 import pytest
-import yaml
 
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 
@@ -27,6 +26,14 @@ from pkgforge.db import (
 )
 
 ALL_FORMATS = ["jsonl", "yaml", "sqlite"]
+
+
+def _has_libyaml() -> bool:
+    try:
+        import yaml
+    except ImportError:
+        return False
+    return bool(getattr(yaml, "__with_libyaml__", False))
 
 
 # --------------------------------------------------------------------------
@@ -159,6 +166,30 @@ def test_import_without_sqlite3_or_yaml(tmp_path):
     assert "OK" in result.stdout.splitlines()
 
 
+def test_yaml_extra_missing_names_the_extra(tmp_path):
+    # PyYAML is the optional ``yaml`` extra: hidden, the package imports, the
+    # jsonl backend works and the yaml backend fails naming the extra.
+    script = (
+        "import os, sys\n"
+        "sys.modules['yaml'] = None\n"
+        "import pkgforge\n"
+        "from pkgforge.cli import main\n"
+        "os.chdir(sys.argv[1])\n"
+        "print('jsonl', main(['--db', 'x.jsonl', 'initdb']) or 0)\n"
+        "print('yaml', main(['--db', 'x.yaml', 'initdb']))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path)],
+        env={**os.environ, "PYTHONPATH": str(SRC_DIR)},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == ["jsonl 0", "yaml 1"]
+    assert "pip install 'pkgforge[yaml]'" in result.stderr
+    assert (tmp_path / "x.jsonl").exists()
+
+
 @pytest.mark.parametrize(
     "block, ext, fmt, action",
     [
@@ -207,7 +238,8 @@ def test_missing_backend_module_is_one_line_error(tmp_path, block, ext, fmt, act
 # --------------------------------------------------------------------------
 
 
-def test_yaml_uses_libyaml_when_available():
+def test_yaml_uses_libyaml_when_available(yaml_module):
+    yaml = yaml_module
     if not getattr(yaml, "__with_libyaml__", False):
         pytest.skip("PyYAML installed without libyaml (no CSafeLoader/CSafeDumper)")
 
@@ -230,13 +262,14 @@ def test_yaml_uses_libyaml_when_available():
         pytest.param(
             "c",
             marks=pytest.mark.skipif(
-                not getattr(yaml, "__with_libyaml__", False),
+                not _has_libyaml(),
                 reason="PyYAML installed without libyaml",
             ),
         ),
     ],
 )
-def test_yaml_loader_parity(tmp_path, monkeypatch, make_entry, which):
+def test_yaml_loader_parity(tmp_path, monkeypatch, make_entry, which, yaml_module):
+    yaml = yaml_module
     # Whichever loader/dumper _yaml_io() picks, behavior (last-wins,
     # tombstones) and the exact bytes compact() writes must be unchanged.
     import pkgforge.db._yaml as db_yaml
@@ -317,20 +350,22 @@ def test_sqlite_upserts_in_place_no_duplicate_rows(tmp_path, make_entry):
     assert count == 1  # upserted, not appended
 
 
-def test_yaml_reads_legacy_written_db(tmp_path, make_entry):
+def test_yaml_reads_legacy_written_db(tmp_path, make_entry, yaml_module):
     # A hand-written legacy YAML mapping still loads via the yaml provider.
     path = tmp_path / "legacy.yaml"
     path.write_text(
-        yaml.safe_dump({"/usr/bin/x": make_entry(mode="755"), "/gone": None})
+        yaml_module.safe_dump({"/usr/bin/x": make_entry(mode="755"), "/gone": None})
     )
     db = open_db(path).load()
     assert db["/usr/bin/x"]["mode"] == "755"
     assert db["/gone"] is None
 
 
-def test_yaml_content_under_a_jsonl_suffix_fails_to_load(tmp_path, make_entry):
+def test_yaml_content_under_a_jsonl_suffix_fails_to_load(
+    tmp_path, make_entry, yaml_module
+):
     path = tmp_path / "legacy.jsonl"
-    path.write_text(yaml.safe_dump({"/old": make_entry(mode="755")}))
+    path.write_text(yaml_module.safe_dump({"/old": make_entry(mode="755")}))
 
     with pytest.raises(DbError, match="legacy.jsonl.*--db-format"):
         open_db(path).load()

@@ -333,7 +333,9 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   `import pkgforge`, `--help` and the `jsonl` backend all work on an
   interpreter that lacks one of them. Actually using the `sqlite`/`yaml`
   backend on such an interpreter raises `PkgForgeError` naming the missing
-  module, instead of a bare `ImportError`. `_yaml_io()` prefers PyYAML's
+  module, instead of a bare `ImportError`; for `yaml` the message is
+  `pip install 'pkgforge[yaml]'`, since PyYAML is the optional `yaml` extra
+  and not a core dependency. `_yaml_io()` prefers PyYAML's
   libyaml-backed `CSafeLoader`/`CSafeDumper` over the pure-Python
   `SafeLoader`/`SafeDumper` when the installed build has them (several
   times faster; the on-disk format and duplicate-key last-wins behavior

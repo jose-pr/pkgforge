@@ -101,6 +101,28 @@ def check_shipped_files(cwd: str) -> None:
     print("ok shipped_files")
 
 
+def check_bare_install(cwd: str) -> None:
+    import importlib.util
+
+    if importlib.util.find_spec("yaml") is not None:
+        print("ok bare_install (skipped: PyYAML installed)")
+        return
+    script = str(_console_script())
+    jsonl = subprocess.run(
+        [script, "--db", "x.jsonl", "initdb"], cwd=cwd, capture_output=True, text=True
+    )
+    if jsonl.returncode != 0:
+        raise AssertionError(f"jsonl initdb rc={jsonl.returncode}: {jsonl.stderr!r}")
+    yaml = subprocess.run(
+        [script, "--db", "x.yaml", "initdb"], cwd=cwd, capture_output=True, text=True
+    )
+    if yaml.returncode != 1 or "pkgforge[yaml]" not in yaml.stderr:
+        raise AssertionError(
+            f"yaml initdb without PyYAML: rc={yaml.returncode} {yaml.stderr!r}"
+        )
+    print("ok bare_install")
+
+
 def check_example(cwd: str) -> None:
     if os.name != "posix" or which("bash") is None:
         print("ok example (skipped: requires POSIX + bash)")
@@ -130,6 +152,7 @@ def main() -> int:
             check_help,
             check_completion,
             check_shipped_files,
+            check_bare_install,
             check_example,
         ):
             try:

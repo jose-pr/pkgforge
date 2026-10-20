@@ -79,8 +79,7 @@ def _yaml_io() -> typing.Tuple[type, type]:
         from ..exceptions import PkgForgeError
 
         raise PkgForgeError(
-            "the yaml DB backend needs PyYAML, which is not installed; "
-            "use --db-format jsonl or sqlite"
+            "the yaml DB backend needs PyYAML: pip install 'pkgforge[yaml]'"
         ) from exc
     base_loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
     dumper = getattr(yaml, "CSafeDumper", yaml.SafeDumper)
@@ -131,6 +130,12 @@ class YAMLDb(AppendLogDb):
 
     NAME = "yaml"
     SUFFIXES = (".yaml", ".yml")
+
+    def init(self) -> None:
+        # An empty file needs no parser, but a DB this install cannot read
+        # back should not be created.
+        _yaml_io()
+        super().init()
 
     def load(self) -> Db:
         if not self.path.exists():
