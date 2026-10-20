@@ -29,10 +29,7 @@ UNATTENDED = ROOT / "docs" / "guide" / "unattended.md"
 COMMANDS = ROOT / "docs" / "guide" / "commands.md"
 HEADER = ROOT / "src" / "pkgforge" / "AGENTS.md"
 
-# Pages this plan maintains and keeps parseable; docs/guide/exclude.md is
-# deliberately excluded -- its anchoring examples include partial `-X`
-# illustrations (e.g. a `dbdump` line with no `-f`) that were never meant to
-# be complete, runnable invocations.
+# Pages whose `pkgforge ...` examples must parse.
 DOC_PAGES = [
     README,
     INDEX,
@@ -41,6 +38,7 @@ DOC_PAGES = [
     UNATTENDED,
     ROOT / "docs" / "guide" / "file-db.md",
     ROOT / "docs" / "guide" / "formats.md",
+    ROOT / "docs" / "guide" / "exclude.md",
 ]
 
 _CUT_TOKENS = {"|", ">", "<", ";", "&&"}

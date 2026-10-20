@@ -67,7 +67,7 @@ pkgforge install [options] SOURCE... DESTINATION
 | `-T, --no-target-directory` | treat DESTINATION as the final path, not a directory (else, for an extracted archive, its archive suffix -- `.tar`, `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz2`/`.tbz`, `.tar.xz`/`.txz`, `.iso`, `.zip`, matched case-insensitively -- is dropped from the destination name; a directory source keeps its own name unchanged) |
 | `-D` | shortcut for `-Tp` |
 | `-x, --decompress [KIND]` | decompress the source (`gz`, `xz`, `bz2`, `zst`, `lzma`, or a decompressor tool name such as `gunzip`/`unxz`, matched case-insensitively; inferred from the suffix if KIND is omitted) |
-| `-X, --exclude PATTERN` | exclude matches (against the install path): pruned from a directory source's copy, or from an archive source's extracted members and directories before anything is merged onto DESTINATION; with only file or symlink sources, logs a warning (nothing to filter) |
+| `-X, --exclude PATTERN` | exclude matches (an absolute pattern is relative to each SRC): pruned from a directory source's copy, or from an archive source's extracted members and directories before anything is merged onto DESTINATION; with only file or symlink sources, logs a warning (nothing to filter) |
 | `--method {copy,link,move}` (env `PKGFORGE_INSTALL_METHOD`) | how to stage a file or directory source; `copy` (default) is the only method that leaves the source completely untouched |
 | `--record-tree` (env `PKGFORGE_INSTALL_RECORD_TREE`) | after installing a directory or archive DESTINATION, also record every path below it not already in the DB: owner/group/meta from this install, mode and type from disk (symlinks `-`), honouring `-X`; ignored for a file/symlink source, and a no-op under `--noentry` |
 | `--chown` | apply the recorded owner/group (off by default); an unknown owner/group name exits 2 before anything is staged (a recorded-only name, without `--chown`, is never resolved) |
@@ -173,8 +173,8 @@ replaces a stale entry at each member's path instead of failing.
 With `-X/--exclude`, every member is extracted into a temporary directory
 first (as it always is), then a matched file, symlink, or directory (with
 its whole subtree) is removed there before anything is merged or moved
-onto DESTINATION -- the same `-X` statements and install-path matching a
-directory install's own copy uses. The extraction policy above still
+onto DESTINATION -- the same `-X` statements a directory install's own copy uses, with
+an absolute pattern relative to the archive's member root. The extraction policy above still
 applies to every member first: an archive holding a device node, FIFO or
 socket is refused (exit 1) even when `-X` matches it, since a device node
 or FIFO on disk is never how the exclusion is expressed.
@@ -201,7 +201,7 @@ pkgforge scan [-m MODE] [--dir-mode MODE] [-o OWNER] [-g GROUP] [-O KEY=VALUE]..
 | `-O, --meta KEY=VALUE` | recorded on every entry (file, directory or symlink), same as `-m`/`-o`/`-g` (repeatable) |
 | `--missing` | only fill in entries absent from the DB, leaving existing ones (e.g. ones `install` already recorded) untouched -- without it, scan replaces them. A path whose entry was previously removed (e.g. by `--drop-stale`) is treated as absent and re-added if the file is still (or again) on disk; use `-X` to keep such a path out for good |
 | `--drop-stale` | after scanning, remove (tombstone) each DB entry below PATH whose file is no longer on disk, so `dbdump` stops listing it. An entry matching `-X` is kept even if its file is gone (protects a deliberately-absent entry, e.g. an RPM `%ghost`). Needs a real `--db` file (exits 2 for an unset or `-` DB); never touches disk, only the DB |
-| `-X, --exclude PATTERN` | skip paths matching the install path and prune an excluded directory's subtree (nothing below it is walked or recorded), the same as `install`; also protects a matching entry from `--drop-stale` |
+| `-X, --exclude PATTERN` | skip paths matching (an absolute pattern is relative to PATH) and prune an excluded directory's subtree (nothing below it is walked or recorded), the same as `install`; also protects a matching entry from `--drop-stale` |
 
 `scan` always records each entry's type from the file on disk; it accepts
 `-t/--type` for symmetry with `install`, but the option is hidden from

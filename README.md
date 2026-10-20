@@ -170,11 +170,13 @@ tests, and a trailing glob:
 
 Tests are `(?type:file|directory|symlink)` and `(?meta:key=value)`; prefix a test
 name with `!` (`(?!type:file)`) to invert just that test. `**` recurses (a
-trailing `**` means "the contents of this directory"); an absolute pattern
-anchors at the *install path* — the `/`-rooted path an entry has (`dbdump`)
-or will have (`install`/`scan`) in the file DB — the same coordinate on
-every command. `install`/`scan` prune an excluded directory's subtree, while
-`dbdump` decides entry by entry on its flat key list. See the
+trailing `**` means "the contents of this directory"). Patterns name the input,
+like `tar --exclude`: on `install` an absolute pattern is relative to each
+source (`install -X /tmp ./build /opt/app` excludes `./build/tmp`; an
+archive's members count as the source), on `scan` to PATH, and on `dbdump` it
+is the DB path; a pattern without a leading `/` matches at any depth.
+`install`/`scan` prune an excluded directory's subtree, while `dbdump`
+decides entry by entry on its flat key list. See the
 [exclude grammar guide](https://jose-pr.github.io/pkgforge/guide/exclude/)
 for the full grammar and worked examples.
 
