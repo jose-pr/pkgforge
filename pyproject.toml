@@ -59,7 +59,7 @@ exclude = ["*.local.*", "CLAUDE*"]
 "README.md" = "pkgforge/README.md"
 
 [tool.hatch.build.targets.sdist]
-exclude = ["/.*", "/benchmarks", "*.local.*", "CLAUDE*"]
+exclude = ["/.*", "/AGENTS.md", "/benchmarks", "*.local.*", "CLAUDE*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

@@ -65,10 +65,10 @@ jobs:
           - os: macos-latest
             python-version: "3.14"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.ref }}
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install libarchive-tools (bsdtar) on Linux
@@ -90,10 +90,10 @@ jobs:
     name: Test at the declared dependency floors
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.ref }}
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.9"
       - name: Install libarchive-tools (bsdtar) on Linux
@@ -137,7 +137,7 @@ jobs:
     runs-on: ubuntu-latest
     container: python:3.9-bullseye
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.ref }}
       - name: Confirm the container's glibc is below 2.32
@@ -164,10 +164,10 @@ jobs:
     name: Check formatting (black)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.ref }}
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Install package with dev extras
@@ -186,10 +186,10 @@ jobs:
       matrix:
         python-version: ["3.9", "3.14"]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.ref }}
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install build tooling
@@ -232,7 +232,7 @@ jobs:
             python: python3.9
             packages: "rpm-build python39 python39-pip"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.ref }}
       - name: Install rpmbuild and python
@@ -254,10 +254,10 @@ jobs:
     name: Consumer test (rpmbuild, ubuntu)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.ref }}
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Install rpmbuild
@@ -273,10 +273,10 @@ jobs:
     name: Consumer test (dh_install, ubuntu)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.ref }}
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Install debhelper
@@ -311,7 +311,7 @@ jobs:
             packages: "rpm-build python39 python39-pip"
             python: python3.9
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.ref }}
       - name: Install rpmbuild and python
@@ -325,7 +325,7 @@ jobs:
           /tmp/venv/bin/pip install -e .
       - name: Run the rpm quoting probe
         run: /tmp/venv/bin/python tests/rpm_probe.py --label ${{ matrix.label }} --out-dir /tmp/probe
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: rpm-probe-${{ matrix.label }}
@@ -336,10 +336,10 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' && inputs.rpm_probe
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.ref }}
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Install rpmbuild
@@ -350,7 +350,7 @@ jobs:
         run: python -m pip install -e .
       - name: Run the rpm quoting probe
         run: python tests/rpm_probe.py --label ubuntu --out-dir "$RUNNER_TEMP/probe"
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: rpm-probe-ubuntu
@@ -369,10 +369,10 @@ jobs:
       matrix:
         python-version: ["3.9", "3.14"]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.ref }}
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install package
@@ -380,7 +380,7 @@ jobs:
       - name: Run benchmarks
         run: python benchmarks/run.py --save --name "pkgforge-ci-py${{ matrix.python-version }}"
       - name: Upload benchmark result
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: benchmark-py${{ matrix.python-version }}
           path: benchmarks/results/*.json
@@ -391,10 +391,10 @@ jobs:
     name: Build documentation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.ref }}
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.x"
       - name: Install package with docs tooling
