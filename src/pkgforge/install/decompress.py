@@ -19,20 +19,6 @@ _DECOMPRESSORS: typing.Dict[str, typing.Tuple[typing.List[str], str]] = {
     "zst": (["zstd", "-dcq"], ".zst"),
     "lzma": (["xz", "--format=lzma", "-dc"], ".lzma"),
 }
-#: Decompressor tool name -> canonical kind key in :data:`_DECOMPRESSORS`, so
-#: ``-x gunzip``/``-x unxz``/etc keep working as aliases for the kind.
-_KIND_ALIASES: typing.Dict[str, str] = {
-    "gzip": "gz",
-    "gunzip": "gz",
-    "xz": "xz",
-    "unxz": "xz",
-    "bzip2": "bz2",
-    "bunzip2": "bz2",
-    "zstd": "zst",
-    "unzstd": "zst",
-    "lzma": "lzma",
-    "unlzma": "lzma",
-}
 #: Canonical suffix (lowercased) -> kind key, for inferring KIND from a bare
 #: ``-x``'s source suffix.
 _SUFFIX_TO_KIND: typing.Dict[str, str] = {
@@ -41,14 +27,13 @@ _SUFFIX_TO_KIND: typing.Dict[str, str] = {
 
 
 def _resolve_kind(kind: str) -> str:
-    """Resolve a ``--decompress`` value (a kind or a decompressor tool name,
-    matched case-insensitively) to a canonical key in :data:`_DECOMPRESSORS`.
+    """Resolve a ``--decompress`` kind (matched case-insensitively) to its key in
+    :data:`_DECOMPRESSORS`.
 
     Raises :class:`UsageError` for anything else -- never falls back to
     running the value as an arbitrary command.
     """
     key = kind.lower()
-    key = _KIND_ALIASES.get(key, key)
     if key not in _DECOMPRESSORS:
         raise UsageError(
             f"unknown compression kind {kind!r}; use one of "

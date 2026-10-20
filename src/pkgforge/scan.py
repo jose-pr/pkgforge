@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import os
 import typing
 from pathlib import Path
@@ -14,10 +13,9 @@ from .entry import (
     AUTO,
     DEFAULT,
     FileType,
-    FileEntryArgs,
+    FileEntryBaseArgs,
     entry_from_args,
     normalize_mode,
-    _parse_filetype,
     _parse_mode,
 )
 from ._tree import TreeRecorder
@@ -25,23 +23,15 @@ from .command import PkgForgeCmd
 from .exclude import ExcludeArgs, PathMatch
 
 
-class ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
+class ScanCmd(FileEntryBaseArgs, ExcludeArgs, PkgForgeCmd):
     """Scan a path under the build root and record each file's entry in the DB.
 
-    ``--type/-t`` is hidden from ``--help`` and, unlike ``install``, never
-    applied: scan always records each path's own on-disk type (a single type
-    stamped over a whole tree would be nonsense). An explicit value logs a
-    warning instead of silently doing nothing.
+    Each path is recorded with its own on-disk type, so there is no --type.
     """
 
     _parsername_ = "scan"
     _logger_name_ = "pkgforge.scan"
 
-    type: duho.Arg[
-        typing.Optional[FileType],
-        duho.Meta(type=_parse_filetype, help=argparse.SUPPRESS),
-    ] = None
-    ("--type", "-t")
     missing: bool = False
     "only record entries absent from the DB, leaving existing ones untouched"
     ("--missing",)
@@ -67,10 +57,6 @@ class ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd):
     def __call__(self):
         if self.drop_stale and self._no_file_db():
             raise UsageError("--drop-stale needs a --db file (not unset or '-')")
-        if self.type not in (None, AUTO):
-            self._logger_.warning(
-                "scan records each path's on-disk type; --type is ignored"
-            )
         # follow_final=False (unlike install's DESTINATION): the leaf is
         # never followed here, only realpath(parent) is checked, so a
         # symlink PATH pointing at a directory outside the root is recorded

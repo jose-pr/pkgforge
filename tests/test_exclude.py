@@ -57,14 +57,14 @@ def test_exclude_option_shape(clsname, rest):
     assert len(parsed.exclude) == 2
 
 
-def test_pathtest_factory_alias():
-    # PathTest.GENERATORS/.factory stay as back-compat aliases after moving
-    # the registry off the Protocol body.
-    from pkgforge.exclude import PathTest
+def test_make_test_builds_and_inverts():
+    from pkgforge.exclude import _make_test
 
-    test = PathTest.factory("type", "file", False)
+    test = _make_test("type", "file", False)
     assert test(Path("/a"), {"type": "file", "meta": {}}) is True
     assert test(Path("/a"), {"type": "directory", "meta": {}}) is False
+    inverse = _make_test("type", "file", True)
+    assert inverse(Path("/a"), {"type": "file", "meta": {}}) is False
 
 
 # --------------------------------------------------------------------------

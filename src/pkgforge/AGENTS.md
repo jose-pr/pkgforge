@@ -58,8 +58,7 @@ tool's last stderr line.
 
 ## File entries (`entry.py`)
 
-- **`FileType(str, enum.Enum)`** — `File`, `Directory`, `Symlink`. Sentinel
-  member `_AUTO = "--"` means "determine from the file on disk".
+- **`FileType(str, enum.Enum)`** — `File`, `Directory`, `Symlink`. 
   `FileType.from_path(path) -> FileType` inspects a real path (raises
   `TypeError` if it's none of the three — missing or a special file such as
   a FIFO or socket).
@@ -67,12 +66,7 @@ tool's last stderr line.
   **string**, e.g. `"644"`, not a raw `st_mode` int), `owner`, `group`,
   `type`, `meta: dict[str, str]`. A `FileEntry` value is a **plain dict** at
   runtime (it is a `TypedDict`), so it carries no methods of its own; use the
-  module functions below. For back-compat, `FileEntry.from_args`,
-  `FileEntry.from_path`, `FileEntry.resolve_for` and `FileEntry.apply` remain
-  as aliases for those functions, called **unbound** through the class
-  (`FileEntry.resolve_for(entry, path, ...)`, `FileEntry.apply(entry, path,
-  ...)`) — never `entry.resolve_for(...)`/`entry.apply(...)`, which raise
-  `AttributeError` on a plain dict.
+  module functions below.
   - **`entry_from_args(args: FileEntryArgs, **overwrite) -> FileEntry`** —
     build from a parsed CLI mixin. `type` is converted via `FileType` only
     when `overwrite` does not itself supply `type`. `mode` is normalized via
@@ -117,16 +111,18 @@ tool's last stderr line.
     (`"0644"` -> `"644"`). Anything else raises `UsageError`. `auto` is a
     mode-only alias — `owner`/`group` get none, since `auto` can be a real
     account name.
-- **`FileEntryArgs(duho.Cmd)`** — CLI mixin supplying `--mode/-m` (validated
+- **`FileEntryBaseArgs(duho.Cmd)`** — CLI mixin supplying `--mode/-m` (validated
   at parse time: 1-4 octal digits, `-`, `--` or `auto`; an explicit empty
   value exits 2; normalized, so `0644` is stored as `644`), `--group/-g`,
   `--owner/-o` (each default `"-"`; validated at parse time like
-  `normalize_name`: an account name, `-` or `--`, else exit 2), `--type/-t`
+  `normalize_name`: an account name, `-` or `--`, else exit 2) and
+  `-O/--meta KEY=VALUE` (repeatable, merges into a `dict[str, str]`; a value
+  missing `=` exits 2 with `expected KEY=VALUE, got '...'`).
+- **`FileEntryArgs(FileEntryBaseArgs)`** — adds `--type/-t`
   (`Optional[FileType]`, default `None`; validated at parse time: `file`,
   `directory` or `symlink` in any case, or `-`/`--` for the sentinels;
-  anything else, including `auto`/`_AUTO`, exits 2), `-O/--meta KEY=VALUE`
-  (repeatable, merges into a `dict[str, str]`; a value missing `=` exits 2
-  with `expected KEY=VALUE, got '...'`).
+  anything else, including `auto`, exits 2). `install` uses it; `scan` uses
+  the base, so it has no `--type`.
 - **`AUTO = "--"`** / **`DEFAULT = "-"`** — module-level sentinels: `AUTO`
   means "resolve from the file on disk" (used by `resolve_for`); `DEFAULT`
   means "leave at the OS/system default, do not set explicitly" (used by
@@ -342,7 +338,7 @@ tool's last stderr line.
   exactly as given. `.match(path, entry=None, _default=None, **overrides) ->
   bool | None` builds ONE candidate string for the call, then evaluates
   statements in order against it, first non-`None` result wins. The entry is
-  derived lazily via `FileEntry.from_path`, at most once, and only for a
+  derived lazily via `entry_from_path`, at most once, and only for a
   statement whose glob already matched and that actually has inline tests --
   a glob-only statement never lstats, types or does a pwd/grp lookup on the
   path, so `-X '*.fifo'` excludes a FIFO or socket instead of raising for
@@ -512,7 +508,7 @@ above).
   stage a source (file / directory / symlink / tar-family archive /
   decompress-on-copy) into the build root, apply mode/ownership, and record
   the entry. `-D` = `-Tp` shortcut, `-d` = `--type directory` shortcut.
-  `--type=--` (or the Python API's `FileType._AUTO`) auto-detects from the
+  `--type=--` auto-detects from the
   source, same as leaving `-t` unset. Without `-T`, an extracted archive
   lands at `DESTINATION/<name minus its archive suffix>` (`.tar`,
   `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz2`/`.tbz`, `.tar.xz`/`.txz`, `.iso`,
@@ -520,9 +516,8 @@ above).
   tar variant with no fixed entry, e.g. `.tar.zst`, falls back to cutting
   at the last `tar`/`iso` dot-segment); a directory source keeps its own
   name unchanged (`conf.tar.d` stays `conf.tar.d`).
-  `-x`/`--decompress [KIND]` accepts `gz`, `xz`, `bz2`, `zst`, `lzma` or a
-  decompressor tool name (`gzip`/`gunzip`, `xz`/`unxz`, `bzip2`/`bunzip2`,
-  `zstd`/`unzstd`, `lzma`/`unlzma`), matched case-insensitively; any other
+  `-x`/`--decompress [KIND]` accepts `gz`, `xz`, `bz2`, `zst`, `lzma`
+  (matched case-insensitively; a tool name such as `unxz` is not a kind); any other
   kind, or a bare `-x` whose source suffix matches none of them, raises
   `UsageError`, and a resolved kind whose tool is missing from `PATH` raises
   `PkgForgeError` -- both before anything is staged. KIND is optional and
@@ -686,9 +681,8 @@ above).
   `--mode` is itself `--`, else `-` -- an explicit `-m` is never inherited
   by directories); a **symlink** entry's mode is always `-`, whatever
   `-m`/`--dir-mode` say (Linux ignores it; rpm/debian consumers warn about
-  or misreport an explicit one). `--type/-t` is hidden from `--help` and never
-  applied (scan always records each path's own on-disk type); an explicit
-  value logs a warning instead of doing nothing silently. `-X` is
+  or misreport an explicit one). `scan` has no `--type` (it always records each path's own on-disk
+  type; `-t` exits 2). `-X` is
   relative to PATH: `PathMatch(self.exclude, scanpath)`, for the walk and
   for `--drop-stale`'s kept-entry check alike. `-X`'s
   `(?meta:k=v)` inline test sees this run's `-O` values, same as `install`;

@@ -97,7 +97,7 @@ class Install(FileEntryArgs, ExcludeArgs, _RecordTree, PkgForgeCmd, _Staging):
     decompress: duho.Arg[
         typing.Union[str, bool], duho.Meta(nargs="?", metavar="KIND")
     ] = False
-    "decompress the source (gz/xz/bz2); KIND is optional: write -x KIND SRC DST, or a bare -x after the paths to infer it from the suffix"
+    "decompress the source (gz, xz, bz2, zst or lzma); KIND is optional: write -x KIND SRC DST, or a bare -x after the paths to infer it from the suffix"
     ("-x", "--decompress")
     remove_source: bool = False
     "delete the source after staging (files or directories)"

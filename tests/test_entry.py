@@ -1,11 +1,9 @@
 """Tests for the typed ``FileEntry`` module functions (``entry.py``).
 
 ``FileEntry`` is a ``TypedDict``: its values are plain dicts, so
-``FileEntry.from_args``/``from_path``/``resolve_for``/``apply`` only ever
-worked when called *unbound* through the class. These tests pin that the
-typed module functions (``entry_from_args``, ``entry_from_path``,
-``resolve_entry``, ``apply_entry``) exist, are exported, and agree with the
-compat aliases.
+the entry functions are module functions (``entry_from_args``,
+``entry_from_path``, ``resolve_entry``, ``apply_entry``). These tests pin
+that they exist and are exported.
 """
 
 from __future__ import annotations
@@ -33,32 +31,6 @@ from pkgforge.entry import (
 
 # pwd/grp are Unix-only; imported inside the @pytest.mark.posix tests that use
 # them, never at module level (this file is collected on Windows too).
-
-
-def test_entry_functions_match_class_aliases(tmp_path):
-    f = tmp_path / "f"
-    f.write_text("hi")
-
-    args = FileEntryArgs(mode="640", owner=DEFAULT, group=DEFAULT, type=FileType.File)
-
-    direct = entry_from_args(args)
-    alias = FileEntry.from_args(args)
-    assert direct == alias
-
-    direct = entry_from_path(f)
-    alias = FileEntry.from_path(f)
-    assert direct == alias
-
-    base: FileEntry = {
-        "mode": "--",
-        "owner": DEFAULT,
-        "group": DEFAULT,
-        "type": "--",
-        "meta": {},
-    }
-    direct = resolve_entry(base, f)
-    alias = FileEntry.resolve_for(base, f)
-    assert direct == alias
 
 
 def test_entry_functions_exported():
@@ -513,21 +485,12 @@ def test_install_type_auto_sentinel_detects(tmp_path):
     assert loaded["/b/src"]["type"] == "file"
 
 
-@pytest.mark.parametrize("value", ["file", "-"])
-def test_scan_type_ignored_with_warning(value, tmp_path, cli, caplog):
+@pytest.mark.parametrize("flag", ["-t", "--type"])
+def test_scan_has_no_type_option(flag, tmp_path, cli):
     root = tmp_path / "root"
     (root / "sub").mkdir(parents=True)
-    (root / "sub" / "f").write_text("x")
     db = tmp_path / "db.jsonl"
 
-    with caplog.at_level("WARNING"):
-        result = cli(
-            "--db", str(db), "--buildroot", str(root), "scan", "-t", value, "sub"
-        )
-    assert result.rc == 0
-    assert any("ignored" in r.message for r in caplog.records)
-
-    loaded = pkgforge.PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
-    # Normalize DB keys: os.walk yields "\\"-joined paths on Windows.
-    loaded = {k.replace("\\", "/"): v for k, v in loaded.items()}
-    assert loaded["/sub/f"]["type"] == "file"
+    result = cli("--db", str(db), "--buildroot", str(root), "scan", flag, "file", "sub")
+    assert result.rc == 2
+    assert b"unrecognized arguments" in result.err

@@ -2,7 +2,7 @@
 
 Cross-platform tests cover the DB record format, the exclude/match grammar, DB
 read/write, and dbdump rendering. Tests that need POSIX facilities (chmod via
-``FileEntry.apply``, real owner/group lookup) are marked ``@pytest.mark.posix``
+``apply_entry``, real owner/group lookup) are marked ``@pytest.mark.posix``
 (registered and skipped off POSIX in ``conftest.py``).
 """
 
@@ -16,7 +16,16 @@ from pathlib import Path
 import pytest
 import yaml
 
-from pkgforge.entry import AUTO, DEFAULT, FileEntry, FileType, mode_to_octal
+from pkgforge.entry import (
+    AUTO,
+    DEFAULT,
+    FileEntry,
+    FileType,
+    apply_entry,
+    entry_from_path,
+    mode_to_octal,
+    resolve_entry,
+)
 from pkgforge.command import PkgForge
 from pkgforge.exclude import PathMatch, PathMatchStmt
 
@@ -86,7 +95,7 @@ def test_mode_to_octal():
 def test_from_path_mode_is_octal_string(tmp_path):
     f = tmp_path / "f"
     f.write_text("hi")
-    entry = FileEntry.from_path(f)
+    entry = entry_from_path(f)
     assert isinstance(entry["mode"], str)
     # An octal string, parseable back with base 8.
     int(entry["mode"], 8)
@@ -96,7 +105,7 @@ def test_from_path_mode_is_octal_string(tmp_path):
 def test_from_path_dir_type(tmp_path):
     d = tmp_path / "d"
     d.mkdir()
-    assert FileEntry.from_path(d)["type"] == FileType.Directory
+    assert entry_from_path(d)["type"] == FileType.Directory
 
 
 @pytest.mark.posix
@@ -105,7 +114,7 @@ def test_from_path_symlink_type(tmp_path):
     target.write_text("x")
     link = tmp_path / "l"
     link.symlink_to(target)
-    assert FileEntry.from_path(link)["type"] == FileType.Symlink
+    assert entry_from_path(link)["type"] == FileType.Symlink
 
 
 @pytest.mark.posix
@@ -121,7 +130,7 @@ def test_from_path_unknown_ids_fall_back_to_default(tmp_path, monkeypatch):
 
     f = tmp_path / "f"
     f.write_text("hi")
-    entry = FileEntry.from_path(f)
+    entry = entry_from_path(f)
     assert entry["owner"] == DEFAULT
     assert entry["group"] == DEFAULT
 
@@ -136,7 +145,7 @@ def test_resolve_for_fills_auto_from_disk(tmp_path):
         "type": AUTO,
         "meta": {},
     }
-    resolved = FileEntry.resolve_for(base, f)
+    resolved = resolve_entry(base, f)
     # AUTO fields resolved from disk; explicit values kept.
     int(resolved["mode"], 8)
     assert resolved["owner"] == "root"
@@ -154,7 +163,7 @@ def test_apply_sets_mode(tmp_path):
         "type": FileType.File,
         "meta": {},
     }
-    FileEntry.apply(entry, f)
+    apply_entry(entry, f)
     assert (f.stat().st_mode & 0o777) == 0o600
 
 
@@ -430,7 +439,7 @@ def test_install_symlink_type_with_meta_target(tmp_path):
 @pytest.mark.posix
 @pytest.mark.parametrize("form", ["explicit", "inferred"])
 def test_install_decompress_gz(tmp_path, form):
-    # -x runs the real gunzip, both with an explicit kind and inferring it.
+    # -x runs the real gzip, both with an explicit kind and inferring it.
     # -x takes an OPTIONAL argument, so it swallows the next token: the kind
     # goes right after it, and a bare -x has to trail the positionals.
     import gzip
@@ -438,8 +447,8 @@ def test_install_decompress_gz(tmp_path, form):
 
     from pkgforge.install import Install
 
-    if _shutil.which("gunzip") is None:
-        pytest.skip("gunzip not available")
+    if _shutil.which("gzip") is None:
+        pytest.skip("gzip not available")
 
     root = tmp_path / "root"
     root.mkdir()

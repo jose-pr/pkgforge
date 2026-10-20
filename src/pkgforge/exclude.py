@@ -202,9 +202,7 @@ class PathTest(typing.Protocol):
 
 
 #: Registered inline-test names -> a factory building a :class:`PathTest`
-#: from the test's argument text. Kept module-level (not a Protocol class
-#: attribute -- a Protocol's members must all be declared types) and
-#: exposed on :class:`PathTest` as back-compat aliases below.
+#: from the test's argument text.
 _TESTS: typing.Dict[str, typing.Callable[[str], PathTest]] = {
     "type": filetypetest,
     "meta": metatest,
@@ -226,13 +224,6 @@ def _make_test(name: str, arg: str, inverse: bool) -> PathTest:
 
         return _test
     return test
-
-
-# Back-compat aliases: some callers reach the registry/factory through
-# PathTest itself. Assigned after the class body, not inside it, since a
-# Protocol's own members must all be explicitly-typed callables.
-PathTest.GENERATORS = _TESTS  # type: ignore[attr-defined]
-PathTest.factory = staticmethod(_make_test)  # type: ignore[attr-defined]
 
 
 class PathMatchStmt(argparse.Namespace):

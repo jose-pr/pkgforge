@@ -220,10 +220,9 @@ def _write_compressed(path: Path, kind: str, data: bytes) -> None:
 
 
 @pytest.mark.posix
-@pytest.mark.parametrize("alias", ["gzip", "gunzip"])
-def test_install_decompress_alias(tmp_path, alias):
-    # -x gzip is a COMPRESSOR name; it must still decompress, not compress
-    # the already-compressed source.
+@pytest.mark.parametrize("alias", ["gz", "GZ"])
+def test_install_decompress_kind_case(tmp_path, alias):
+    # A kind is matched case-insensitively.
     if shutil.which("gzip") is None:
         pytest.skip("gzip not available")
     root = tmp_path / "root"
@@ -248,6 +247,15 @@ def test_install_decompress_alias(tmp_path, alias):
 
     staged = root / "a" / "plain"
     assert staged.read_bytes() == b"hello world\n"
+
+
+@pytest.mark.parametrize("name", ["gzip", "unxz", "bzip2"])
+def test_decompress_tool_name_is_not_a_kind(name):
+    from pkgforge.errors import UsageError
+    from pkgforge.install.decompress import _resolve_kind
+
+    with pytest.raises(UsageError, match="unknown compression kind"):
+        _resolve_kind(name)
 
 
 @pytest.mark.posix

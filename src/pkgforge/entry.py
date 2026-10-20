@@ -272,10 +272,10 @@ def _key_value(text: str) -> typing.Dict[str, str]:
     return {key: value}
 
 
-class FileEntryArgs(Cmd):
-    """CLI mixin supplying ``--mode/-m``, ``--group/-g``, ``--owner/-o``,
-    ``--type/-t`` and ``-O/--meta KEY=VALUE`` -- the fields every leaf command
-    that stages or records a :class:`FileEntry` shares."""
+class FileEntryBaseArgs(Cmd):
+    """CLI mixin supplying ``--mode/-m``, ``--group/-g``, ``--owner/-o`` and
+    ``-O/--meta KEY=VALUE`` -- the fields every leaf command that records a
+    :class:`FileEntry` shares."""
 
     mode: duho.Arg[str, duho.Meta(type=_parse_mode)] = DEFAULT
     "permission mode: 1-4 octal digits, '-' (leave default), '--' or 'auto' (resolve from the staged file)"
@@ -286,12 +286,6 @@ class FileEntryArgs(Cmd):
     owner: duho.Arg[str, duho.Meta(type=_parse_name("owner"))] = DEFAULT
     "owner to record: an account name, '-' (the OS default) or '--' (resolve from the staged file)"
     ("--owner", "-o")
-    type: duho.Arg[
-        typing.Optional[FileType],
-        duho.Meta(type=_parse_filetype, metavar="{file,directory,symlink}"),
-    ] = None
-    "file, directory or symlink, in any case (auto-detected if unset, or given as '--')"
-    ("--type", "-t")
     meta: duho.Arg[
         typing.Dict[str, str],
         duho.Meta(
@@ -304,13 +298,23 @@ class FileEntryArgs(Cmd):
     ("-O", "--meta")
 
 
+class FileEntryArgs(FileEntryBaseArgs):
+    """:class:`FileEntryBaseArgs` plus ``--type/-t``, for a command that stages
+    a source and so chooses the entry's type."""
+
+    type: duho.Arg[
+        typing.Optional[FileType],
+        duho.Meta(type=_parse_filetype, metavar="{file,directory,symlink}"),
+    ] = None
+    "file, directory or symlink, in any case (auto-detected if unset, or given as '--')"
+    ("--type", "-t")
+
+
 class FileEntry(typing.TypedDict):
     """One DB record: ``mode`` (an octal permission **string**, e.g. ``"644"``,
     never a raw ``st_mode`` int), ``owner``, ``group``, ``type``, and a
     free-form ``meta`` string map. A plain dict at runtime (a ``TypedDict``
-    carries no methods) -- use the module functions below, or the
-    back-compat unbound aliases ``FileEntry.from_args``/``from_path``/
-    ``resolve_for``/``apply``."""
+    carries no methods) -- use the module functions below."""
 
     mode: str
     owner: str
@@ -319,8 +323,8 @@ class FileEntry(typing.TypedDict):
     meta: typing.Dict[str, str]
 
 
-def entry_from_args(args: FileEntryArgs, **overwrite) -> FileEntry:
-    """Build a :class:`FileEntry` from a parsed :class:`FileEntryArgs` mixin.
+def entry_from_args(args: FileEntryBaseArgs, **overwrite) -> FileEntry:
+    """Build a :class:`FileEntry` from a parsed :class:`FileEntryBaseArgs` mixin.
 
     ``type`` is converted via :class:`FileType` only when ``overwrite`` does
     not itself supply ``type`` -- a caller overwriting ``type`` (e.g. ``scan``
@@ -465,17 +469,3 @@ def apply_entry(
         if logger:
             logger.debug("Restoring mode %o for %s after chown", restore_mode, path)
         os.chmod(path, restore_mode)
-
-
-# Runtime back-compat aliases: FileEntry values are plain dicts (it is a
-# TypedDict), so these are called *unbound* through the class --
-# ``FileEntry.apply(entry, path)``, never ``entry.apply(path)``. Assigning a
-# plain function onto the class after its body (rather than defining it
-# inside, which is what produced the historical "Invalid statement in
-# TypedDict definition" mypy errors) means attribute access through the class
-# returns the function itself, unbound, exactly as these callers expect
-# (measured 2026-09-28, py3.9.25 and 3.14, duho 0.5.0).
-setattr(FileEntry, "from_args", entry_from_args)
-setattr(FileEntry, "from_path", entry_from_path)
-setattr(FileEntry, "resolve_for", resolve_entry)
-setattr(FileEntry, "apply", apply_entry)
