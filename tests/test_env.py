@@ -1,6 +1,6 @@
 """Tests for env-driven configuration (``PKGFORGE_ROOT``/``DB``/``DB_FORMAT``)
 being read when ``main()``/``duho.parse`` runs, not once at import time, and
-for the build-root <-> local-path helpers (``localpath``/``buildpath``).
+for the build-root <-> local-path helpers (``localpath``/``dbpath``).
 """
 
 from __future__ import annotations

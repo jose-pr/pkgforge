@@ -122,8 +122,8 @@ class _Installer(_RecordTree, _Staging):
 
     def _preflight(self) -> None:
         """Validate/normalize this clone's arguments, before resolution or
-        any staging. Runs once per clone (a multi-source ``__call__`` fans
-        out into one single-source clone per source first).
+        any staging. Runs once per clone (:meth:`Project.install` builds one
+        single-source clone per source first).
 
         Checks mostly what depends on arguments alone, never requiring the
         source to exist (so it also validates a direct Python-API
@@ -343,8 +343,8 @@ class _Installer(_RecordTree, _Staging):
         replaced onto ``dest`` -- so a failed chmod/chown/record leaves an
         earlier good ``dest`` exactly as it was, never a partial temp.
         """
-        # Re-checked here, right before any mkdir: a multi-source __call__
-        # resolves every clone (and its containment check) before staging
+        # Re-checked here, right before any mkdir: a multi-source
+        # Project.install resolves every clone (and its containment check) before staging
         # any of them, so an earlier clone's own staging -- e.g. an absolute
         # in-root symlink left by copytree(symlinks=True) -- can plant a new
         # escape between this clone's own _resolve() and this call.

@@ -155,17 +155,13 @@ class Project:
         source in the same multi-source invocation can plant a new symlink
         after this method already ran for a later one.
 
-        Also refuses an unusable ``--buildroot``: unset/empty (a falsy
-        value) always raises, and a *relative* build root (the ordinary cwd
-        default) whose realpath is ``/`` raises unless it was spelled
-        explicitly (``--buildroot /`` or ``PKGFORGE_ROOT=/``) -- otherwise an
-        unattended run started from ``/`` with no build root configured
-        would map straight onto the live filesystem, silently.
+        Also refuses a *relative* build root (the ordinary cwd default) whose
+        realpath is ``/`` unless it was spelled explicitly (``--buildroot /``
+        or ``PKGFORGE_ROOT=/``) -- otherwise an unattended run started from
+        ``/`` with no build root configured would map straight onto the live
+        filesystem, silently.
         """
         root = self.buildroot
-        if not root:
-            raise UsageError("no build root configured (--buildroot/PKGFORGE_ROOT)")
-        root = Path(root)
         real_root = os.path.realpath(root)
         if not root.is_absolute() and real_root == os.path.realpath(os.sep):
             raise UsageError(

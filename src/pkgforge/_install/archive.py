@@ -339,7 +339,7 @@ def _prune_excluded(root: Path, matcher: PathMatch, meta: typing.Dict[str, str])
     dropped from the walk's own ``dirnames`` so nothing beneath a removed
     directory is visited a second time.
 
-    This mirrors :func:`~pkgforge.install.staging._copy_ignore` (a plain
+    This mirrors :func:`~pkgforge._install.staging._copy_ignore` (a plain
     directory install's own ``-X`` filter) exactly, since both evaluate the
     same :class:`~pkgforge.exclude.PathMatch` over an on-disk tree: every
     directory the extraction actually created is seen here, even one with

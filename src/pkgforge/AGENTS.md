@@ -166,9 +166,9 @@ tool's last stderr line.
     for a control character or an rpm expansion (`%(`, `%{`, `%[`) in
     `meta["rpmprefix"]`.
 - **`AUTO = "--"`** / **`DEFAULT = "-"`** — module-level sentinels: `AUTO`
-  means "resolve from the file on disk" (used by `resolve_for`); `DEFAULT`
+  means "resolve from the file on disk" (used by `resolve_entry`); `DEFAULT`
   means "leave at the OS/system default, do not set explicitly" (used by
-  `apply`'s `usedefault`).
+  `apply_entry`'s `usedefault`).
 - **`mode_to_octal(mode: int) -> str`** — render a raw `st_mode` as a bare
   octal permission string (`"644"`).
 - **`FileEntries`** — type alias `list[tuple[str, FileEntry]]` (surviving DB
@@ -240,8 +240,6 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   exist (`UsageError` for `db=None` or a missing file); with `output` the
   result is also written whole (a file, or a directory for a multi-artifact
   format). See `dbdump.dump` for the rest and the errors.
-- Every record goes through the private `Project._record(dbpath, entry) ->
-  FileEntry` before it is written; today it returns `entry` unchanged.
 - A `dest` (`install`) or `path` (`scan`) must resolve inside the build root:
   a `..` that climbs above it, or a symlinked component that leads outside
   it, raises `UsageError` before anything is written or recorded. A relative

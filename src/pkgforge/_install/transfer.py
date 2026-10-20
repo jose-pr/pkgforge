@@ -35,7 +35,7 @@ def _try_link(src: Path, tmp: Path) -> bool:
 
 class _Transfer:
     """``--method link``/``--method move`` staging helpers for
-    :class:`~pkgforge.install._Staging`; uses the host's ``_logger_`` and
+    :class:`~pkgforge._install.staging._Staging`; uses the host's ``_logger_`` and
     ``source``."""
 
     #: Set once :meth:`_warn_link_fallback` has logged, so a tree with many

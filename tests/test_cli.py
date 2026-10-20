@@ -83,7 +83,7 @@ def test_env_vars_configure_root_db_and_format(tmp_path):
 
 def _seed_tool_entry(db):
     # Seed the DB directly (not through `install`): a "/"-rooted destination
-    # through `install` only works on POSIX (buildpath() has no drive to
+    # through `install` only works on POSIX (dbpath() has no drive to
     # relative_to() against on Windows), but dbdump itself is cross-platform.
     open_db(db).add(
         "/usr/bin/tool",
