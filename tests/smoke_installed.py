@@ -142,6 +142,31 @@ def check_example(cwd: str) -> None:
     print("ok example")
 
 
+def check_stage(cwd: str) -> None:
+    if importlib.util.find_spec("pwd") is None:
+        print("ok stage (skipped: requires pwd)")
+        return
+    env = dict(os.environ)
+    env["PKGFORGE_ROOT"] = str(Path(cwd) / "stage-root")
+    env["PKGFORGE_DB"] = str(Path(cwd) / "stage.jsonl")
+    env.pop("PKGFORGE_CONFIG", None)
+    cfg = CHECKOUT / "examples" / "pkgforge.cfg"
+    result = subprocess.run(
+        [str(_console_script()), "-q", "--config", str(cfg), "stage", "--init"],
+        cwd=cwd,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    recorded = Path(env["PKGFORGE_DB"])
+    text = recorded.read_text() if recorded.exists() else ""
+    if result.returncode != 0 or '"/usr/bin/hello"' not in text:
+        raise AssertionError(
+            f"stage failed: rc={result.returncode}\n{result.stdout}\n{result.stderr}"
+        )
+    print("ok stage")
+
+
 def main() -> int:
     check_not_editable()  # exits 2 itself on failure
 
@@ -153,6 +178,7 @@ def main() -> int:
             check_shipped_files,
             check_bare_install,
             check_example,
+            check_stage,
         ):
             try:
                 check(tmp)

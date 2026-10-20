@@ -955,7 +955,10 @@ def _pkgforge_on_path(tmp_path: Path) -> dict:
         f'#!/bin/sh\nexec "{sys.executable}" -m pkgforge "$@"\n', encoding="utf-8"
     )
     wrapper.chmod(0o755)
-    return {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"}
+    env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"}
+    # An inherited PKGFORGE_CONFIG would redirect the recipes' own --config.
+    env.pop("PKGFORGE_CONFIG", None)
+    return env
 
 
 def _run_dpkg_buildpackage(tmp_path: Path, pkgroot: Path):
@@ -1054,7 +1057,7 @@ def test_dh_install_example_debian_builds(tmp_path):
 
 @requires_rpmbuild
 def test_rpmbuild_example_hello_spec(tmp_path):
-    """examples/hello.spec stages with stage.sh inside %install, and the RPM
+    """examples/hello.spec stages with pkgforge stage inside %install, and the RPM
     it builds carries the modes and owners the file DB recorded."""
     topdir = tmp_path / "top"
     for sub in ("BUILD", "RPMS", "SOURCES", "SPECS", "SRPMS", "BUILDROOT"):
@@ -1116,3 +1119,138 @@ def test_rpmbuild_example_hello_spec(tmp_path):
             assert user == entry["owner"], path
         if entry["group"] != "-":
             assert group == entry["group"], path
+
+
+#: The shell staging that examples/pkgforge.cfg describes: the stage-only and
+#: shell-staged packages must come out the same.
+_EXAMPLE_SHELL_STAGING = """#!/bin/sh
+set -eu
+S="$(dirname "$0")/src"
+pf() { pkgforge -q "$@"; }
+
+pf initdb
+
+E="$(mktemp -d)"
+for d in /usr/libexec/hello /etc/hello /usr/share/licenses/hello /usr/share/doc/hello; do
+  pf install -D -d -m 755 -o root -g root "$E" "$d"
+done
+pf install -D -d -m 750 -o root -g adm "$E" /var/lib/hello
+rmdir "$E"
+
+pf install -p -m 755 -o root -g root "$S/hello" /usr/bin
+pf install -D -t symlink -O target=hello - /usr/bin/hi
+pf install -p -m 4755 -o root -g root "$S/helper" /usr/libexec/hello
+pf install -p -m 640 -o root -g adm -O 'rpmprefix=%config(noreplace)' "$S/hello.conf" /etc/hello
+pf install -p -m 644 -o root -g root "$S/hello.service" /usr/lib/systemd/system
+pf install -p -m 644 -o root -g root -O rpmprefix=%license "$S/LICENSE" /usr/share/licenses/hello
+pf install -p -m 644 -o root -g root -O rpmprefix=%doc "$S/README" /usr/share/doc/hello
+pf install -D -m 640 -o root -g adm -O rpmprefix=%ghost - /var/log/hello.log < /dev/null
+"""
+
+_STAGE_ONLY_SPEC = "pkgforge -q --config %{proj}/pkgforge.cfg stage --init\n"
+_STAGE_ONLY_RULES = "\tpkgforge -q --config pkgforge.cfg stage --init\n"
+
+
+def _example_tree(dest: Path, *, shell: bool) -> Path:
+    """A copy of examples/ at ``dest``: as shipped, or with its recipes running
+    the shell staging instead of ``pkgforge stage`` (and no pkgforge.cfg for
+    the working directory to pick up)."""
+    shutil.copytree(EXAMPLES, dest)
+    (dest / "debian" / "rules").chmod(0o755)
+    if shell:
+        (dest / "stage.sh").write_text(_EXAMPLE_SHELL_STAGING, encoding="utf-8")
+        for name, old, new in (
+            ("hello.spec", _STAGE_ONLY_SPEC, "sh %{proj}/stage.sh\n"),
+            ("debian/rules", _STAGE_ONLY_RULES, "\tsh stage.sh\n"),
+        ):
+            text = (dest / name).read_text(encoding="utf-8")
+            assert text.count(old) == 1, name
+            (dest / name).write_text(text.replace(old, new), encoding="utf-8")
+        (dest / "pkgforge.cfg").unlink()
+    return dest
+
+
+_RPM_ROWS = (
+    "[%{FILENAMES}|%{FILEMODES:octal}|%{FILEUSERNAME}|%{FILEGROUPNAME}"
+    "|%{FILEFLAGS}|%{FILELINKTOS}\\n]"
+)
+
+
+def _example_rpm_rows(base: Path, *, shell: bool) -> typing.List[str]:
+    """Build examples/hello.spec under ``base`` and return the sorted
+    per-file rows of the RPM."""
+    base.mkdir()
+    tree = _example_tree(base / "examples", shell=shell)
+    topdir = base / "top"
+    for sub in ("BUILD", "RPMS", "SOURCES", "SPECS", "SRPMS", "BUILDROOT"):
+        (topdir / sub).mkdir(parents=True)
+    result = subprocess.run(
+        [
+            "rpmbuild",
+            "-bb",
+            "--nodeps",
+            "--define",
+            f"_topdir {topdir}",
+            "--define",
+            f"proj {tree}",
+            "--define",
+            "__os_install_post %{nil}",
+            str(tree / "hello.spec"),
+        ],
+        capture_output=True,
+        text=True,
+        env=_pkgforge_on_path(base),
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    rpms = list((topdir / "RPMS").rglob("*.rpm"))
+    assert len(rpms) == 1, rpms
+    listing = subprocess.run(
+        ["rpm", "-qp", "--qf", _RPM_ROWS, str(rpms[0])],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    return sorted(listing.splitlines())
+
+
+@requires_rpmbuild
+def test_rpmbuild_example_cfg_matches_shell_staging(tmp_path):
+    """The RPM built by ``pkgforge stage`` from examples/pkgforge.cfg lists the
+    same paths, modes, owners, flags and link targets as the one built by the
+    shell staging it replaces."""
+    staged = _example_rpm_rows(tmp_path / "stage", shell=False)
+    shell = _example_rpm_rows(tmp_path / "shell", shell=True)
+    assert len(staged) == 13
+    assert staged == shell
+
+
+def _example_deb_members(base: Path, *, shell: bool) -> typing.Set[tuple]:
+    """Build examples/debian under ``base`` and return the payload's
+    ``(name, type, mode, uname, gname, linkname)`` set."""
+    base.mkdir()
+    pkgroot = _example_tree(base / "work" / "hello", shell=shell)
+    # dh_strip_nondeterminism is a separate package some hosts lack.
+    with (pkgroot / "debian" / "rules").open("a", encoding="utf-8") as rules:
+        rules.write("\noverride_dh_strip_nondeterminism:\n")
+    _result, members = _run_dpkg_buildpackage(base, pkgroot)
+    return {
+        (
+            name,
+            member.type,
+            stat.S_IMODE(member.mode),
+            member.uname,
+            member.gname,
+            member.linkname,
+        )
+        for name, member in members.items()
+    }
+
+
+@requires_dh_sequence
+def test_dh_install_example_cfg_matches_shell_staging(tmp_path):
+    """The .deb built by ``pkgforge stage`` from examples/pkgforge.cfg has the
+    same payload as the one built by the shell staging it replaces."""
+    staged = _example_deb_members(tmp_path / "stage", shell=False)
+    shell = _example_deb_members(tmp_path / "shell", shell=True)
+    assert any(name == "usr/bin/hi" for name, *_ in staged)
+    assert staged == shell

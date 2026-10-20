@@ -186,6 +186,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `pkgforge.dbdump.Entries` is now `pkgforge.FileEntries`.
 
 ### Removed
+- `examples/stage.sh`: the example package stages from `examples/pkgforge.cfg`
+  with `pkgforge stage`.
 - `DbProvider.lookup(name)` and `DumpFormat.lookup(name)`: call `get(name)`.
 - `pkgforge.main`, `pkgforge.command`, the `pkgforge.install`, `pkgforge.scan`,
   `pkgforge.initdb` and `pkgforge.compact` modules, and `PkgForgeCmd`,

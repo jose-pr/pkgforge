@@ -55,11 +55,11 @@ echo
 echo "== build real packages from this directory =="
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cat <<MSG
-RPM (hello.spec stages with stage.sh inside %install):
+RPM (hello.spec runs "pkgforge stage" from pkgforge.cfg inside %install):
   cd $here && rpmbuild -bb --define "proj \$PWD" hello.spec
 
-Debian (debian/rules stages into debian/tmp with stage.sh; build in a copy,
-since dpkg-buildpackage writes next to the source tree):
+Debian (debian/rules runs "pkgforge stage" from pkgforge.cfg into debian/tmp;
+build in a copy, since dpkg-buildpackage writes next to the source tree):
   cp -r $here /tmp/hello && cd /tmp/hello && dpkg-buildpackage -b -us -uc -d
 
 Both need pkgforge on PATH; the .deb build needs debhelper and fakeroot.

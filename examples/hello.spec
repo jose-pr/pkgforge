@@ -12,7 +12,7 @@ rpmbuild -bb --define "proj $PWD" hello.spec
 
 %install
 export PKGFORGE_ROOT=%{buildroot} PKGFORGE_DB=%{_builddir}/files.jsonl
-sh %{proj}/stage.sh
+pkgforge -q --config %{proj}/pkgforge.cfg stage --init
 pkgforge -q dbdump -f rpmspecfiles %{_builddir}/files.txt
 
 %files -f %{_builddir}/files.txt
