@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tarfile
 import textwrap
+import typing
 from pathlib import Path
 
 import pytest
@@ -123,7 +124,13 @@ _SUPPORTED = {
 # --------------------------------------------------------------------------
 
 
-def _build_rpm(tmp_path: Path, root: Path, manifest: Path, name: str) -> Path:
+def _build_rpm(
+    tmp_path: Path,
+    root: Path,
+    manifest: Path,
+    name: str,
+    log: typing.Optional[list] = None,
+) -> Path:
     """Build a minimal noarch RPM whose payload is copied straight from
     ``root`` and whose file list comes from ``manifest`` (a rpmspecfiles
     dump). Returns the built .rpm's path.
@@ -134,7 +141,8 @@ def _build_rpm(tmp_path: Path, root: Path, manifest: Path, name: str) -> Path:
     ``_unpackaged_files_terminate_build 0`` tolerates a staged file that
     ``manifest`` doesn't list (a ``--noentry`` sibling); ``AutoReqProv: no``
     and ``__os_install_post %{nil}`` skip dependency/brp scripts that would
-    otherwise choke on an odd file name.
+    otherwise choke on an odd file name. When ``log`` is a list, rpmbuild's
+    combined output is appended to it.
     """
     topdir = tmp_path / "top"
     for sub in ("BUILD", "RPMS", "SOURCES", "SPECS", "SRPMS", "BUILDROOT"):
@@ -179,6 +187,8 @@ def _build_rpm(tmp_path: Path, root: Path, manifest: Path, name: str) -> Path:
         text=True,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+    if log is not None:
+        log.append(result.stdout + result.stderr)
     rpms = list((topdir / "RPMS" / "noarch").glob("*.rpm"))
     assert len(rpms) == 1, rpms
     return rpms[0]
@@ -369,6 +379,60 @@ def test_rpmbuild_quoted_glob_is_literal(tmp_path, cli):
         else:
             assert dump.rc == 1, dump.err
             assert not manifest.exists()
+
+
+@requires_rpmbuild
+def test_rpmbuild_packages_pinned_attrs_config_and_symlink(tmp_path, cli):
+    # A pinned %attr, a %config(noreplace) prefix, a directory and a symlink
+    # package as recorded, and rpm has nothing to warn about for the symlink.
+    root = tmp_path / "root"
+    src = tmp_path / "conf"
+    src.write_text("x", encoding="utf-8")
+    db = tmp_path / "files.jsonl"
+    result = cli(
+        "--db", str(db), "--buildroot", str(root), "install", "-p",
+        "-m", "640", "-o", "root", "-g", "adm", "-O", "rpmprefix=%config(noreplace)",
+        str(src), "/etc/t",
+    )  # fmt: skip
+    assert result.rc == 0, result.err
+    (root / "etc" / "t" / "link").symlink_to("conf")
+    with db.open("a", encoding="utf-8") as f:
+        f.write(
+            json.dumps(
+                {
+                    "path": "/etc/t/link",
+                    "mode": "777",
+                    "owner": "root",
+                    "group": "root",
+                    "type": "symlink",
+                    "meta": {},
+                }
+            )
+            + "\n"
+        )
+
+    manifest = tmp_path / "files.txt"
+    dump = cli("--db", str(db), "dbdump", "-f", _HOST_FORMAT, str(manifest))
+    assert dump.rc == 0, dump.err
+    assert "%attr(-,root,root) " in manifest.read_text(encoding="utf-8")
+    log: list = []
+    rpm_path = _build_rpm(tmp_path / "build", root, manifest, "pf-attrs", log)
+    assert "not applicable" not in log[0]
+    listing = subprocess.run(
+        [
+            "rpm", "-qp", "--qf",
+            "[%{FILENAMES} %{FILEMODES:octal} %{FILEUSERNAME} %{FILEGROUPNAME} "
+            "%{FILEFLAGS:fflags}\n]",
+            str(rpm_path),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()  # fmt: skip
+    by_path = {line.split()[0]: line.split()[1:] for line in listing}
+    assert by_path["/etc/t/conf"][:3] == ["100640", "root", "adm"]
+    assert "c" in by_path["/etc/t/conf"][3] and "n" in by_path["/etc/t/conf"][3]
+    assert by_path["/etc/t/link"][0].startswith("120")
 
 
 @requires_rpmbuild
