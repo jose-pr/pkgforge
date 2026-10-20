@@ -3,6 +3,7 @@ the command line."""
 
 from __future__ import annotations
 
+import dataclasses
 import re
 from pathlib import Path
 
@@ -133,6 +134,49 @@ def test_full_document_loads_into_the_dataclasses(tmp_path):
             StageStep(symlink="/usr/bin/hi", target="hello"),
         ),
     )
+
+
+def _texts(value):
+    """Every text value inside a loaded configuration."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            yield from _texts(key)
+            yield from _texts(item)
+    elif isinstance(value, tuple):
+        for item in value:
+            yield from _texts(item)
+    elif dataclasses.is_dataclass(value):
+        for item in dataclasses.fields(value):
+            yield from _texts(getattr(value, item.name))
+
+
+def test_text_values_are_plain_str(tmp_path):
+    # Rules, defaults and steps put these values in the file DB, and YAML's
+    # safe dumper refuses a str subclass.
+    texts = list(_texts(load(write(tmp_path, FULL))))
+    assert "hello" in texts and "%config" in texts
+    assert {type(text) for text in texts} == {str}
+
+
+@pytest.mark.posix
+def test_configured_values_reach_a_yaml_db(tmp_path, yaml_module):
+    (tmp_path / "root").mkdir()
+    (tmp_path / "a").write_bytes(b"a")
+    cfg = write(
+        tmp_path,
+        'own = ["/opt/p"]\n[package]\nname = "p"\n'
+        '[defaults]\nowner = "root"\ngroup = "${package.name}"\n'
+        '[[stage]]\nsrc = "a"\ndest = "/opt/p"\nmeta = { rpmprefix = "%doc" }\n',
+    )
+    project = Project.from_config(
+        cfg, buildroot=tmp_path / "root", db=tmp_path / "f.yaml"
+    )
+    project.stage()
+    live = project.load()
+    assert live["/opt/p"]["group"] == "p"
+    assert live["/opt/p/a"]["meta"] == {"rpmprefix": "%doc"}
 
 
 def test_empty_file_is_all_defaults(tmp_path):

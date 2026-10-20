@@ -43,18 +43,19 @@ _SENTINELS = (DEFAULT, AUTO)
 
 
 class _Text(str):
-    """A ``str`` that refuses any other TOML value.
+    """The type of a text field: it refuses any other TOML value.
 
     ``anycfg.hydrate`` otherwise turns the integer ``0o644`` into ``"420"`` and
     ``true`` into ``"True"``, so a mode written without quotes would be recorded
-    as a different mode.
+    as a different mode. The value kept is a plain ``str``: YAML's safe dumper
+    cannot write a ``str`` subclass into the file DB.
     """
 
     @classmethod
-    def _load_(cls, value: typing.Any) -> "_Text":
+    def _load_(cls, value: typing.Any) -> str:
         if not isinstance(value, str):
             raise UsageError(f"expected a quoted string, not {type(value).__name__}")
-        return cls(value)
+        return str(value)
 
 
 def _mode(value: typing.Optional[str], field_name: str) -> typing.Optional[str]:
