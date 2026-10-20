@@ -7,14 +7,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `[defaults]` and `[[rules]]` of `pkgforge.cfg` are applied when an entry is
+  recorded by `install` or `scan`: a `mode`, `owner` or `group` left at `-` is
+  taken from the first rule whose `match` fits the path, then from `[defaults]`
+  (`dir_mode`, `exec_mode` or `file_mode` by type and execute bit). A flag still
+  wins, and `install` without `-m` stages the file with the resulting mode.
 - `pkgforge.cfg`, a TOML project file read from the working directory, from
   `--config/-c FILE` (before the subcommand) or from `PKGFORGE_CONFIG`
   (`--config` wins; an empty `PKGFORGE_CONFIG` means no file). `db`,
   `db_format` and `buildroot` in it are defaults below the command line and the
   environment; relative paths are relative to the file. `${package.name}` and
   any other key of the file can be reused in its text values. `[package]`,
-  `[defaults]`, `[[rules]]`, `own` and `[[stage]]` are validated and kept on
-  `Project.config`; they change nothing yet. A bad file is one
+  `own` and `[[stage]]` are validated and kept on `Project.config`; they change
+  nothing yet. A bad file is one
   `pkgforge: error:` line, status 2.
 - `pkgforge.config` (`ProjectConfig`, `PackageInfo`, `EntryDefaults`,
   `EntryRule`, `StageStep`, `load`), `Project(..., config=)`, `Project.config`
@@ -47,6 +52,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stores.
 
 ### Changed
+- `install --record-tree` children take the mode of a matching `[[rules]]`
+  element or of `[defaults]` before the mode on disk; with neither, the mode is
+  still read from disk.
 - `Project.install(type=)` takes a `FileType` or `None`; a `str` is now a
   `TypeError`. Pass `FileType("directory")` instead of `"directory"`.
 - `exclude=` of `Project.install`, `Project.scan`, `Project.dump` and

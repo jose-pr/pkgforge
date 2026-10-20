@@ -248,6 +248,14 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   files only, `dir_mode` to directories (default `"--"` when `mode` is `"--"`,
   else `"-"`); a symlink's mode is always `"-"`. `drop_stale=True` needs a file
   DB (`UsageError`).
+- **Record-time resolution** — every entry `install` and `scan` write (and
+  `install --record-tree` children) has its `mode`, `owner` and `group` that
+  were left at `"-"` filled in, a value or flag never changed: first from the
+  first `[[rules]]` element whose `match` fits the DB path (only the fields
+  that rule sets), then from `[defaults]`, else they stay `"-"` (a
+  `--record-tree` child's mode is then read from disk). A symlink never gets a
+  mode. `install` without `-m` also chmods the staged file to the mode it
+  resolved to. With no rule and no default nothing changes.
 - **`dump(fmt: str, output: StrPath | None = None, *, exclude: Sequence[str] =
   ()) -> Rendered`** — render the file DB with the format `fmt` (a name or
   alias). The format and OUTPUT shape are checked first, then the DB must
@@ -300,8 +308,15 @@ A mode is 1-4 octal digits and an owner or group an account name (`-`, `--` and
 `auto` are refused: a file states values). A `[[stage]]` step names exactly one of
 `src`, `dir`, `file`, `symlink`; `symlink` takes no `mode`. `type` is `file`,
 `directory` or `symlink`, `decompress` a kind or `auto`, `method` `copy`, `link`
-or `move`. `[defaults]`, `[[rules]]`, `own` and `[[stage]]` are parsed,
-validated and stored on `Project.config`; nothing applies them yet. Command
+or `move`. `[defaults]` and `[[rules]]` apply when an entry is recorded: the
+rules are tried in order against the entry's DB path with the `-X` grammar
+(inline tests such as `(?type:directory)` see the entry; to exempt a path put a
+`!` statement before the glob that would match it), the first match fills the
+`mode`, `owner` and `group` it sets, and `[defaults]` fills what is still unset
+(`dir_mode` for a directory, `exec_mode` for a file with an execute bit, else
+`file_mode`; `owner` and `group` for every type). A flag always wins and a
+symlink never gets a mode. `own` and `[[stage]]` are parsed, validated and
+stored on `Project.config`; nothing applies them yet. Command
 tables such as `[install]` and any other key are not part of the schema.
 
 Which file the command line reads: `--config/-c FILE`, else `PKGFORGE_CONFIG`
@@ -782,8 +797,9 @@ there with a `UsageError`. See [Environment variables](#environment-variables).
   records, right after DESTINATION's own entry, every path below a
   directory or archive DESTINATION the DB does not already hold (a `-o`/`-g`
   of `--` still resolves per child from disk, same as any entry): `owner`/
-  `group`/`meta` come from this install's own `-o`/`-g`/`-O`; `mode` and
-  `type` always come from disk (`AUTO`) for both files and directories --
+  `group`/`meta` come from this install's own `-o`/`-g`/`-O`; `type`
+  comes from disk, and `mode` from a matching `[[rules]]` element or
+  `[defaults]` and else from disk, for both files and directories --
   DESTINATION's own `-m` never inherits down, and there is no `--dir-mode`
   equivalent; a symlink's mode is always `-`. Silently ignored for a file or
   symlink install, and a no-op under `--noentry` (nothing recorded, no

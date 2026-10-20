@@ -11,7 +11,7 @@ import os
 import typing
 from pathlib import Path
 
-from .entry import AUTO, FileEntry, FileType, _file_type, _resolve_stat
+from .entry import AUTO, DEFAULT, FileEntry, FileType, _file_type, _resolve_stat
 from .exceptions import PkgForgeError
 from .exclude import PathMatch
 
@@ -30,8 +30,11 @@ class TreeRecorder:
     already present (a non-``None`` value) in ``known`` is never overwritten.
 
     ``bases`` supplies the un-resolved (``AUTO``/``DEFAULT``-valued) entry
-    template per :class:`~pkgforge.entry.FileType`; :meth:`record` resolves
-    each ``AUTO``-valued field from the path's own ``lstat``. ``matcher`` is
+    template per :class:`~pkgforge.entry.FileType`; :meth:`record` fills each
+    ``DEFAULT`` field from the project's rules and defaults, then each one
+    still ``DEFAULT`` that ``fallback`` names (a symlink never takes a mode),
+    then resolves each ``AUTO``-valued field from the path's own ``lstat``.
+    ``matcher`` is
     ``None`` when there is nothing to filter (no ``-X`` given); callers build
     their own, rooted at the tree they walk: ``scan``'s at PATH,
     ``install``'s record-tree at DESTINATION. ``write(dbpath, entry)`` is the
@@ -49,6 +52,7 @@ class TreeRecorder:
         *,
         logger: logging.Logger,
         write: typing.Callable[[str, FileEntry], typing.Any],
+        fallback: typing.Mapping[str, str] = {},
     ) -> None:
         self.project = project
         self.bases = bases
@@ -57,6 +61,7 @@ class TreeRecorder:
         self.known = known
         self.logger = logger
         self.write = write
+        self.fallback = fallback
         #: Paths actually written this run -- never a path skipped by -X,
         #: the file-DB skip, or a key `known` already holds.
         self.recorded = 0
@@ -104,7 +109,15 @@ class TreeRecorder:
             if self.known.get(fspath) is None:
                 st = path.lstat()
                 ftype = _file_type(path, st)
-                entry = _resolve_stat(self.bases[ftype], path, st, lookupval=AUTO)
+                entry = self.project._configured(
+                    fspath, {**self.bases[ftype], "type": ftype}, local=path
+                )
+                for name, value in self.fallback.items():
+                    if entry[name] == DEFAULT and not (
+                        name == "mode" and ftype == FileType.Symlink
+                    ):
+                        entry = {**entry, name: value}
+                entry = _resolve_stat(entry, path, st, lookupval=AUTO)
                 self.logger.debug("Updating file entry for: %s", fspath)
                 self.write(fspath, entry)
                 self.recorded += 1

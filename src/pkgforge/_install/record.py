@@ -32,13 +32,13 @@ class _RecordTree:
         if not self.record_tree or self.type != FileType.Directory:
             return
 
-        # Children's mode is always read from disk (AUTO), for both files
-        # and directories -- DESTINATION's own `-m` never inherits down, and
-        # there is no per-child `--dir-mode` equivalent. owner/group/meta
-        # are this install's own -o/-g/-O, `--` resolved per child from disk
-        # the same as -m/-o/-g always resolve AUTO.
+        # A child's mode comes from a matching rule or `[defaults]`, else it
+        # is read from disk (the fallback) -- DESTINATION's own `-m` never
+        # inherits down, and there is no per-child `--dir-mode` equivalent.
+        # owner/group/meta are this install's own -o/-g/-O, `--` resolved per
+        # child from disk the same as -m/-o/-g always resolve AUTO.
         base: FileEntry = {
-            "mode": AUTO,
+            "mode": DEFAULT,
             "owner": _normalize_field(self.owner),
             "group": _normalize_field(self.group),
             "type": AUTO,
@@ -47,7 +47,7 @@ class _RecordTree:
         bases = {
             FileType.File: base,
             FileType.Directory: base,
-            FileType.Symlink: {**base, "mode": DEFAULT},
+            FileType.Symlink: base,
         }
 
         # DEST holds the same tree as the source, so a pattern relative to
@@ -62,5 +62,6 @@ class _RecordTree:
             self.loaddb(),
             logger=self._logger_,
             write=self.add_entry,
+            fallback={"mode": AUTO},
         )
         recorder.walk(dest)

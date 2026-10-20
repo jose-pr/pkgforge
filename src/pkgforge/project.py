@@ -19,7 +19,7 @@ from pathlib import Path, PurePath, PurePosixPath
 from . import dbdump
 from ._install import _Installer
 from ._scan import scan as _scan
-from .config import ProjectConfig
+from .config import EntryDefaults, EntryRule, ProjectConfig
 from .config import load as _load_config
 from .db import Db, DbProvider, open_db
 from .entry import (
@@ -31,12 +31,15 @@ from .entry import (
     StrPath,
 )
 from .exceptions import UsageError
-from .exclude import _statements
+from .exclude import PathMatch, _statements
 
 __all__ = ["Project"]
 
 #: Recognized ``method`` values of :meth:`Project.install`.
 _INSTALL_METHODS = ("copy", "link", "move")
+
+#: The entry fields ``[[rules]]`` and ``[defaults]`` fill when they are unset.
+_RESOLVED = ("mode", "owner", "group")
 
 _INIT_LOGGER = logging.getLogger("pkgforge.initdb")
 _COMPACT_LOGGER = logging.getLogger("pkgforge.compact")
@@ -97,6 +100,15 @@ class Project:
     config: ProjectConfig
 
     _batch_provider: typing.Optional[DbProvider] = None
+    # The parsed [[rules]] and whether any rule or default is set, with the
+    # config they came from.
+    _rules: typing.Optional[
+        typing.Tuple[
+            ProjectConfig,
+            typing.Tuple[typing.Tuple[PathMatch, EntryRule], ...],
+            bool,
+        ]
+    ] = None
 
     def __init__(
         self,
@@ -274,10 +286,84 @@ class Project:
             finally:
                 self._batch_provider = None
 
+    def _matchers(
+        self,
+    ) -> typing.Tuple[typing.Tuple[typing.Tuple[PathMatch, EntryRule], ...], bool]:
+        """The ``[[rules]]`` with their ``match`` statements parsed, once per
+        configuration, and whether any rule or default is set."""
+        cache = self._rules
+        if cache is None or cache[0] is not self.config:
+            config = self.config
+            rules = tuple(
+                (PathMatch(_statements(rule.match)), rule) for rule in config.rules
+            )
+            cache = (config, rules, bool(rules) or config.defaults != EntryDefaults())
+            self._rules = cache
+        return cache[1], cache[2]
+
+    def _configured(
+        self, dbpath: str, entry: FileEntry, local: typing.Optional[Path] = None
+    ) -> FileEntry:
+        """``entry`` with the ``mode``, ``owner`` and ``group`` it leaves at
+        ``"-"`` filled in from the configuration; ``entry`` itself is never
+        changed.
+
+        A field that is not ``"-"`` is a flag and stays. The others come from
+        the first ``[[rules]]`` element whose ``match`` fits ``dbpath``, then
+        from ``[defaults]`` (``dir_mode`` for a directory, ``exec_mode`` for a
+        file with an execute bit on ``local``, else ``file_mode``). A symlink
+        never takes a mode. ``local`` is the file to test for the execute bit;
+        by default its place under the build root.
+        """
+        rules, active = self._matchers()
+        if not active:
+            return entry
+        defaults = self.config.defaults
+        unset = [name for name in _RESOLVED if entry[name] == DEFAULT]
+        kind = entry["type"]
+        if kind == FileType.Symlink and "mode" in unset:
+            unset.remove("mode")
+        if not unset:
+            return entry
+        values: typing.Dict[str, str] = {}
+        for matcher, rule in rules:
+            if matcher.match(dbpath, entry) is True:
+                for name in unset:
+                    value = getattr(rule, name)
+                    if value is not None:
+                        values[name] = value
+                break
+        for name in ("owner", "group"):
+            value = getattr(defaults, name)
+            if name in unset and name not in values and value is not None:
+                values[name] = value
+        if "mode" in unset and "mode" not in values:
+            mode = self._default_mode(kind, dbpath, local)
+            if mode is not None:
+                values["mode"] = mode
+        return {**entry, **values} if values else entry
+
+    def _default_mode(
+        self, kind: object, dbpath: str, local: typing.Optional[Path]
+    ) -> typing.Optional[str]:
+        """The ``[defaults]`` mode for an entry of type ``kind``, or ``None``."""
+        defaults = self.config.defaults
+        if kind == FileType.Directory:
+            return defaults.dir_mode
+        if kind != FileType.File:
+            return None
+        if defaults.exec_mode is None and defaults.file_mode is None:
+            return None
+        try:
+            executable = os.lstat(local or self.localpath(dbpath)).st_mode & 0o111
+        except OSError:
+            executable = 0
+        return defaults.exec_mode if executable else defaults.file_mode
+
     def _record(self, dbpath: str, entry: FileEntry) -> FileEntry:
         """The entry actually recorded for ``dbpath``; every write goes
         through here."""
-        return entry
+        return self._configured(dbpath, entry)
 
     def _write(
         self, dbpath: str, entry: typing.Optional[FileEntry]

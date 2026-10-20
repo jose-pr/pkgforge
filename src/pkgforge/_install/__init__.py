@@ -383,6 +383,10 @@ class _Installer(_RecordTree, _Staging):
                 type=FileType(self.type),
                 meta=self.meta,
             )
+            if not self.noentry:
+                fileentry = self.project._configured(
+                    self.project.dbpath(dest), fileentry, local=staged
+                )
             fileentry = resolve_entry(fileentry, staged)
             apply_entry(fileentry, staged, chown=self.chown, logger=self._logger_)
             if staged != dest:
