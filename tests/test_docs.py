@@ -27,6 +27,7 @@ README = ROOT / "README.md"
 INDEX = ROOT / "docs" / "index.md"
 UNATTENDED = ROOT / "docs" / "guide" / "unattended.md"
 COMMANDS = ROOT / "docs" / "guide" / "commands.md"
+CONFIG_GUIDE = ROOT / "docs" / "guide" / "config.md"
 HEADER = ROOT / "src" / "pkgforge" / "AGENTS.md"
 
 # Pages whose `pkgforge ...` examples must parse.
@@ -35,6 +36,7 @@ DOC_PAGES = [
     INDEX,
     ROOT / "docs" / "guide" / "install.md",
     ROOT / "docs" / "guide" / "commands.md",
+    CONFIG_GUIDE,
     UNATTENDED,
     ROOT / "docs" / "guide" / "file-db.md",
     ROOT / "docs" / "guide" / "formats.md",
@@ -145,6 +147,32 @@ def _doc_argv(line: str):
     return argv
 
 
+_SNIPPET = re.compile(r'^--8<-- "([^"]+)"$', re.MULTILINE)
+
+
+def test_cfg_examples_load(tmp_path):
+    """Every ``toml`` fence of the project-file guide and the README is a whole
+    ``pkgforge.cfg`` that loads."""
+    from pkgforge.config import load
+
+    checked = 0
+    for page in (CONFIG_GUIDE, README):
+        text = page.read_text(encoding="utf-8")
+        for body in _fences(text, langs=("toml",)):
+            # The docs build expands a snippet directive with the file it names.
+            body = _SNIPPET.sub(
+                lambda m: (ROOT / m.group(1)).read_text(encoding="utf-8"), body
+            )
+            cfg = tmp_path / "pkgforge.cfg"
+            cfg.write_bytes(body.encode("utf-8"))
+            try:
+                load(cfg)
+            except Exception as exc:
+                raise AssertionError(f"{page.name}: {body!r} -> {exc}") from exc
+            checked += 1
+    assert checked >= 2
+
+
 def test_quickstart_blocks_identical_and_private():
     readme_fence = _fence_after("## Quick start", README.read_text(encoding="utf-8"))
     index_fence = _fence_after("## At a glance", INDEX.read_text(encoding="utf-8"))
@@ -155,9 +183,12 @@ def test_quickstart_blocks_identical_and_private():
         assert "/tmp/" not in fence
 
 
-def test_doc_examples_parse():
+def test_doc_examples_parse(tmp_path, monkeypatch):
     from pkgforge.cli import PkgForge
 
+    # --config checks that its file exists; the examples name pkgforge.cfg.
+    (tmp_path / "pkgforge.cfg").write_bytes(b"")
+    monkeypatch.chdir(tmp_path)
     parser = PkgForge._parser_()
     checked = 0
     for page in DOC_PAGES:

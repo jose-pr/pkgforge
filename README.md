@@ -52,6 +52,38 @@ for a runnable end-to-end walkthrough, and
 and [`examples/debian/`](https://github.com/jose-pr/pkgforge/tree/main/examples/debian)
 for packages that build from a file DB with `rpmbuild` and `dpkg-buildpackage`.
 
+## Project file
+
+A package staged the same way on every build can describe it once in
+`pkgforge.cfg` and stage it with one command:
+
+```toml
+[defaults]
+owner = "root"
+group = "root"
+
+[[rules]]
+match = ["/etc/tool/**"]
+mode = "640"
+
+[[stage]]
+src = "build/tool"
+dest = "/usr/bin"
+mode = "755"
+
+[[stage]]
+src = "tool.conf"
+dest = "/etc/tool"
+```
+
+```sh
+pkgforge stage --init
+```
+
+See the [project file guide](https://jose-pr.github.io/pkgforge/guide/config/)
+for every key, the rules that decide an entry's mode, owner and group, and the
+owned directories.
+
 ## Commands
 
 | Command | Purpose |
@@ -60,6 +92,9 @@ for packages that build from a file DB with `rpmbuild` and `dpkg-buildpackage`.
 | `install [opts] SRC… DEST` | stage a source and record its entry |
 | `scan [opts] PATH` | walk PATH, recording every file and directory below it (never PATH itself); `-m` applies to files only (directories take `--dir-mode`, symlinks never get a mode); fields default to `-` unless `--mode=--`/`--dir-mode=--`/`--owner=--`/`--group=--` reads them from disk; replaces existing entries unless `--missing`; `--drop-stale` removes entries whose files are gone |
 | `compact` | collapse an append-log DB to one record per live path |
+| `stage` | run the `[[stage]]` steps of `pkgforge.cfg` |
+| `mkdir [opts] DEST…` | create directories and record their entries |
+| `symlink [opts] TARGET LINK` | create a symbolic link and record its entry |
 | `dbdump -f FORMAT [OUT]` | render the DB into a packaging manifest |
 
 `install --method {copy,link,move}` (env `PKGFORGE_INSTALL_METHOD`) stages a
@@ -75,8 +110,10 @@ Global options (also read from the environment):
 | `--db PATH` | `PKGFORGE_DB` | file DB to read/write; `-` writes records to stdout for `install`/`scan` and reads them from stdin for `dbdump` (`compact` and `scan --drop-stale` refuse it) |
 | `--db-format FMT` | `PKGFORGE_DB_FORMAT` | backend: `jsonl` / `yaml` / `sqlite` (else from the `--db` suffix) |
 | `--buildroot DIR` | `PKGFORGE_ROOT` | staging root that maps to `/` in the DB; DESTINATION/PATH must resolve inside it |
+| `--own PREFIX` | | a directory the package owns (repeatable); `dbdump --dirs owned` keeps only those |
+| `--config FILE` | `PKGFORGE_CONFIG` | the project file; else `pkgforge.cfg` in the working directory. Before the command only |
 
-Global flags work before or after the subcommand. With no `--buildroot` or
+Global flags (all but `--config`) work before or after the subcommand. With no `--buildroot` or
 `PKGFORGE_ROOT`, the default is the current directory -- except that a cwd of
 `/` is refused (exit 2); pass `--buildroot /` to target the live filesystem
 on purpose.

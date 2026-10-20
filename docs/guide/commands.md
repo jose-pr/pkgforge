@@ -1,7 +1,7 @@
 # Commands
 
 ```
-pkgforge [--db DB] [--buildroot DIR] <command> ...
+pkgforge [--config FILE] [--db DB] [--buildroot DIR] <command> ...
 ```
 
 Global options are read from the command line or the environment:
@@ -11,14 +11,19 @@ Global options are read from the command line or the environment:
 | `--db PATH` | `PKGFORGE_DB` | file DB to read/write; `-` writes records to stdout for `install`/`scan` and reads them from stdin for `dbdump` (`compact` and `scan --drop-stale` refuse it) |
 | `--db-format FMT` | `PKGFORGE_DB_FORMAT` | backend: `jsonl` / `yaml` / `sqlite` (else inferred from the `--db` suffix) |
 | `--buildroot DIR` | `PKGFORGE_ROOT` | staging root that maps to `/` in the DB; DESTINATION/PATH must resolve inside it |
+| `--own PREFIX` | | a directory prefix the package owns (repeatable; replaces `own` of the project file): the parents of a recorded entry at or below it are recorded too, see [Project file](config.md#owned-directories) |
+| `--config FILE`, `-c FILE` | `PKGFORGE_CONFIG` | the [project file](config.md); else `pkgforge.cfg` in the working directory when there is one. Given before the command only |
 | `-v, --verbose` | | raise the running command's log level (repeatable) |
 | `-q, --quiet` | | lower the running command's log level (repeatable) |
 | `--loglevel [NAME:]LEVEL[,...]` | | set a logger's level directly; `NAME` is a logger name (e.g. `pkgforge.scan`), omitted for the running command |
 
-Global flags work either before or after the subcommand
+Global flags (all but `--config`) work either before or after the subcommand
 (`pkgforge --db X install …` or `pkgforge install --db X …`). An empty
 environment variable (e.g. `PKGFORGE_DB_FORMAT=""`, as a CI pipeline commonly
 exports an unset input) counts as unset, same as leaving it out.
+
+A setting that the [project file](config.md) also holds takes the first of: the
+flag, the environment variable, the file, the default.
 
 See [Exit codes and completion](unattended.md#exit-codes-and-completion) for
 the exit-status contract and how to install shell completion.
@@ -246,8 +251,13 @@ aliases (`rpm`/`rpmspec` for `rpmspecfiles`, `deb` for `debian`) -- either
 spelling produces identical output.
 
 ```bash
-pkgforge dbdump -f FORMAT [-X PATTERN] [OUTPUT]
+pkgforge dbdump -f FORMAT [-X PATTERN] [--dirs {all,owned}] [OUTPUT]
 ```
+
+`--dirs owned` keeps a directory entry only when it is at or below an owned
+prefix (`--own`, or `own` in the [project file](config.md#owned-directories)) and
+leaves every other entry as it is; it exits 2 when no prefix is set. The default,
+`--dirs all`, dumps every directory entry.
 
 `dbdump` needs a DB to read. With no `--db` (and no `PKGFORGE_DB`) it exits 2
 with `no file DB configured; pass --db or set PKGFORGE_DB`, and with a `--db`
@@ -275,3 +285,63 @@ manifest, exit 0. A pipe that is never closed blocks (the caller's to close,
 same as any other stdin source). `--db-format` is not consulted: the input is
 always JSON Lines. In an MCP tool call, where stdin is the protocol channel,
 `--db -` is a usage error.
+
+## `stage`
+
+Run the `[[stage]]` steps of the [project file](config.md#steps), in order: each
+source is installed, and each directory, empty file and link is created, under
+the build root, and its entry recorded.
+
+```bash
+pkgforge --config pkgforge.cfg stage [--init]
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--init` | reset the file DB first, as `initdb` does; with no file DB, log a WARNING and go on |
+
+Every `src` is checked before the first step runs, so a missing source stages
+nothing (exit 2), and a project file with no `[[stage]]` steps is exit 2. Each step
+logs one INFO line on `pkgforge.stage`, then `staged N step(s), M record(s)`. With
+no file DB the records are printed to standard output as JSON Lines.
+
+## `mkdir`
+
+Create directories under the build root and record their entries. Nothing is
+read from a source, so this is how a directory with no files of its own is
+packaged. Running it again changes nothing.
+
+```bash
+pkgforge mkdir [-m MODE] [-o OWNER] [-g GROUP] [-O KEY=VALUE]... [-p] DEST...
+```
+
+| Option | Meaning |
+| --- | --- |
+| `-m, --mode` | as for `install` |
+| `-o, --owner` / `-g, --group` | owner / group to record |
+| `-O, --meta KEY=VALUE` | record free-form metadata on the entry (repeatable) |
+| `-p, --parents` | create missing parent directories |
+
+```bash
+pkgforge mkdir -p -m 750 -o root -g adm /var/lib/tool
+```
+
+## `symlink`
+
+Create a symbolic link under the build root and record its entry. TARGET is
+stored as written and may name nothing; a symlink has no mode, so there is no
+`--mode`.
+
+```bash
+pkgforge symlink [-o OWNER] [-g GROUP] [-O KEY=VALUE]... [-p] TARGET LINK
+```
+
+| Option | Meaning |
+| --- | --- |
+| `-o, --owner` / `-g, --group` | owner / group to record |
+| `-O, --meta KEY=VALUE` | record free-form metadata on the entry (repeatable) |
+| `-p, --parents` | create missing parent directories of LINK |
+
+```bash
+pkgforge symlink -p tool /usr/bin/t
+```

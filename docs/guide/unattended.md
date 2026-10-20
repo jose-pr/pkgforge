@@ -27,10 +27,26 @@ pkgforge dbdump -f rpmspecfiles rpm-files.txt
 pkgforge dbdump -f debian debian/
 ```
 
+## The project file
+
+`PKGFORGE_CONFIG` names the [project file](config.md) to read, and `--config FILE`
+(given before the command) beats it. It must name an existing file; an empty
+value reads no file at all, not even `pkgforge.cfg` in the working directory, so
+a pipeline sets `PKGFORGE_CONFIG=""` to ignore a stray file. A setting the file
+holds takes the first of: the command-line flag, the environment variable, the
+file, the default.
+
+A pipeline whose package has a project file stages it in one command:
+
+```bash
+pkgforge --config pkgforge.cfg stage --init
+```
+
 ## Logging
 
 Every command logs under its own logger, `pkgforge.<command>` (`pkgforge.install`,
-`pkgforge.scan`, `pkgforge.dbdump`, `pkgforge.initdb`, `pkgforge.compact`), so
+`pkgforge.scan`, `pkgforge.dbdump`, `pkgforge.initdb`, `pkgforge.compact`,
+`pkgforge.stage`, `pkgforge.mkdir`, `pkgforge.symlink`), so
 `logging.getLogger("pkgforge")` controls all of them from Python.
 
 - `-v, --verbose` (repeatable) raises the running command's own log level;
