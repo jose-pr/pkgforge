@@ -80,6 +80,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The warning that an absolute `-X` pattern could match no install path, and
   `PathMatch.unreachable()` and `log_unreachable()` with it.
 - `dbdump --stdin`; use `--db -`.
+- The `FileEntry.from_args`, `from_path`, `resolve_for` and `apply` class
+  aliases; call `entry_from_args`, `entry_from_path`, `resolve_entry` and
+  `apply_entry`.
+- `PathTest.GENERATORS` and `PathTest.factory`; the registry and builder are
+  module-private.
+- `scan --type/-t`, which was hidden and ignored; `scan` now exits 2 for it.
+- The `--decompress` tool-name aliases `gzip`, `gunzip`, `xz`, `unxz`,
+  `bzip2`, `bunzip2`, `zstd`, `unzstd`, `lzma` and `unlzma`; a kind is exactly
+  `gz`, `xz`, `bz2`, `zst` or `lzma`, in any case.
+- `FileType._AUTO`; use the `AUTO` string. `list(FileType)` is `file`,
+  `directory`, `symlink`.
+- A bare `Path` or `str` as `Install(source=...)`: `source` is a list. An `int`
+  mode in `normalize_mode`: a mode is a string, and an int raises `UsageError`.
+- The import-time binding of `PKGFORGE_DB`, `PKGFORGE_DB_FORMAT`,
+  `PKGFORGE_ROOT`, `PKGFORGE_INSTALL_METHOD` and `PKGFORGE_INSTALL_RECORD_TREE`
+  as class defaults: a command built directly in Python ignores the
+  environment; `main()` and `duho.parse` read it.
+- The archive destination-name fallback that cut a name at its last `tar` or
+  `iso` segment; `.tar.zst`, `.tzst`, `.tar.lz4`, `.tar.lzma`, `.tlz`,
+  `.tar.lz` and `.cpio` are now listed suffixes. `Install.install` is private
+  (`_install`).
 - Content sniffing of a file DB and the legacy leniency that came with it: an
   unrecognized text file was read as YAML, and a mode, owner or group written
   as a number, or a missing field, was coerced or defaulted at load.

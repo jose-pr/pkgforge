@@ -57,6 +57,7 @@ REQUIRED_API_TARGETS = (
     "pkgforge.errors.UsageError",
     "pkgforge.entry.FileType",
     "pkgforge.entry.FileEntry",
+    "pkgforge.entry.FileEntryBaseArgs",
     "pkgforge.entry.FileEntryArgs",
     "pkgforge.entry.entry_from_args",
     "pkgforge.entry.entry_from_path",

@@ -10,6 +10,10 @@
     options:
       show_root_heading: true
 
+::: pkgforge.entry.FileEntryBaseArgs
+    options:
+      show_root_heading: true
+
 ::: pkgforge.entry.FileEntryArgs
     options:
       show_root_heading: true
