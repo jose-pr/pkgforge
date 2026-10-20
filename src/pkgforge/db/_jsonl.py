@@ -22,9 +22,10 @@ if typing.TYPE_CHECKING:
 _DECODER = json.JSONDecoder()
 
 
-def _jsonl_line(path: str, entry: typing.Optional["FileEntry"]) -> str:
-    """One JSON Lines record for ``path``/``entry`` (or a removal marker),
-    terminated with a single trailing newline."""
+def jsonl_line(path: str, entry: typing.Optional["FileEntry"]) -> str:
+    """One JSON Lines record for ``path``/``entry`` (``None`` writes a removal
+    marker), terminated with a single newline: the exact text
+    :class:`JSONLinesDb` appends."""
     return json.dumps({"path": path, **_fields(entry)}, sort_keys=True) + "\n"
 
 
@@ -95,6 +96,16 @@ def _parse_jsonl(text: str, source: typing.Union["Path", str], hint: str = "") -
     return db
 
 
+def parse_jsonl(text: str, source: str = "text") -> Db:
+    """Parse JSON Lines ``text`` (what :func:`jsonl_line` writes) into a
+    :data:`~pkgforge.db.Db`; the last record for a path wins.
+
+    ``source`` names the text in errors, which read ``{source}:{line}: ...``.
+    Raises :class:`~pkgforge.exceptions.DbError` for a malformed record.
+    """
+    return _parse_jsonl(text, source, "")
+
+
 class JSONLinesDb(AppendLogDb):
     """Append-only JSON Lines: one JSON object per line, last per path wins."""
 
@@ -108,7 +119,7 @@ class JSONLinesDb(AppendLogDb):
         return _parse_jsonl(_read_text(self.path, hint), self.path, hint)
 
     def _record(self, path: str, entry: typing.Optional["FileEntry"]) -> str:
-        return _jsonl_line(path, entry)
+        return jsonl_line(path, entry)
 
     def _render_all(self, live: typing.Dict[str, "FileEntry"]) -> str:
-        return "".join(_jsonl_line(p, e) for p, e in live.items())
+        return "".join(jsonl_line(p, e) for p, e in live.items())

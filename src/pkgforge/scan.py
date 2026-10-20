@@ -2,25 +2,13 @@
 
 from __future__ import annotations
 
-import os
 import typing
-from pathlib import Path
 
 import duho
 
-from .exceptions import UsageError
-from .entry import (
-    AUTO,
-    DEFAULT,
-    FileType,
-    FileEntryBaseArgs,
-    entry_from_args,
-    normalize_mode,
-    _parse_mode,
-)
-from ._tree import TreeRecorder
 from .command import PkgForgeCmd
-from .exclude import ExcludeArgs, PathMatch
+from .entry import FileEntryBaseArgs, _parse_mode
+from .exclude import ExcludeArgs
 
 
 class ScanCmd(FileEntryBaseArgs, ExcludeArgs, PkgForgeCmd):
@@ -55,111 +43,18 @@ class ScanCmd(FileEntryBaseArgs, ExcludeArgs, PkgForgeCmd):
     ("path",)
 
     def __call__(self):
-        if self.drop_stale and self._no_file_db():
-            raise UsageError("--drop-stale needs a --db file (not unset or '-')")
-        # follow_final=False (unlike install's DESTINATION): the leaf is
-        # never followed here, only realpath(parent) is checked, so a
-        # symlink PATH pointing at a directory outside the root is recorded
-        # as a symlink below, not refused. An escaping *ancestor* component
-        # is still refused by _rootpath itself.
-        scanpath = self._rootpath(self.path, follow_final=False)
-        if not os.path.lexists(scanpath):
-            raise UsageError(
-                f"{self.path!r} does not exist under build root "
-                f"{os.fspath(self.buildroot)!r}"
-            )
-        # True when PATH normalizes to the root itself ("/", or a plain
-        # "."): PATH "/" must still be walked even when --buildroot itself
-        # resolves through a symlink, so the symlink-leaf check below is
-        # skipped for it.
-        is_root = scanpath == Path(self.buildroot)
-        db = self.loaddb() if self.missing else {}
-        base = entry_from_args(self, type=AUTO)
-        # -m/--mode applies to regular files only. A directory takes the
-        # new --dir-mode instead: the explicit value if given; else AUTO
-        # (read from disk) when --mode itself is AUTO, so --mode=-- still
-        # reads directories from disk too; else DEFAULT ('-') -- an
-        # explicit file mode is never inherited by directories. A symlink's
-        # mode is always DEFAULT: Linux ignores it, and rpm/debian consumers
-        # warn about (or reject) an explicit mode on one.
-        if self.dir_mode is not None:
-            # normalize_mode again: a direct Python-API construction (not
-            # through the CLI's --dir-mode type= converter) can hand this a
-            # raw, unnormalized value; normalize_mode is idempotent on an
-            # already-normalized one.
-            dirmode = normalize_mode(self.dir_mode)
-        elif base["mode"] == AUTO:
-            dirmode = AUTO
-        else:
-            dirmode = DEFAULT
-        bases = {
-            FileType.File: base,
-            FileType.Directory: {**base, "mode": dirmode},
-            FileType.Symlink: {**base, "mode": DEFAULT},
-        }
-        # An absolute -X pattern is relative to PATH, in the walk and in
-        # --drop-stale alike.
-        filter = PathMatch(self.exclude, scanpath)
-        self._logger_.info("Scanning %s", scanpath)
-
-        # `dbdump` OUTPUT files (rpm-files.txt, debian/) are not recognizable
-        # by TreeRecorder's DB-file skip and are documented instead -- keep
-        # them outside --buildroot too.
-        matcher = filter if self.exclude else None
-        recorder = TreeRecorder(self, bases, matcher, dict(self.meta), db)
-
-        # Batches the walk's own writes (a no-op except for sqlite, where it
-        # holds one connection and commits periodically instead of once per
-        # file); committed before --drop-stale's own reload below, which
-        # needs a fresh load() to see what this walk just wrote.
-        with self._db_batch():
-            if not is_root and scanpath.is_symlink():
-                # A symlink PATH (a link to a directory included) is
-                # recorded as a single symlink entry, never followed --
-                # otherwise its target's contents would be recorded under
-                # the link's own path, and an absolute target would walk
-                # the build HOST's filesystem instead of the build root.
-                recorder.record(scanpath)
-            elif not scanpath.is_dir():
-                recorder.record(scanpath)
-            else:
-                recorder.walk(scanpath)
-
-        self._logger_.info(
-            "Scanned %s: %d path(s) recorded", scanpath, recorder.recorded
+        records = self._project().scan(
+            self.path,
+            mode=self.mode,
+            owner=self.owner,
+            group=self.group,
+            meta=self.meta,
+            dir_mode=self.dir_mode,
+            missing=self.missing,
+            drop_stale=self.drop_stale,
+            exclude=self.exclude,
         )
-
-        if self.drop_stale:
-            # Reload from disk regardless of --missing (the walk's own `db`
-            # is {} without it): drop-stale reasons about the DB's current
-            # state, not what the walk happened to see in memory.
-            dropdb = self.loaddb()
-            scan_buildpath = self.buildpath(scanpath).as_posix()
-            prefix = scan_buildpath if scan_buildpath == "/" else scan_buildpath + "/"
-            dropped = 0
-            with self._db_batch():
-                for key, entry in dropdb.items():
-                    if (
-                        entry is None
-                        or key == scan_buildpath
-                        or not key.startswith(prefix)
-                    ):
-                        continue
-                    real_path = self.localpath(key)
-                    if self.exclude and filter.match(real_path, entry=entry):
-                        self._logger_.debug("Keeping excluded stale entry: %s", key)
-                        continue
-                    if os.path.lexists(real_path):
-                        continue
-                    self._logger_.debug("Dropping stale entry for: %s", key)
-                    self.remove_entry(key)
-                    dropped += 1
-            self._logger_.info(
-                "Dropped %d stale entr%s below %s",
-                dropped,
-                "y" if dropped == 1 else "ies",
-                scanpath,
-            )
+        self._emit(records)
 
 
 ScanCmd._register()

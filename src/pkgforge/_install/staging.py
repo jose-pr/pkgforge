@@ -1,5 +1,5 @@
 """``install``'s staging helpers and the :class:`_Staging` mixin holding
-``Install``'s own staging methods (file/symlink/directory + the top-level
+``_Installer``'s own staging methods (file/symlink/directory + the top-level
 ``_install()`` dispatcher)."""
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ from . import archive
 from ._tool import _run_tool
 from .decompress import _DECOMPRESSORS
 from .transfer import _Transfer, _try_link
-from ..command import _refuse_mcp_stdin
 from ..entry import DEFAULT, FileType
 from ..exceptions import PkgForgeError, UsageError
 from ..exclude import PathMatch
@@ -29,7 +28,6 @@ def _require_stdin() -> typing.BinaryIO:
     or a closed fd. Never closes stdin: the caller reads from the returned
     buffer without wrapping fd 0 in a new file object.
     """
-    _refuse_mcp_stdin("a '-' source")
     if sys.stdin is None:
         raise UsageError("'-' reads stdin, but stdin is closed")
     if sys.stdin.isatty():
@@ -113,7 +111,7 @@ def _copy_ignore(
     :class:`~pkgforge.exclude.PathMatch` -- a
     statement whose glob already matched but whose inline test needs a
     file type ``copytree`` cannot give still raises :class:`PkgForgeError`)
-    and ``skip`` (paths -- relative to ``src``, as :meth:`Install._self_copy_skips`
+    and ``skip`` (paths -- relative to ``src``, as :meth:`_Installer._self_copy_skips`
     returns them, not bare names -- this call must never copy at all, e.g.
     the build root or the file DB sitting inside the source; an ancestor
     directory of a skipped path is still created, empty, since only the
@@ -173,8 +171,8 @@ def _copy_ignore(
 
 
 class _Staging(_Transfer):
-    """Staging steps for Install; uses the host's meta, decompress,
-    exclude, buildroot, buildpath, db, method and _logger_."""
+    """Staging steps for _Installer; uses the host's meta, decompress,
+    exclude, buildroot, project, db, method and _logger_."""
 
     def _exclude_matcher(self, root: Path) -> typing.Optional[PathMatch]:
         """Build this clone's ``-X`` matcher for an on-disk tree at
@@ -212,8 +210,6 @@ class _Staging(_Transfer):
             elif self.decompress:
                 os.chmod(tmp, 0o666 & ~_umask())
                 argv, _ = _DECOMPRESSORS[self.decompress]
-                if from_stdin:
-                    _refuse_mcp_stdin("a '-' source")
                 with tmp.open("wb") as f:
                     _run_tool(
                         [
@@ -321,7 +317,7 @@ class _Staging(_Transfer):
         """Names (each relative to ``src.resolve()``, not a bare filename)
         that a directory copy from ``src`` onto ``dst`` must never descend
         into: the resolved destination, the build root, and the file DB
-        (unless there is none, :meth:`PkgForgeCmd._no_file_db`), whichever
+        (unless there is none, :meth:`_Installer._no_file_db`), whichever
         of them sit *strictly inside* the resolved source.
 
         A directory install's own build root commonly does (Debian's
@@ -481,7 +477,9 @@ class _Staging(_Transfer):
         type, so a failure here never touches a previously staged copy.
         """
         self._logger_.info(
-            "Installing %s at %s", DEFAULT if src is None else src, self.buildpath(dst)
+            "Installing %s at %s",
+            DEFAULT if src is None else src,
+            self.project.dbpath(dst),
         )
         if (
             src not in [DEFAULT, None]

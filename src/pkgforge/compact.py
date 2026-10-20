@@ -15,16 +15,7 @@ class Compact(PkgForgeCmd):
     def __call__(self):
         if str(self.db) == "-":
             raise UsageError("compact rewrites a file; --db - has none")
-        self._existing_db()
-        before = self.loaddb()
-        live = sum(1 for entry in before.values() if entry is not None)
-        self.compactdb()
-        self._logger_.info(
-            "Compacted %s: %d live path(s), %d removal(s) dropped",
-            self.db,
-            live,
-            len(before) - live,
-        )
+        self._project().compact()
 
 
 Compact._register()

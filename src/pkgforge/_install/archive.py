@@ -15,7 +15,6 @@ import typing
 import zlib
 from pathlib import Path
 
-from ..command import _refuse_mcp_stdin
 from ..entry import DEFAULT
 from ..exceptions import PkgForgeError
 from ..exclude import PathMatch
@@ -155,8 +154,6 @@ def _extract_bsdtar(src: typing.Union[Path, str], dst: Path) -> None:
     if shutil.which("bsdtar") is None:
         raise PkgForgeError(f"cannot extract {src}: bsdtar not found on PATH")
     from_stdin = src == DEFAULT
-    if from_stdin:
-        _refuse_mcp_stdin("an archive")
     _run_tool(
         [
             "bsdtar",

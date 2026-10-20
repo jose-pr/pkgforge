@@ -1,5 +1,5 @@
 """Tests for ``install -X`` filtering an archive source's members: the
-post-extraction prune (:func:`pkgforge.install.archive._prune_excluded`)
+post-extraction prune (:func:`pkgforge._install.archive._prune_excluded`)
 applied to both extraction routes (stdlib ``tarfile`` and ``bsdtar``)
 before anything is merged or renamed onto DESTINATION.
 
@@ -8,7 +8,7 @@ needs PEP 706's extraction filter (:data:`requires_tar_filter`, redeclared
 here rather than imported, matching ``tests/test_archive_install.py``); a
 ``bsdtar`` id skips without the ``bsdtar`` binary and is forced onto that
 route by naming the archive ``payload.bin`` (a suffix
-:func:`pkgforge.install.archive._is_tar_source` never recognizes as
+:func:`pkgforge._install.archive._is_tar_source` never recognizes as
 tar-family, whatever the actual bytes inside).
 """
 
@@ -26,7 +26,7 @@ import pytest
 
 from pkgforge.command import PkgForgeCmd
 from pkgforge.exclude import PathMatch, PathMatchStmt
-from pkgforge.install.archive import _prune_excluded
+from pkgforge._install.archive import _prune_excluded
 
 requires_tar_filter = pytest.mark.skipif(
     not hasattr(tarfile, "data_filter"),

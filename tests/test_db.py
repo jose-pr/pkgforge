@@ -271,16 +271,16 @@ def test_open_db_unknown_format_has_no_context(tmp_path):
 def test_stdout_record_matches_jsonl_line(cmd, make_entry, capsys):
     # _write_entry's stdout fallback (no --db) must emit exactly the same
     # bytes JSONLinesDb.add/remove would append to a real file.
-    from pkgforge.db._jsonl import _jsonl_line
+    from pkgforge.db import jsonl_line
 
     inst = cmd(db=None)
     entry = make_entry(mode="755")
 
     inst.add_entry("/usr/bin/x", entry)
-    assert capsys.readouterr().out == _jsonl_line("/usr/bin/x", entry)
+    assert capsys.readouterr().out == jsonl_line("/usr/bin/x", entry)
 
     inst.remove_entry("/usr/bin/y")
-    assert capsys.readouterr().out == _jsonl_line("/usr/bin/y", None)
+    assert capsys.readouterr().out == jsonl_line("/usr/bin/y", None)
 
 
 # --------------------------------------------------------------------------

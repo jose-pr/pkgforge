@@ -133,7 +133,7 @@ def test_method_move_rolls_back_on_failure(tmp_path, monkeypatch):
     def _boom(*_args, **_kwargs):
         raise RuntimeError("forced apply_entry failure")
 
-    monkeypatch.setattr("pkgforge.install.apply_entry", _boom)
+    monkeypatch.setattr("pkgforge._install.apply_entry", _boom)
 
     inst = Install._parser_().parse_args(
         [
@@ -420,7 +420,7 @@ def test_method_move_tree_rolls_back_on_failure(tmp_path, monkeypatch):
     def _boom(*_args, **_kwargs):
         raise RuntimeError("forced apply_entry failure")
 
-    monkeypatch.setattr("pkgforge.install.apply_entry", _boom)
+    monkeypatch.setattr("pkgforge._install.apply_entry", _boom)
 
     inst = Install._parser_().parse_args(
         [

@@ -10,7 +10,7 @@ import pytest
 
 from pkgforge.exceptions import DbError
 from pkgforge.db import SQLiteDb, _check_record, open_db
-from pkgforge.db._jsonl import _jsonl_line
+from pkgforge.db import jsonl_line
 
 
 def _record(**over):
@@ -158,7 +158,7 @@ def test_no_coercion_of_a_valid_record(tmp_path, make_entry):
 def test_jsonl_ignores_a_leading_bom_and_splits_on_newline_only(tmp_path, make_entry):
     path = tmp_path / "f.jsonl"
     odd = "/a b\u0085c d"
-    text = _jsonl_line(odd, make_entry()) + _jsonl_line("/b", make_entry())
+    text = jsonl_line(odd, make_entry()) + jsonl_line("/b", make_entry())
     path.write_bytes(b"\xef\xbb\xbf" + text.encode())
 
     assert sorted(open_db(path, "jsonl").load()) == sorted([odd, "/b"])

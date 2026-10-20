@@ -17,9 +17,7 @@ class InitDb(PkgForgeCmd):
                 "no file DB (--db unset or '-'): nothing to initialize"
             )
             return
-        self.db.parent.mkdir(parents=True, exist_ok=True)
-        self.initdb()  # provider-specific empty DB (truncate file / reset table)
-        self._logger_.info("Initialized empty DB at %s", self.db)
+        self._project().init()
 
 
 InitDb._register()

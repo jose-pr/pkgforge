@@ -6,7 +6,7 @@ Every test here is ``@pytest.mark.posix`` (real modes, symlinks, and
 sometimes hardlinks are load-bearing). A ``[route]`` id of ``tarfile`` needs
 PEP 706's extraction filter; a ``bsdtar`` id skips without the ``bsdtar``
 binary and is forced onto that route by naming the archive ``payload.bin``
-(a suffix :func:`pkgforge.install.archive._is_tar_source` never recognizes
+(a suffix :func:`pkgforge._install.archive._is_tar_source` never recognizes
 as tar-family, whatever the actual bytes inside) -- matching
 ``tests/test_archive_exclude.py``.
 """

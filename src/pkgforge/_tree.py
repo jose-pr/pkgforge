@@ -1,4 +1,4 @@
-"""Shared tree walker for ``scan`` and ``install --record-tree``: records
+"""Shared tree walker for ``scan`` and ``install`` with ``record_tree``: records
 every path under a root into the DB, skipping the file DB itself and an
 optional ``-X`` matcher, and filling gaps only -- never overwriting a key
 ``known`` already holds a (non-``None``) entry for.
@@ -6,6 +6,7 @@ optional ``-X`` matcher, and filling gaps only -- never overwriting a key
 
 from __future__ import annotations
 
+import logging
 import os
 import typing
 from pathlib import Path
@@ -15,41 +16,47 @@ from .exceptions import PkgForgeError
 from .exclude import PathMatch
 
 if typing.TYPE_CHECKING:
-    from .command import PkgForgeCmd
+    from .project import Project
 
 
 class TreeRecorder:
     """Walk a real, already-on-disk tree and record each path's
-    :class:`~pkgforge.entry.FileEntry` into ``cmd``'s file DB.
+    :class:`~pkgforge.entry.FileEntry` through ``write``.
 
-    Shared by ``scan`` (``known`` is the loaded DB only under ``--missing``,
-    else ``{}``, so a plain scan replaces existing entries) and
-    ``install --record-tree`` (``known`` is always a fresh
-    :meth:`~pkgforge.command.PkgForgeCmd.loaddb`, so record-tree only ever
-    fills gaps): a key already present (a non-``None`` value) in ``known``
-    is never overwritten.
+    Shared by ``scan`` (``known`` is the loaded DB only under ``missing``,
+    else ``{}``, so a plain scan replaces existing entries) and ``install``
+    with ``record_tree`` (``known`` is always a fresh
+    :meth:`~pkgforge.project.Project.load`, so it only ever fills gaps): a key
+    already present (a non-``None`` value) in ``known`` is never overwritten.
 
     ``bases`` supplies the un-resolved (``AUTO``/``DEFAULT``-valued) entry
     template per :class:`~pkgforge.entry.FileType`; :meth:`record` resolves
     each ``AUTO``-valued field from the path's own ``lstat``. ``matcher`` is
     ``None`` when there is nothing to filter (no ``-X`` given); callers build
     their own, rooted at the tree they walk: ``scan``'s at PATH,
-    ``install --record-tree``'s at DESTINATION.
+    ``install``'s record-tree at DESTINATION. ``write(dbpath, entry)`` is the
+    caller's recording callback; ``logger`` receives the skip and exclusion
+    messages.
     """
 
     def __init__(
         self,
-        cmd: "PkgForgeCmd",
+        project: "Project",
         bases: typing.Mapping[FileType, FileEntry],
         matcher: typing.Optional[PathMatch],
         meta: typing.Dict[str, str],
         known: typing.Mapping[str, typing.Optional[FileEntry]],
+        *,
+        logger: logging.Logger,
+        write: typing.Callable[[str, FileEntry], typing.Any],
     ) -> None:
-        self.cmd = cmd
+        self.project = project
         self.bases = bases
         self.matcher = matcher
         self.meta = meta
         self.known = known
+        self.logger = logger
+        self.write = write
         #: Paths actually written this run -- never a path skipped by -X,
         #: the file-DB skip, or a key `known` already holds.
         self.recorded = 0
@@ -60,8 +67,8 @@ class TreeRecorder:
         # here too.
         self._db_skip_dir: typing.Optional[str] = None
         self._db_skip_names: typing.Optional[typing.Set[str]] = None
-        if not cmd._no_file_db():
-            db_path = Path(cmd.db)
+        if project.db is not None:
+            db_path = Path(project.db.path)
             self._db_skip_dir = os.path.realpath(db_path.parent)
             self._db_skip_names = {
                 db_path.name + suffix for suffix in ("", "-journal", "-wal", "-shm")
@@ -80,9 +87,9 @@ class TreeRecorder:
             if self._db_skip_names is not None and path.name in self._db_skip_names:
                 if os.path.realpath(path.parent) == self._db_skip_dir:
                     if self._warned_db_skip:
-                        self.cmd._logger_.debug("Skipping the file DB %s", path)
+                        self.logger.debug("Skipping the file DB %s", path)
                     else:
-                        self.cmd._logger_.warning(
+                        self.logger.warning(
                             "Skipping the file DB %s found inside the "
                             "recorded tree; keep --db (and dbdump output) "
                             "outside --buildroot",
@@ -91,15 +98,15 @@ class TreeRecorder:
                         self._warned_db_skip = True
                 return True
             if self.matcher is not None and self.matcher.match(path, meta=self.meta):
-                self.cmd._logger_.debug("Excluding %s", path)
+                self.logger.debug("Excluding %s", path)
                 return False
-            fspath = self.cmd.buildpath(path).as_posix()
+            fspath = self.project.dbpath(path)
             if self.known.get(fspath) is None:
                 st = path.lstat()
                 ftype = _file_type(path, st)
                 entry = _resolve_stat(self.bases[ftype], path, st, lookupval=AUTO)
-                self.cmd._logger_.debug("Updating file entry for: %s", fspath)
-                self.cmd.add_entry(fspath, entry=entry)
+                self.logger.debug("Updating file entry for: %s", fspath)
+                self.write(fspath, entry)
                 self.recorded += 1
             return True
         except TypeError as exc:

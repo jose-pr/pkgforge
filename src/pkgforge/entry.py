@@ -8,8 +8,8 @@ entry (:func:`entry_from_args`, :func:`entry_from_path`, :func:`resolve_entry`,
 string** (e.g. ``"644"``) so the DB round-trips cleanly and dumps (e.g.
 ``%attr(644,...)`` in an RPM spec) are correct.
 
-See :mod:`pkgforge.command` for the command base that reads/writes entries
-through a file DB, and :mod:`pkgforge.db` for the pluggable storage backends.
+See :mod:`pkgforge.project` for the API that reads/writes entries through a
+file DB, and :mod:`pkgforge.db` for the pluggable storage backends.
 """
 
 from __future__ import annotations
@@ -43,7 +43,9 @@ __all__ = [
     "FileEntry",
     "FileEntryArgs",
     "FileEntryBaseArgs",
+    "FileRecords",
     "FileType",
+    "StrPath",
     "apply_entry",
     "check_meta",
     "entry_from_args",
@@ -344,6 +346,34 @@ class FileEntry(typing.TypedDict):
 #: Entries that survived filtering: ``(db path, entry)`` pairs.
 FileEntries = typing.List[typing.Tuple[str, FileEntry]]
 
+#: What an operation wrote, in write order: ``(db path, entry)``, with ``None``
+#: for a removal.
+FileRecords = typing.List[typing.Tuple[str, typing.Optional[FileEntry]]]
+
+#: A local filesystem path: text or any ``os.PathLike``.
+StrPath = typing.Union[str, "os.PathLike[str]"]
+
+
+def _new_entry(
+    *,
+    mode: typing.Union[str, typing.List[str]],
+    owner: typing.Union[str, typing.List[str]],
+    group: typing.Union[str, typing.List[str]],
+    type: typing.Any,
+    meta: typing.Mapping[str, str],
+) -> FileEntry:
+    """A :class:`FileEntry` with ``mode``/``owner``/``group``/``meta``
+    normalized and validated; ``type`` is stored as given (it may still be a
+    sentinel to resolve from disk)."""
+    check_meta(meta)
+    return {
+        "mode": normalize_mode(mode),
+        "owner": normalize_name(owner, "owner"),
+        "group": normalize_name(group, "group"),
+        "type": type,
+        "meta": dict(meta),
+    }
+
 
 def entry_from_args(args: FileEntryBaseArgs, **overwrite) -> FileEntry:
     """Build a :class:`FileEntry` from a parsed :class:`FileEntryBaseArgs` mixin.
@@ -356,14 +386,13 @@ def entry_from_args(args: FileEntryBaseArgs, **overwrite) -> FileEntry:
         type_ = overwrite.pop("type")
     else:
         type_ = FileType(args.type) if args.type else args.type
-    check_meta(args.meta)
-    entry: FileEntry = {
-        "mode": normalize_mode(args.mode),
-        "owner": normalize_name(args.owner, "owner"),
-        "group": normalize_name(args.group, "group"),
-        "type": type_,
-        "meta": dict(args.meta),
-    }
+    entry = _new_entry(
+        mode=args.mode,
+        owner=args.owner,
+        group=args.group,
+        type=type_,
+        meta=args.meta,
+    )
     entry.update(overwrite)
     return entry
 

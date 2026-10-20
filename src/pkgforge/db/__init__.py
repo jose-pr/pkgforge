@@ -233,7 +233,7 @@ def _check_record(
 # Built-in backends: importing each module registers its provider class.
 # --------------------------------------------------------------------------
 
-from ._jsonl import JSONLinesDb  # noqa: E402
+from ._jsonl import JSONLinesDb, jsonl_line, parse_jsonl  # noqa: E402
 from ._yaml import YAMLDb  # noqa: E402
 from ._sqlite import SQLiteDb  # noqa: E402
 
@@ -245,5 +245,7 @@ __all__ = [
     "SQLiteDb",
     "YAMLDb",
     "format_for_suffix",
+    "jsonl_line",
     "open_db",
+    "parse_jsonl",
 ]

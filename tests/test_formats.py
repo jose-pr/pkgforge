@@ -26,7 +26,7 @@ from pkgforge.dbdump import (
     RPMSpecFiles,
     RPMSpecFilesPre419,
 )
-from pkgforge.install.archive import _extract_tar, _is_tar_source
+from pkgforge._install.archive import _extract_tar, _is_tar_source
 
 try:  # Unix-only; only the @posix fixperms-execution tests need these.
     import grp
@@ -195,6 +195,12 @@ def _one_entry(path, mode="644", owner="root", group="root"):
             {"mode": mode, "owner": owner, "group": group, "type": "file", "meta": {}},
         )
     ]
+
+
+def _dump(fmt, entries, output):
+    """Render ``entries`` and write them whole to ``output``."""
+    fmt.check_output(output)
+    fmt.write(fmt.render(entries), output)
 
 
 @pytest.mark.parametrize(
@@ -1257,7 +1263,7 @@ def test_debian_output_untouched_when_a_later_write_fails(tmp_path, monkeypatch)
     _seed_old_outputs(outdir, ["install", "dirs", "fixperms"])
     _fail_on_nth_write(monkeypatch, 2)
     with pytest.raises(OSError):
-        DebianFiles().dump(_one_entry("/opt/a"), outdir)
+        _dump(DebianFiles(), _one_entry("/opt/a"), outdir)
     assert sorted(p.name for p in outdir.iterdir()) == ["dirs", "fixperms", "install"]
     assert all((outdir / n).read_text() == "old" for n in ("install", "dirs"))
 
@@ -1276,7 +1282,7 @@ def test_debian_output_untouched_when_a_rename_fails(tmp_path, monkeypatch):
 
     monkeypatch.setattr(os, "replace", replace)
     with pytest.raises(OSError):
-        DebianFiles().dump(_one_entry("/opt/a"), outdir)
+        _dump(DebianFiles(), _one_entry("/opt/a"), outdir)
     assert not [p for p in outdir.iterdir() if p.name.endswith(".pkgforge-tmp")]
 
 
@@ -1285,14 +1291,14 @@ def test_rpm_output_untouched_when_the_write_fails(tmp_path, monkeypatch):
     out.write_text("old")
     _fail_on_nth_write(monkeypatch, 1)
     with pytest.raises(OSError):
-        RPMSpecFiles().dump(_one_entry("/opt/a"), out)
+        _dump(RPMSpecFiles(), _one_entry("/opt/a"), out)
     assert out.read_text() == "old"
     assert [p.name for p in tmp_path.iterdir()] == ["files.txt"]
 
 
 def test_dump_leaves_no_temp_file_on_success(tmp_path):
     outdir = tmp_path / "debian"
-    DebianFiles().dump(_one_entry("/opt/a"), outdir)
-    RPMSpecFiles().dump(_one_entry("/opt/a"), tmp_path / "files.txt")
+    _dump(DebianFiles(), _one_entry("/opt/a"), outdir)
+    _dump(RPMSpecFiles(), _one_entry("/opt/a"), tmp_path / "files.txt")
     assert sorted(p.name for p in outdir.iterdir()) == ["dirs", "fixperms", "install"]
     assert sorted(p.name for p in tmp_path.iterdir()) == ["debian", "files.txt"]

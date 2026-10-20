@@ -11,7 +11,7 @@ from ..exceptions import UsageError
 #: Kind -> (argv prefix, canonical suffix). ``argv`` always includes ``-d``
 #: (or the tool's own always-decompressing form), so a compressor's name
 #: passed as a KIND can never compress instead of decompress; the source (or
-#: ``-`` for stdin) is appended by :meth:`Install._install`.
+#: ``-`` for stdin) is appended by :meth:`_Installer._install`.
 _DECOMPRESSORS: typing.Dict[str, typing.Tuple[typing.List[str], str]] = {
     "gz": (["gzip", "-dc"], ".gz"),
     "xz": (["xz", "-dc"], ".xz"),

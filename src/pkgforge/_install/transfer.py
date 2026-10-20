@@ -57,13 +57,13 @@ class _Transfer:
     #: staging actions that consume ``self.source`` as a single reversible
     #: unit (a file move, or a directory's whole-tree rename fast path) --
     #: never for a merge move, which is not atomic and, like a partial
-    #: copy merge, is not rolled back. ``Install._stage`` reads this to
+    #: copy merge, is not rolled back. ``_Installer._stage`` reads this to
     #: decide whether a later apply/replace/record failure can still move
     #: the data back to ``self.source``.
     _move_atomic: bool = False
 
     def _warn_link_fallback(self) -> None:
-        """Log one WARNING (per :class:`Install` clone -- i.e. per source,
+        """Log one WARNING (per :class:`_Installer` clone -- i.e. per source,
         which is per command for the common single-source case) the first
         time ``--method link`` has to fall back to copying instead of
         hardlinking a file, rather than once per file."""

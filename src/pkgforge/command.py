@@ -2,9 +2,9 @@
 
 Defines the CLI path parser (:func:`parsepath`), the common command base
 (:class:`PkgForgeCmd`: the ``--db``/``--db-format``/``--buildroot`` options
-every subcommand shares, plus the file-DB read/write helpers and the
-build-root <-> local-path translation) that every subcommand extends, and the
-CLI root (:class:`PkgForge`).
+every subcommand shares, and the bridge to :class:`~pkgforge.project.Project`
+that does the work) that every subcommand extends, and the CLI root
+(:class:`PkgForge`).
 
 Storage is pluggable (see :mod:`pkgforge.db`: ``jsonl`` by default, plus
 ``yaml`` and ``sqlite``, and a third party can add its own by subclassing
@@ -15,20 +15,22 @@ file's content is never inspected, so one in another format fails to load.
 
 from __future__ import annotations
 
-import contextlib
 import os
-import posixpath
 import sys
 import traceback
 import typing
-from pathlib import Path, PurePath, PurePosixPath
+from pathlib import Path, PurePath
 
 import duho
 from duho import Cli, Cmd, LoggingArgs
 from duho.text import BOOL_TRUE
 
-from .entry import FileEntry
+from .db import jsonl_line
+from .entry import FileEntry, FileRecords
 from .exceptions import PkgForgeError, UsageError
+
+if typing.TYPE_CHECKING:
+    from .project import Project
 
 
 def _silence_broken_pipe() -> None:
@@ -161,182 +163,61 @@ class PkgForgeCmd(LoggingArgs, Cmd):
         # above.
         self.db_format = _check_db_format(self.db_format)
 
-    def localpath(self, buildpath: typing.Union[str, os.PathLike]) -> Path:
-        p = PurePosixPath(os.fspath(buildpath))
-        rel = p.relative_to("/") if p.is_absolute() else p
-        return Path(self.buildroot, rel)
-
-    def buildpath(self, localpath: Path) -> Path:
-        return Path("/", localpath.relative_to(self.buildroot))
-
-    def _rootpath(
-        self, path: typing.Union[str, os.PathLike], *, follow_final: bool = False
-    ) -> Path:
-        """Resolve a ``/``-rooted DESTINATION/PATH to a path under
-        ``--buildroot``, refusing one that would climb above it.
-
-        A literal ``..`` that climbs above the root is refused -- checked on
-        the root-relative form, since normalizing the ``/``-rooted form
-        first (``posixpath.normpath("/../x")`` collapses to ``/``) would
-        silently hide the escape instead of rejecting it. An in-root ``..``
-        (``/usr/share/../lib/x``) is normalized in the returned path, never
-        left for the caller to record verbatim.
-
-        A symlinked path component is refused the same way: after building
-        the local path, ``realpath`` of its parent (non-strict, so this runs
-        before any mkdir/unlink -- it resolves the existing prefix without
-        raising for a path that doesn't exist yet) must stay under the
-        build root's own realpath. The leaf itself is checked too, but only
-        when ``follow_final`` is true and it already names a directory --
-        the case where the caller is about to walk or write *into* it, not
-        merely replace it. A leaf that is a dangling symlink, or a symlink
-        to a file, therefore has only its parent checked, and is recorded
-        as the link itself rather than its (possibly out-of-root) target.
-
-        Not a sandbox against a concurrent writer (no ``openat2``/TOCTOU
-        guarantees) -- that isn't needed for a single build process, though
-        ``install`` re-checks right before its own mkdir, since an earlier
-        source in the same multi-source invocation can plant a new symlink
-        after this method already ran for a later one.
-
-        Also refuses an unusable ``--buildroot``: unset/empty (a falsy
-        value, reachable only from a direct Python-API construction) always
-        raises, and a *relative* build root (the ordinary cwd default)
-        whose realpath is ``/`` raises unless it was spelled explicitly
-        (``--buildroot /`` or ``PKGFORGE_ROOT=/``) -- otherwise an
-        unattended run started from ``/`` with no build root configured
-        would map straight onto the live filesystem, silently.
-        """
-        root = self.buildroot
-        if not root:
-            raise UsageError("no build root configured (--buildroot/PKGFORGE_ROOT)")
-        root = Path(root)
-        real_root = os.path.realpath(root)
-        if not root.is_absolute() and real_root == os.path.realpath(os.sep):
-            raise UsageError(
-                f"build root {os.fspath(root)!r} resolves to '/'; pass "
-                "--buildroot / (or set PKGFORGE_ROOT=/) to target the live "
-                "filesystem"
-            )
-
-        # A PurePath (install's DESTINATION, always a Path) converts via its
-        # own .as_posix(): stringifying it first (os.fspath) would render it
-        # with the native separator, which is a backslash on Windows and
-        # breaks PurePosixPath parsing -- self.buildpath() builds exactly
-        # such a "/"-rooted Path for _stage()'s re-check. A plain str (scan's
-        # PATH) is already posix-shaped text from the caller, so it goes
-        # through PurePosixPath directly.
-        if isinstance(path, PurePath):
-            posix_path = path.as_posix()
-        else:
-            posix_path = PurePosixPath(os.fspath(path)).as_posix()
-        rel = posixpath.normpath(posix_path.lstrip("/") or ".")
-        if rel == ".." or rel.startswith("../"):
-            raise UsageError(f"{path}: resolves outside --buildroot")
-        if rel == ".":
-            return root
-
-        local = Path(root, rel)
-        check = local if (follow_final and os.path.isdir(local)) else local.parent
-        if os.path.commonpath([real_root, os.path.realpath(check)]) != real_root:
-            raise UsageError(f"{path}: a symlink leads outside --buildroot")
-        return local
-
     def _no_file_db(self) -> bool:
         """True when records go to stdout instead of a file (``--db`` unset or ``-``)."""
         return self.db is None or str(self.db) == "-"
 
-    def _existing_db(self) -> Path:
-        """The configured file DB, which must already exist.
+    def _project(self) -> "Project":
+        """The :class:`~pkgforge.project.Project` these options describe."""
+        # Function-local: project imports dbdump, which imports this module.
+        from .project import Project
 
-        Raises :class:`UsageError` when ``--db`` is unset or names no file, so
-        a command that only reads (``dbdump``) or rewrites (``compact``) never
-        mistakes a missing DB for an empty one. ``--db -`` is the caller's to
-        handle before this.
-        """
-        if self.db is None:
-            raise UsageError("no file DB configured; pass --db or set PKGFORGE_DB")
-        if not self.db.exists():
-            raise UsageError(f"no file DB at {self.db}; run pkgforge initdb")
-        return self.db
+        if not self.buildroot:
+            raise UsageError("no build root configured (--buildroot/PKGFORGE_ROOT)")
+        return Project(
+            self.buildroot,
+            None if self._no_file_db() else self.db,
+            db_format=self.db_format or None,
+        )
 
-    def _provider(self):
-        """Resolve the DB storage provider for the configured --db/--db-format."""
-        # Function-local: db.py imports entry only under TYPE_CHECKING today,
-        # so a module-top import here would be safe now, but db.py is expected
-        # to import entry's types at runtime later; keeping this local
-        # avoids introducing a cycle then.
-        from .db import open_db
-
-        # `self.db_format` can be "" from a direct Python-API construction
-        # (e.g. PkgForgeCmd(db_format="")), which bypasses the `type=`
-        # converter above entirely -- normalize it here too, so an empty
-        # value means "from the suffix" everywhere, not only through argv/env.
-        return open_db(self.db, self.db_format or None)
-
-    @contextlib.contextmanager
-    def _db_batch(self):
-        """Batch a run of writes through :meth:`DbProvider.batch` where the
-        backend supports it (currently only ``sqlite``; every other backend
-        inherits the no-op default), instead of resolving the provider fresh
-        for each ``add_entry``/``remove_entry`` call.
-
-        Resolves the provider once and stores it so
-        :meth:`_write_entry` uses it directly; a no-op (nothing to batch)
-        for an unset/stdout DB. Exits -- committing -- before the caller does
-        anything that needs to see those writes through a *fresh* ``load()``
-        (e.g. ``scan --drop-stale``'s reload): a second connection can't see
-        rows a first one hasn't committed yet.
-        """
+    def _emit(self, records: FileRecords) -> None:
+        """Print ``records`` as JSON Lines when there is no file DB, so a
+        pipeline can capture what would have been recorded."""
         if self._no_file_db():
-            yield
-            return
-        provider = self._provider()
-        with provider.batch() as batch_provider:
-            self._batch_provider = batch_provider
-            try:
-                yield
-            finally:
-                self._batch_provider = None
+            for path, entry in records:
+                print(jsonl_line(path, entry), end="")
+
+    def localpath(self, buildpath: typing.Union[str, os.PathLike]) -> Path:
+        return self._project().localpath(os.fspath(buildpath))
+
+    def buildpath(self, localpath: Path) -> Path:
+        return Path(self._project().dbpath(localpath))
 
     def loaddb(self) -> typing.Dict[str, typing.Optional[FileEntry]]:
-        if self._no_file_db():
-            return {}
-        return self._provider().load()
+        return self._project().load()
 
     def compactdb(self) -> None:
         """Collapse the DB's redundant history (backend-specific; no-op if none)."""
-        if self._no_file_db():
-            return
-        self._provider().compact()
+        if not self._no_file_db():
+            self._project().compact()
 
     def initdb(self) -> None:
         """Create or reset an empty DB (no-op for a stdout / unset DB)."""
-        if self._no_file_db():
-            return
-        self._provider().init()
+        if not self._no_file_db():
+            self._project().init()
 
-    def _write_entry(self, buildpath: Path, entry: typing.Optional[FileEntry]):
+    def _write_entry(
+        self, buildpath: typing.Union[str, PurePath], entry: typing.Optional[FileEntry]
+    ) -> None:
         # DB keys are POSIX text whatever the host: a Windows Path would
         # render its "/"-rooted value with backslashes.
         path = buildpath.as_posix() if isinstance(buildpath, PurePath) else buildpath
-        if self._no_file_db():
-            # No file: emit the record as a JSON Lines line to stdout.
-            # Function-local for the same reason as _provider() above.
-            from .db._jsonl import _jsonl_line
+        self._emit([(path, self._project()._write(path, entry))])
 
-            print(_jsonl_line(path, entry), end="")
-            return
-        provider = getattr(self, "_batch_provider", None) or self._provider()
-        if entry is None:
-            provider.remove(path)
-        else:
-            provider.add(path, entry)
-
-    def add_entry(self, buildpath: Path, entry: FileEntry):
+    def add_entry(self, buildpath: typing.Union[str, PurePath], entry: FileEntry):
         self._write_entry(buildpath, entry)
 
-    def remove_entry(self, buildpath: Path):
+    def remove_entry(self, buildpath: typing.Union[str, PurePath]):
         self._write_entry(buildpath, None)
 
     @classmethod

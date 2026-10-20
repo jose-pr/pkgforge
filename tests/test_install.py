@@ -248,7 +248,7 @@ def test_install_decompress_kind_case(tmp_path, alias):
 @pytest.mark.parametrize("name", ["gzip", "unxz", "bzip2"])
 def test_decompress_tool_name_is_not_a_kind(name):
     from pkgforge.exceptions import UsageError
-    from pkgforge.install.decompress import _resolve_kind
+    from pkgforge._install.decompress import _resolve_kind
 
     with pytest.raises(UsageError, match="unknown compression kind"):
         _resolve_kind(name)
@@ -1917,17 +1917,19 @@ def test_install_refuses_unsafe_record_values(tmp_path, cli, args):
 
 @pytest.mark.parametrize("field", ["owner", "group"])
 def test_install_preflight_validates_python_api_names(tmp_path, field):
-    inst = Install(source=[tmp_path / "x"], dest=Path("/opt"), **{field: "a b"})
+    inst = Install(source=[tmp_path / "x"], destination=Path("/opt"), **{field: "a b"})
     with pytest.raises(UsageError, match=field):
-        inst._preflight()
+        inst()
 
 
 def test_install_preflight_validates_rpmprefix(tmp_path):
     inst = Install(
-        source=[tmp_path / "x"], dest=Path("/opt"), meta={"rpmprefix": "a\x00"}
+        source=[tmp_path / "x"],
+        destination=Path("/opt"),
+        meta={"rpmprefix": "a\x00"},
     )
     with pytest.raises(UsageError, match="rpmprefix"):
-        inst._preflight()
+        inst()
 
 
 @pytest.mark.posix

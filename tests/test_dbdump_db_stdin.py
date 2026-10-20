@@ -12,7 +12,7 @@ import sys
 import pytest
 
 from pkgforge.db import open_db
-from pkgforge.db._jsonl import _jsonl_line
+from pkgforge.db import jsonl_line
 
 
 def _stdin_bytes(data: bytes) -> io.TextIOWrapper:
@@ -39,7 +39,7 @@ DUMP = ("dbdump", "--db", "-", "-f", "rpmspecfiles", "-")
 def test_db_dash_renders_records(cli, make_entry, monkeypatch):
     entry = make_entry(mode="755")
     monkeypatch.setattr(
-        sys, "stdin", _stdin_bytes(_jsonl_line("/usr/bin/tool", entry).encode())
+        sys, "stdin", _stdin_bytes(jsonl_line("/usr/bin/tool", entry).encode())
     )
 
     result = cli(*DUMP)
@@ -49,7 +49,7 @@ def test_db_dash_renders_records(cli, make_entry, monkeypatch):
 
 def test_db_dash_after_the_subcommand(cli, make_entry, monkeypatch):
     monkeypatch.setattr(
-        sys, "stdin", _stdin_bytes(_jsonl_line("/usr/bin/tool", make_entry()).encode())
+        sys, "stdin", _stdin_bytes(jsonl_line("/usr/bin/tool", make_entry()).encode())
     )
     result = cli("dbdump", "-f", "rpmspecfiles", "--db", "-", "-")
     assert result.rc == 0, result.err
@@ -63,7 +63,7 @@ def test_db_dash_matches_file_db(tmp_path, cli, make_entry, monkeypatch, fmt):
         ("/usr/share/doc/x", make_entry(mode="644")),
         ("/usr/share", make_entry(mode="755", type="directory")),
     ]
-    text = "".join(_jsonl_line(path, entry) for path, entry in records)
+    text = "".join(jsonl_line(path, entry) for path, entry in records)
 
     db_path = tmp_path / "files.jsonl"
     provider = open_db(db_path)
@@ -85,10 +85,10 @@ def test_db_dash_last_record_wins_and_tombstones(cli, make_entry, monkeypatch):
     entry1 = make_entry(mode="644")
     entry2 = make_entry(mode="755")
     text = (
-        _jsonl_line("/a", entry1)
-        + _jsonl_line("/a", entry2)
-        + _jsonl_line("/b", entry1)
-        + _jsonl_line("/b", None)
+        jsonl_line("/a", entry1)
+        + jsonl_line("/a", entry2)
+        + jsonl_line("/b", entry1)
+        + jsonl_line("/b", None)
     )
     monkeypatch.setattr(sys, "stdin", _stdin_bytes(text.encode()))
 
@@ -134,7 +134,7 @@ def test_db_dash_devnull_refused(cli, monkeypatch):
 
 def test_db_dash_regular_file_accepted(tmp_path, cli, make_entry, monkeypatch):
     path = tmp_path / "records.jsonl"
-    path.write_text(_jsonl_line("/usr/bin/tool", make_entry()), encoding="utf-8")
+    path.write_text(jsonl_line("/usr/bin/tool", make_entry()), encoding="utf-8")
     with open(path, encoding="utf-8") as fh:
         monkeypatch.setattr(sys, "stdin", fh)
         result = cli(*DUMP)
@@ -158,7 +158,7 @@ def test_db_dash_empty_input_warns(cli, monkeypatch, caplog):
 
 def test_db_dash_without_buffer(cli, make_entry, monkeypatch):
     entry = make_entry(mode="750")
-    text = _jsonl_line("/opt/tool", entry)
+    text = jsonl_line("/opt/tool", entry)
     # No .buffer at all: the plain `.read()` text path must still work.
     monkeypatch.setattr(sys, "stdin", io.StringIO(text))
 
@@ -169,7 +169,7 @@ def test_db_dash_without_buffer(cli, make_entry, monkeypatch):
 
 @pytest.mark.parametrize("buffered", [True, False])
 def test_db_dash_ignores_a_leading_bom(cli, make_entry, monkeypatch, buffered):
-    text = _jsonl_line("/opt/tool", make_entry())
+    text = jsonl_line("/opt/tool", make_entry())
     if buffered:
         data = b"\xef\xbb\xbf" + text.encode()
         monkeypatch.setattr(sys, "stdin", _stdin_bytes(data))
@@ -181,7 +181,7 @@ def test_db_dash_ignores_a_leading_bom(cli, make_entry, monkeypatch, buffered):
 
 
 def test_db_dash_bad_record_names_line(cli, make_entry, monkeypatch):
-    text = _jsonl_line("/a", make_entry()) + "not-json\n"
+    text = jsonl_line("/a", make_entry()) + "not-json\n"
     monkeypatch.setattr(sys, "stdin", _stdin_bytes(text.encode()))
 
     result = cli(*DUMP)
@@ -216,7 +216,7 @@ def test_db_dash_non_utf8(cli, monkeypatch):
 def test_db_dash_ignores_db_format(cli, make_entry, monkeypatch):
     monkeypatch.setenv("PKGFORGE_DB_FORMAT", "yaml")
     monkeypatch.setattr(
-        sys, "stdin", _stdin_bytes(_jsonl_line("/usr/bin/tool", make_entry()).encode())
+        sys, "stdin", _stdin_bytes(jsonl_line("/usr/bin/tool", make_entry()).encode())
     )
 
     result = cli(*DUMP)
@@ -243,7 +243,7 @@ def test_stdin_flag_is_gone(cli):
 def test_env_db_dash_reads_stdin(cli, make_entry, monkeypatch):
     monkeypatch.setenv("PKGFORGE_DB", "-")
     monkeypatch.setattr(
-        sys, "stdin", _stdin_bytes(_jsonl_line("/usr/bin/tool", make_entry()).encode())
+        sys, "stdin", _stdin_bytes(jsonl_line("/usr/bin/tool", make_entry()).encode())
     )
     result = cli("dbdump", "-f", "rpmspecfiles", "-")
     assert result.rc == 0, result.err

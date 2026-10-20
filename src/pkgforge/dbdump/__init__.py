@@ -1,15 +1,14 @@
-"""``dbdump`` subcommand: render the file DB into packaging manifests.
+"""Render a file DB into packaging manifests (:func:`dump`), and the ``dbdump``
+subcommand.
 
 Two shapes of format are supported, each a :class:`DumpFormat` subclass:
 
 * :class:`PerEntryFormat` (e.g. :class:`~pkgforge.dbdump.RPMSpecFiles`)
-  renders one line per DB entry, written to a single output stream (a file,
-  or ``-`` for stdout);
+  renders one line per DB entry into one ``bytes`` value, written to a file;
 * :class:`MultiArtifactFormat` (e.g. :class:`~pkgforge.dbdump.DebianFiles`)
   renders several related files (e.g. an ``install`` path list plus a
-  ``fixperms`` script) into an output *directory* -- or, when the
-  output is ``-``, concatenated to stdout under ``# === <name> ===`` section
-  headers.
+  ``fixperms`` script) into a ``{name: bytes}`` dict, written into a
+  directory.
 
 A third party adds a format by subclassing one of the two with its own
 ``NAME`` (and, optionally, ``ALIASES``) -- no registration call is needed,
@@ -20,6 +19,7 @@ from __future__ import annotations
 
 import abc
 import contextlib
+import logging
 import os
 import re
 import stat
@@ -28,8 +28,7 @@ import typing
 from pathlib import Path
 
 from .._registry import Registered
-from ..db import Db
-from ..db._jsonl import _parse_jsonl
+from ..db import Db, parse_jsonl
 from ..entry import (
     _CONTROL_PATTERN,
     _RPM_EXPANSION_PATTERN,
@@ -39,6 +38,7 @@ from ..entry import (
     FileEntries,
     FileEntry,
     FileType,
+    StrPath,
 )
 from ..exceptions import (
     DbError,
@@ -49,7 +49,7 @@ from ..exceptions import (
     UsageError,
 )
 from ..command import PkgForgeCmd, _refuse_mcp_stdin
-from ..exclude import ExcludeArgs, PathMatch
+from ..exclude import ExcludeArgs, PathMatch, _statements
 
 #: Every C0 control character (0x00-0x1f) plus DEL (0x7f): rpm and debhelper
 #: both choke on these one way or another (a bare newline splits a line, a
@@ -202,13 +202,19 @@ def _open_stdout():
         sys.stdout.flush()
 
 
+#: What a format renders: one file's bytes, or ``{filename: bytes}``.
+Rendered = typing.Union[bytes, typing.Dict[str, bytes]]
+
+_LOGGER = logging.getLogger("pkgforge.dbdump")
+
+
 class DumpFormat(Registered, abc.ABC):
     """A packaging-manifest format, selected by ``dbdump -f NAME``.
 
     A subclass registers by declaring its own ``NAME`` (plus, optionally,
     ``ALIASES``); see :class:`pkgforge._registry.Registered`. Subclass
     :class:`PerEntryFormat` or :class:`MultiArtifactFormat`, not this class
-    directly -- they supply :meth:`check_output` and :meth:`dump` for their
+    directly -- they supply :meth:`check_output` and :meth:`write` for their
     respective output shape.
     """
 
@@ -218,22 +224,22 @@ class DumpFormat(Registered, abc.ABC):
     _KIND = "format"
 
     @abc.abstractmethod
-    def check_output(self, output: Path) -> None:
-        """Raise :class:`UnsupportedOutputError` if ``output`` is the wrong
-        shape for this format. Always returns for ``-`` (stdout)."""
+    def render(self, entries: FileEntries) -> Rendered:
+        """Render the (already validated) ``entries`` to bytes, writing nothing."""
 
     @abc.abstractmethod
-    def dump(
-        self,
-        entries: FileEntries,
-        output: Path,
-        logger: typing.Optional[typing.Any] = None,
-    ) -> None:
-        """Check ``output``, render ``entries``, then write them to it."""
+    def check_output(self, output: Path) -> None:
+        """Raise :class:`UnsupportedOutputError` if ``output`` is the wrong
+        shape for this format."""
+
+    @abc.abstractmethod
+    def write(self, rendered: Rendered, output: Path) -> typing.List[Path]:
+        """Write ``rendered`` to ``output``, whole or not at all; return the
+        files written."""
 
 
 class PerEntryFormat(DumpFormat):
-    """A format that renders one line per DB entry to a single stream."""
+    """A format that renders one line per DB entry to a single file."""
 
     @abc.abstractmethod
     def render_entry(self, path: str, entry: FileEntry) -> bytes:
@@ -243,64 +249,98 @@ class PerEntryFormat(DumpFormat):
         return b"".join(self.render_entry(path, entry) for path, entry in entries)
 
     def check_output(self, output: Path) -> None:
-        if str(output) == DEFAULT:
-            return
         if output.is_dir():
             raise UnsupportedOutputError(
                 f"{self.NAME} writes one file; OUTPUT is a directory: {output}"
             )
 
-    def dump(
-        self,
-        entries: FileEntries,
-        output: Path,
-        logger: typing.Optional[typing.Any] = None,
-    ) -> None:
-        self.check_output(output)
-        rendered = self.render(entries)
-        if str(output) == DEFAULT:
-            with _open_stdout() as out:
-                out.write(rendered)
-        else:
-            _write_files({output: rendered})
+    def write(self, rendered: Rendered, output: Path) -> typing.List[Path]:
+        _write_files({output: typing.cast(bytes, rendered)})
+        return [output]
 
 
 class MultiArtifactFormat(DumpFormat):
-    """A format that renders several named artifacts into a directory (or,
-    for ``-``, concatenates them to stdout under section headers)."""
+    """A format that renders several named artifacts into a directory."""
 
     @abc.abstractmethod
     def render(self, entries: FileEntries) -> typing.Dict[str, bytes]:
         """Render every artifact this format produces: ``{filename: bytes}``."""
 
     def check_output(self, output: Path) -> None:
-        if str(output) == DEFAULT:
-            return
         if output.exists() and not output.is_dir():
             raise UnsupportedOutputError(
                 f"{self.NAME} writes several files; OUTPUT must be a "
                 f"directory or '-', got existing file {output}"
             )
 
-    def dump(
-        self,
-        entries: FileEntries,
-        output: Path,
-        logger: typing.Optional[typing.Any] = None,
-    ) -> None:
-        self.check_output(output)
-        artifacts = self.render(entries)
-        if str(output) == DEFAULT:
-            with _open_stdout() as out:
-                for name, data in artifacts.items():
-                    out.write(f"# === {name} ===\n".encode())
-                    out.write(data)
-            return
+    def write(self, rendered: Rendered, output: Path) -> typing.List[Path]:
+        artifacts = typing.cast(typing.Dict[str, bytes], rendered)
         output.mkdir(parents=True, exist_ok=True)
-        _write_files({output / name: data for name, data in artifacts.items()})
-        if logger is not None:
-            for name in artifacts:
-                logger.info("Wrote %s", output / name)
+        files = {output / name: data for name, data in artifacts.items()}
+        _write_files(files)
+        return list(files)
+
+
+def _surviving_entries(
+    db: typing.Mapping[str, typing.Optional[FileEntry]],
+    exclude: typing.Sequence[typing.Any],
+) -> FileEntries:
+    """The live entries of ``db`` that no ``exclude`` statement drops,
+    sorted by DB path."""
+    matcher = PathMatch(_statements(exclude))
+    entries: FileEntries = []
+    for path, entry in db.items():
+        if entry is None or (exclude and matcher.match(path, entry)):
+            continue
+        entries.append((path, entry))
+    if db and exclude and not entries:
+        live = sum(1 for entry in db.values() if entry is not None)
+        _LOGGER.warning(
+            "0 of %d entries survived --exclude filtering; dumping an empty manifest",
+            live,
+        )
+    # Sorted by DB path (code-point order), not backend/insertion/readdir
+    # order: neither rpm nor dh_install give the output order any
+    # meaning, so this is what makes a staged tree give byte-identical
+    # manifests on any filesystem and any backend.
+    entries.sort(key=lambda pathentry: pathentry[0])
+    return entries
+
+
+def dump(
+    db: typing.Mapping[str, typing.Optional[FileEntry]],
+    fmt: str,
+    output: typing.Optional[StrPath] = None,
+    *,
+    exclude: typing.Sequence[str] = (),
+) -> Rendered:
+    """Render the live entries of ``db`` with the format ``fmt``.
+
+    ``fmt`` is a registered format name or alias. Removed entries (``None``)
+    and entries matched by an ``exclude`` statement are dropped; the rest are
+    sorted by path and validated. With ``output`` the result is also written
+    whole: a file for a per-entry format, a directory (created if missing) for
+    a multi-artifact one.
+
+    Returns the rendered bytes (a ``bytes`` value, or ``{filename: bytes}``).
+    Raises :class:`~pkgforge.exceptions.UsageError` for an unknown format or
+    exclude statement, :class:`~pkgforge.exceptions.UnsupportedOutputError`
+    for an ``output`` of the wrong shape (checked before anything is
+    rendered), :class:`~pkgforge.exceptions.InvalidEntryError` for an entry no
+    format can render and :class:`~pkgforge.exceptions.DumpError` for one this
+    format cannot.
+    """
+    instance = DumpFormat.lookup(fmt)()
+    target = None if output is None else Path(os.fspath(output))
+    if target is not None:
+        instance.check_output(target)
+    entries = _surviving_entries(db, exclude)
+    _validate_entries(entries)
+    rendered = instance.render(entries)
+    if target is not None:
+        for written in instance.write(rendered, target):
+            _LOGGER.info("Wrote %s", written)
+    return rendered
 
 
 class DbDump(ExcludeArgs, PkgForgeCmd):
@@ -325,39 +365,11 @@ class DbDump(ExcludeArgs, PkgForgeCmd):
     )
     ("output",)
 
-    def _check_target(self) -> DumpFormat:
-        """Validate ``--format``/OUTPUT before anything reads the DB.
-
-        Checked against the live registry at call time (never
-        ``duho.Choice``, which would freeze the choices at import and reject
-        a format a third party registers later): an unknown format, or an
-        OUTPUT of the wrong shape for the chosen format, both exit 2 with one
-        line naming the problem instead of surfacing whatever the DB load
-        happens to raise first (e.g. a JSON parse error for an unrelated
-        format typo). Returns the constructed format instance, its
-        ``check_output`` already run.
-        """
-        cls = DumpFormat.lookup(self.format)
-        self.format = cls.NAME
-        instance = cls()
-        instance.check_output(self.output)
-        return instance
-
-    def _file_db(self) -> Db:
-        """Load the DB from ``--db``/``PKGFORGE_DB``, which must exist."""
-        self._existing_db()
-        db = self.loaddb()
-        if not db:
-            self._logger_.warning(
-                "DB %s holds no entries; dumping an empty manifest", self.db
-            )
-        return db
-
     def _stdin_db(self) -> Db:
         """Read the DB as JSON Lines from stdin (``--db -``).
 
-        Runs only after :meth:`_check_target` validated ``--format``/OUTPUT,
-        so a bad one exits 2 without touching stdin. Stdin must be a pipe,
+        Runs only after ``--format``/OUTPUT were validated, so a bad one
+        exits 2 without touching stdin. Stdin must be a pipe,
         a socket or a regular file: a terminal, a closed stdin or a
         character device such as ``/dev/null`` raises :class:`UsageError`,
         so an inherited ``PKGFORGE_DB=-`` never dumps an empty manifest.
@@ -386,38 +398,32 @@ class DbDump(ExcludeArgs, PkgForgeCmd):
                 raise DbError(f"<stdin>: {exc}") from exc
         else:
             text = sys.stdin.read().removeprefix("\ufeff")
-        db = _parse_jsonl(text, "<stdin>")
+        db = parse_jsonl(text, "<stdin>")
         if not db:
             self._logger_.warning("stdin held no DB records; dumping an empty manifest")
         return db
 
-    def _surviving_entries(self) -> FileEntries:
-        db = self._stdin_db() if str(self.db) == "-" else self._file_db()
-        matcher = PathMatch(self.exclude)
-        entries: FileEntries = []
-        for path, entry in db.items():
-            if entry is None or (self.exclude and matcher.match(path, entry)):
-                continue
-            entries.append((path, entry))
-        if db and self.exclude and not entries:
-            live = sum(1 for entry in db.values() if entry is not None)
-            self._logger_.warning(
-                "0 of %d entries survived --exclude filtering; dumping an "
-                "empty manifest",
-                live,
-            )
-        # Sorted by DB path (code-point order), not backend/insertion/readdir
-        # order: neither rpm nor dh_install give the output order any
-        # meaning, so this is what makes a staged tree give byte-identical
-        # manifests on any filesystem and any backend.
-        entries.sort(key=lambda pathentry: pathentry[0])
-        return entries
-
     def __call__(self):
-        fmt = self._check_target()
-        entries = self._surviving_entries()
-        _validate_entries(entries)
-        fmt.dump(entries, self.output, self._logger_)
+        # Checked before any DB read (and so before stdin is touched): an
+        # unknown format or an OUTPUT of the wrong shape exits 2 first.
+        fmt = DumpFormat.lookup(self.format)
+        self.format = fmt.NAME
+        to_stdout = str(self.output) == DEFAULT
+        if not to_stdout:
+            fmt().check_output(self.output)
+        output = None if to_stdout else self.output
+        if str(self.db) == "-":
+            rendered = dump(self._stdin_db(), self.format, output, exclude=self.exclude)
+        else:
+            rendered = self._project().dump(self.format, output, exclude=self.exclude)
+        if to_stdout:
+            with _open_stdout() as out:
+                if isinstance(rendered, bytes):
+                    out.write(rendered)
+                else:
+                    for name, data in rendered.items():
+                        out.write(f"# === {name} ===\n".encode())
+                        out.write(data)
 
 
 # --------------------------------------------------------------------------
@@ -437,4 +443,6 @@ __all__ = [
     "PerEntryFormat",
     "RPMSpecFiles",
     "RPMSpecFilesPre419",
+    "Rendered",
+    "dump",
 ]

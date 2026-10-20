@@ -25,7 +25,9 @@ from .entry import (
     FileEntries,
     FileEntry,
     FileEntryArgs,
+    FileRecords,
     FileType,
+    StrPath,
     apply_entry,
     entry_from_args,
     entry_from_path,
@@ -34,6 +36,7 @@ from .entry import (
 )
 from .command import PkgForgeCmd, PkgForge, _silence_broken_pipe
 from .db import DbProvider, open_db
+from .project import Project
 from . import compact, dbdump, initdb, install, scan
 
 try:  # resolve the installed distribution version, if any
@@ -52,8 +55,11 @@ __all__ = [
     "FileEntries",
     "FileEntry",
     "FileEntryArgs",
+    "FileRecords",
     "FileType",
     "InvalidEntryError",
+    "Project",
+    "StrPath",
     "UnsupportedOutputError",
     "UsageError",
     "__version__",
