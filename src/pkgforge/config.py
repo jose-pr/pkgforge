@@ -259,6 +259,11 @@ def _own_prefix(prefix: str) -> str:
     return normal
 
 
+def _owned(path: str, prefixes: typing.Sequence[str]) -> bool:
+    """Whether the DB path ``path`` is one of ``prefixes`` or below one."""
+    return any(path == p or path.startswith(p + "/") for p in prefixes)
+
+
 @dataclass(frozen=True)
 class ProjectConfig:
     """The whole ``pkgforge.cfg`` document.

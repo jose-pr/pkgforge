@@ -12,14 +12,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   taken from the first rule whose `match` fits the path, then from `[defaults]`
   (`dir_mode`, `exec_mode` or `file_mode` by type and execute bit). A flag still
   wins, and `install` without `-m` stages the file with the resulting mode.
+- `own` in `pkgforge.cfg` and `--own PREFIX` (repeatable, on every command) name
+  the directories a package owns: recording an entry at or below one also
+  records each missing ancestor directory down from the prefix, as a directory
+  entry. `dbdump --dirs owned` (`Project.dump(dirs=)`, and `own=` of
+  `pkgforge.dbdump.dump`) keeps only the directories at or below an owned
+  prefix, so a manifest no longer claims directories the distribution owns.
 - `pkgforge.cfg`, a TOML project file read from the working directory, from
   `--config/-c FILE` (before the subcommand) or from `PKGFORGE_CONFIG`
   (`--config` wins; an empty `PKGFORGE_CONFIG` means no file). `db`,
   `db_format` and `buildroot` in it are defaults below the command line and the
   environment; relative paths are relative to the file. `${package.name}` and
-  any other key of the file can be reused in its text values. `[package]`,
-  `own` and `[[stage]]` are validated and kept on `Project.config`; they change
-  nothing yet. A bad file is one
+  any other key of the file can be reused in its text values. `[package]` and
+  `[[stage]]` are validated and kept on `Project.config`; they change nothing
+  yet. A bad file is one
   `pkgforge: error:` line, status 2.
 - `pkgforge.config` (`ProjectConfig`, `PackageInfo`, `EntryDefaults`,
   `EntryRule`, `StageStep`, `load`), `Project(..., config=)`, `Project.config`
@@ -45,7 +51,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and `dbdump` commands do, takes and returns plain Python values, prints
   nothing and returns the records it wrote (with no file DB, those are the
   only result). `pkgforge.FileRecords` and `pkgforge.StrPath` are its types.
-- `pkgforge.dbdump.dump(db, fmt, output=None, *, exclude=())` renders an
+- `pkgforge.dbdump.dump(db, fmt, output=None, *, exclude=(), own=None)` renders an
   already-loaded DB, and `pkgforge.dbdump.Rendered` is the result type.
 - `pkgforge.db.jsonl_line(path, entry)` and `pkgforge.db.parse_jsonl(text,
   source="text")` write and read the JSON Lines records the `jsonl` backend

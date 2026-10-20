@@ -39,6 +39,7 @@ from ..entry import (
     StrPath,
 )
 from ..exceptions import DumpError, InvalidEntryError, UnsupportedOutputError
+from ..config import _owned
 from ..exclude import PathMatch, _statements
 
 #: Every C0 control character (0x00-0x1f) plus DEL (0x7f): rpm and debhelper
@@ -246,13 +247,20 @@ class MultiArtifactFormat(DumpFormat):
 def _surviving_entries(
     db: typing.Mapping[str, typing.Optional[FileEntry]],
     exclude: typing.Sequence[str],
+    own: typing.Optional[typing.Sequence[str]] = None,
 ) -> FileEntries:
     """The live entries of ``db`` that no ``exclude`` statement drops,
-    sorted by DB path."""
+    sorted by DB path. With ``own``, a directory outside every prefix is
+    dropped first."""
     matcher = PathMatch(_statements(exclude))
     entries: FileEntries = []
     for path, entry in db.items():
-        if entry is None or (exclude and matcher.match(path, entry)):
+        if entry is None:
+            continue
+        if own is not None and entry["type"] == FileType.Directory:
+            if not _owned(path, own):
+                continue
+        if exclude and matcher.match(path, entry):
             continue
         entries.append((path, entry))
     if db and exclude and not entries:
@@ -275,11 +283,14 @@ def dump(
     output: typing.Optional[StrPath] = None,
     *,
     exclude: typing.Sequence[str] = (),
+    own: typing.Optional[typing.Sequence[str]] = None,
 ) -> Rendered:
     """Render the live entries of ``db`` with the format ``fmt``.
 
     ``fmt`` is a registered format name or alias. Removed entries (``None``)
-    and entries matched by an ``exclude`` statement are dropped; the rest are
+    and entries matched by an ``exclude`` statement are dropped. With ``own``
+    (``/``-rooted prefixes), so is every directory entry that is neither a
+    prefix nor below one; entries of other types are untouched. The rest are
     sorted by path and validated. With ``output`` the result is also written
     whole: a file for a per-entry format, a directory (created if missing) for
     a multi-artifact one.
@@ -296,7 +307,7 @@ def dump(
     target = None if output is None else Path(os.fspath(output))
     if target is not None:
         instance.check_output(target)
-    entries = _surviving_entries(db, exclude)
+    entries = _surviving_entries(db, exclude, own)
     _validate_entries(entries)
     rendered = instance.render(entries)
     if target is not None:

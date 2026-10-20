@@ -19,7 +19,7 @@ from pathlib import Path, PurePath, PurePosixPath
 from . import dbdump
 from ._install import _Installer
 from ._scan import scan as _scan
-from .config import EntryDefaults, EntryRule, ProjectConfig
+from .config import EntryDefaults, EntryRule, ProjectConfig, _owned
 from .config import load as _load_config
 from .db import Db, DbProvider, open_db
 from .entry import (
@@ -109,6 +109,10 @@ class Project:
             bool,
         ]
     ] = None
+    # Owned parents: the paths the DB held when the operation first needed to
+    # know (None until then) and the paths the operation has written since.
+    _held: typing.Optional[typing.Set[str]] = None
+    _written: typing.Set[str]
 
     def __init__(
         self,
@@ -125,6 +129,7 @@ class Project:
                 f"config must be a ProjectConfig, not {config.__class__.__name__}"
             )
         self.config = config
+        self._begin_operation()
         self.buildroot = _path(buildroot, "buildroot")
         fmt = _check_db_format(db_format)
         if isinstance(db, DbProvider):
@@ -286,6 +291,12 @@ class Project:
             finally:
                 self._batch_provider = None
 
+    def _begin_operation(self) -> None:
+        """Forget which paths the DB holds: each writing operation starts
+        its owned-parent bookkeeping afresh."""
+        self._held = None
+        self._written = set()
+
     def _matchers(
         self,
     ) -> typing.Tuple[typing.Tuple[typing.Tuple[PathMatch, EntryRule], ...], bool]:
@@ -360,20 +371,79 @@ class Project:
             executable = 0
         return defaults.exec_mode if executable else defaults.file_mode
 
-    def _record(self, dbpath: str, entry: FileEntry) -> FileEntry:
+    def _record_parents(
+        self, dbpath: str, records: typing.Optional[FileRecords]
+    ) -> None:
+        """Record, top-down and before the entry at ``dbpath``, each ancestor
+        directory at or below an ``own`` prefix that the DB does not hold yet.
+
+        The DB is read once per operation, at the first entry that needs it.
+        An owned parent is recorded and never chmod'ed.
+        """
+        own = self.config.own
+        if not any(dbpath.startswith(prefix + "/") for prefix in own):
+            return
+        parts = dbpath.split("/")
+        for end in range(2, len(parts)):
+            parent = "/".join(parts[:end])
+            if not _owned(parent, own) or parent in self._written:
+                continue
+            if self._held is None:
+                self._held = {
+                    path for path, held in self.load().items() if held is not None
+                }
+            if parent in self._held:
+                continue
+            entry = self._configured(
+                parent,
+                {
+                    "mode": DEFAULT,
+                    "owner": DEFAULT,
+                    "group": DEFAULT,
+                    "type": FileType.Directory.value,
+                    "meta": {},
+                },
+            )
+            if self.db is not None:
+                (self._batch_provider or self.db).add(parent, entry)
+            self._written.add(parent)
+            if records is not None:
+                records.append((parent, entry))
+
+    def _record(
+        self,
+        dbpath: str,
+        entry: FileEntry,
+        records: typing.Optional[FileRecords] = None,
+    ) -> FileEntry:
         """The entry actually recorded for ``dbpath``; every write goes
-        through here."""
-        return self._configured(dbpath, entry)
+        through here. The owned parents of ``dbpath`` are written first and
+        appended to ``records``."""
+        entry = self._configured(dbpath, entry)
+        if self.config.own:
+            self._record_parents(dbpath, records)
+        return entry
 
     def _write(
-        self, dbpath: str, entry: typing.Optional[FileEntry]
+        self,
+        dbpath: str,
+        entry: typing.Optional[FileEntry],
+        records: typing.Optional[FileRecords] = None,
     ) -> typing.Optional[FileEntry]:
         """Write ``entry`` (``None`` removes ``dbpath``) to the file DB, if any.
 
-        Returns what was recorded, for the caller's records.
+        Returns what was recorded, for the caller's records. The owned parents
+        written before ``entry`` are appended to ``records`` when it is given.
         """
         if entry is not None:
-            entry = self._record(dbpath, entry)
+            entry = self._record(dbpath, entry, records)
+        if self.config.own:
+            if entry is None:
+                self._written.discard(dbpath)
+                if self._held is not None:
+                    self._held.discard(dbpath)
+            else:
+                self._written.add(dbpath)
         if self.db is None:
             return entry
         provider = self._batch_provider or self.db
@@ -570,6 +640,7 @@ class Project:
                 "directory sources may share a destination"
             )
 
+        self._begin_operation()
         records: FileRecords = []
         for inst, target in resolved:
             inst._stage(target)
@@ -637,22 +708,28 @@ class Project:
         output: typing.Optional[StrPath] = None,
         *,
         exclude: typing.Sequence[str] = (),
+        dirs: str = "all",
     ) -> dbdump.Rendered:
         """Render the file DB with the format ``fmt`` (see
         :func:`pkgforge.dbdump.dump`).
 
         With ``output``, also write it whole: a file for a per-entry format, a
-        directory (created if missing) for a multi-artifact one.
+        directory (created if missing) for a multi-artifact one. ``dirs`` is
+        ``"all"`` or ``"owned"``: the latter keeps a directory entry only at or
+        below a prefix of ``config.own``.
 
         Returns:
             The rendered bytes (``bytes``, or ``{filename: bytes}``).
 
         Raises:
-            UsageError: ``fmt`` is unknown, or the file DB is missing.
+            UsageError: ``fmt`` is unknown, ``dirs`` is neither ``"all"`` nor
+                ``"owned"`` or is ``"owned"`` with no ``own`` prefixes, or the
+                file DB is missing.
             UnsupportedOutputError: ``output`` has the wrong shape for ``fmt``.
             InvalidEntryError: an entry no format can render.
             DumpError: an entry ``fmt`` cannot represent.
         """
+        own = self._dump_own(dirs)
         fmt_cls = dbdump.DumpFormat.get(fmt)
         target = None if output is None else Path(os.fspath(output))
         if target is not None:
@@ -663,7 +740,21 @@ class Project:
             _DUMP_LOGGER.warning(
                 "DB %s holds no entries; dumping an empty manifest", db.path
             )
-        return dbdump.dump(loaded, fmt_cls.NAME, target, exclude=exclude)
+        return dbdump.dump(loaded, fmt_cls.NAME, target, exclude=exclude, own=own)
+
+    def _dump_own(self, dirs: str) -> typing.Optional[typing.Tuple[str, ...]]:
+        """The prefixes ``dump(dirs=...)`` filters directories by: ``None``
+        for ``"all"``."""
+        if dirs == "all":
+            return None
+        if dirs != "owned":
+            raise UsageError(f"unknown dirs {dirs!r}; choose from all, owned")
+        if not self.config.own:
+            raise UsageError(
+                "--dirs owned needs owned prefixes: set own in pkgforge.cfg or "
+                "pass --own"
+            )
+        return self.config.own
 
 
 def _source(item: object) -> typing.Union[str, Path, None]:

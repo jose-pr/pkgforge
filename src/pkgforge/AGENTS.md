@@ -256,9 +256,17 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   `--record-tree` child's mode is then read from disk). A symlink never gets a
   mode. `install` without `-m` also chmods the staged file to the mode it
   resolved to. With no rule and no default nothing changes.
+- **Owned directories** — with `config.own` set, an entry written at or below
+  an `own` prefix is preceded, in the returned records and the DB, by each
+  ancestor directory at or below a prefix (the prefix included) that the DB does
+  not hold yet: type `directory`, resolved like any entry, recorded and never
+  chmod'ed. The DB is read once per `install` or `scan` call, and only when an
+  entry needs it. `record=False` and removals write none.
 - **`dump(fmt: str, output: StrPath | None = None, *, exclude: Sequence[str] =
-  ()) -> Rendered`** — render the file DB with the format `fmt` (a name or
-  alias). The format and OUTPUT shape are checked first, then the DB must
+  (), dirs: str = "all") -> Rendered`** — render the file DB with the format
+  `fmt` (a name or alias). `dirs="owned"` keeps a directory entry only at or
+  below a prefix of `config.own` (`UsageError` for another value, or with no
+  prefixes). The format and OUTPUT shape are checked first, then the DB must
   exist (`UsageError` for `db=None` or a missing file); with `output` the
   result is also written whole (a file, or a directory for a multi-artifact
   format). See `dbdump.dump` for the rest and the errors.
@@ -315,8 +323,11 @@ rules are tried in order against the entry's DB path with the `-X` grammar
 `mode`, `owner` and `group` it sets, and `[defaults]` fills what is still unset
 (`dir_mode` for a directory, `exec_mode` for a file with an execute bit, else
 `file_mode`; `owner` and `group` for every type). A flag always wins and a
-symlink never gets a mode. `own` and `[[stage]]` are parsed, validated and
-stored on `Project.config`; nothing applies them yet. Command
+symlink never gets a mode. `own` lists the directories the package owns: an
+entry recorded at or below one also records the missing ancestor directories
+down from the prefix, and `dbdump --dirs owned` keeps only directories at or
+below one. `[[stage]]` is parsed, validated and stored on `Project.config`;
+nothing applies it yet. Command
 tables such as `[install]` and any other key are not part of the schema.
 
 Which file the command line reads: `--config/-c FILE`, else `PKGFORGE_CONFIG`
@@ -486,10 +497,13 @@ whole file is validated before any command runs: a problem is one
 - **`Rendered`** — type alias `bytes | dict[str, bytes]`: one file's bytes
   (a `PerEntryFormat`) or `{filename: bytes}` (a `MultiArtifactFormat`).
 - **`dump(db: Mapping[str, FileEntry | None], fmt: str, output: StrPath | None
-  = None, *, exclude: Sequence[str] = ()) -> Rendered`** — the dump pipeline
+  = None, *, exclude: Sequence[str] = (), own: Sequence[str] | None = None) ->
+  Rendered`** — the dump pipeline
   over an already-loaded DB: look up `fmt` (a name or alias), check `output`'s
-  shape (before anything is rendered), drop removed entries and those matching
-  an `exclude` statement (an absolute glob is relative to the DB path), sort by
+  shape (before anything is rendered), drop removed entries, those matching
+  an `exclude` statement (an absolute glob is relative to the DB path) and, with
+  `own` (`/`-rooted prefixes), each directory entry that is not at or below a
+  prefix (other types are untouched), sort by
   path, validate (`InvalidEntryError`), render, and with `output` write it
   whole (a file, or a directory created if missing) logging `Wrote %s` per file
   on `pkgforge.dbdump`. Returns the rendered bytes. `UsageError` for an unknown
@@ -631,7 +645,8 @@ file; only before the subcommand, see [Configuration](#configuration-configpy)),
 `-` or unset writes records to stdout, and `dbdump` reads them from stdin),
 `--db-format FMT` (env `PKGFORGE_DB_FORMAT`; a built-in or registered
 `DbProvider` `NAME`, else exit 2), `--buildroot/-r DIR` (env `PKGFORGE_ROOT`,
-else `.`), `--debug` (print the traceback of an error before its one-line
+else `.`), `--own PREFIX` (repeatable; a `/`-rooted directory the package
+owns, else exit 2; replaces the file's `own` list), `--debug` (print the traceback of an error before its one-line
 message), `-v`/`-q`/`--loglevel`, `--version` and
 `--print-completion {bash,zsh,fish,powershell}`. Precedence is CLI, then the
 environment, then `pkgforge.cfg`, then the default; an empty environment value
@@ -866,7 +881,10 @@ there with a `UsageError`. See [Environment variables](#environment-variables).
   `sqlite` holds a single connection for all of them. `--missing` is unaffected: a tombstoned path
   still counts as absent and is re-added if its file exists.
 - **`pkgforge dbdump -f FORMAT [output]`** —
-  render surviving (post-`--exclude`) DB entries via the format registry
+  `--dirs {all,owned}` (default `all`) keeps, with `owned`, only the directory
+  entries at or below an owned prefix (exit 2 with none set), also with
+  `--db -`.
+  Render surviving (post-`--exclude`) DB entries via the format registry
   above. `-f` accepts a `NAME` or an `ALIASES` entry (`rpm`/`rpmspec` for
   `rpmspecfiles`, `deb` for `debian`); an alias and its canonical name always
   produce identical output. A DB must be given: with `--db` unset it raises

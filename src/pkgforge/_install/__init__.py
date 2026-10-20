@@ -118,7 +118,8 @@ class _Installer(_RecordTree, _Staging):
 
     def add_entry(self, dbpath: str, entry: FileEntry) -> None:
         """Record ``entry`` at ``dbpath`` through the project."""
-        self.records.append((dbpath, self.project._write(dbpath, entry)))
+        written = self.project._write(dbpath, entry, self.records)
+        self.records.append((dbpath, written))
 
     def _preflight(self) -> None:
         """Validate/normalize this clone's arguments, before resolution or

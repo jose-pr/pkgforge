@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import os
 import sys
 import typing
@@ -88,6 +89,17 @@ def _parse_mode(text: str) -> str:
         )
     try:
         return normalize_mode(text)
+    except UsageError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from None
+
+
+def _own(text: str) -> str:
+    """The ``type=`` converter of ``--own``: a bad prefix exits 2; the
+    normalized prefix is returned."""
+    from ..config import _own_prefix
+
+    try:
+        return _own_prefix(text)
     except UsageError as exc:
         raise argparse.ArgumentTypeError(str(exc)) from None
 
@@ -210,6 +222,16 @@ class ProjectCmd(LoggingArgs, Cmd):
     ] = Path(".")
     "staging root that maps to '/' in the DB (env PKGFORGE_ROOT; default '.')"
     ("--buildroot", "-r")
+    own: duho.Arg[
+        typing.List[str],
+        duho.Append(_own, metavar="PREFIX"),
+        duho.Meta(
+            help="directory prefix the package owns (repeatable; replaces the "
+            "file's own list): every recorded parent at or below it is recorded "
+            "too, and dbdump --dirs owned keeps only those"
+        ),
+    ] = []
+    ("--own",)
     debug: bool = False
     "print the traceback of an error before its one-line message"
     ("--debug",)
@@ -231,15 +253,17 @@ class ProjectCmd(LoggingArgs, Cmd):
         from ..config import ProjectConfig
         from ..project import Project
 
+        config = (
+            ProjectConfig()
+            if self._config_data is None
+            else ProjectConfig.from_dict(self._config_data)
+        )
         return Project(
             self.buildroot,
             None if self._no_file_db() else self.db,
             db_format=self.db_format or None,
-            config=(
-                None
-                if self._config_data is None
-                else ProjectConfig.from_dict(self._config_data)
-            ),
+            # duho has layered the command line over the file's own list.
+            config=dataclasses.replace(config, own=tuple(self.own)),
         )
 
     def _emit(self, records: FileRecords) -> None:

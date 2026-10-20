@@ -9,6 +9,8 @@ import sys
 import typing
 from pathlib import Path
 
+import duho
+
 from ..db import Db, parse_jsonl
 from ..dbdump import DumpFormat, dump
 from ..entry import DEFAULT
@@ -63,6 +65,12 @@ class DbDump(ExcludeArgs, ProjectCmd):
         "multi-artifact format)"
     )
     ("output",)
+    dirs: duho.Arg[str, duho.Meta(choices=("all", "owned"))] = "all"
+    (
+        "directory entries to dump: all, or only those at or below an owned "
+        "prefix (--own, or own in pkgforge.cfg)"
+    )
+    ("--dirs",)
 
     def _check_target(self) -> typing.Tuple[str, typing.Optional[Path]]:
         """The format's canonical name and the OUTPUT path (``None`` for
@@ -118,9 +126,12 @@ class DbDump(ExcludeArgs, ProjectCmd):
         fmt, output = self._check_target()
         project = self._project()  # checks --db-format even with --db -
         if str(self.db) == "-":
-            rendered = dump(self._stdin_db(), fmt, output, exclude=self.exclude)
+            own = project._dump_own(self.dirs)
+            rendered = dump(
+                self._stdin_db(), fmt, output, exclude=self.exclude, own=own
+            )
         else:
-            rendered = project.dump(fmt, output, exclude=self.exclude)
+            rendered = project.dump(fmt, output, exclude=self.exclude, dirs=self.dirs)
         if output is None:
             with _open_stdout() as out:
                 if isinstance(rendered, bytes):

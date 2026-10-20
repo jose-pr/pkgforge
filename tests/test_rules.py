@@ -1,15 +1,18 @@
-"""``[defaults]`` and ``[[rules]]``, applied when an entry is recorded."""
+"""``[defaults]``, ``[[rules]]`` and owned directories, applied when an entry is
+recorded."""
 
 from __future__ import annotations
 
+import io
 import json
 import os
+import sys
 import typing
 from pathlib import Path
 
 import pytest
 
-from pkgforge import Project
+from pkgforge import FileType, Project, UsageError
 from pkgforge.config import EntryDefaults, EntryRule, ProjectConfig
 
 UNSET = {"mode": "-", "owner": "-", "group": "-", "meta": {}}
@@ -190,13 +193,239 @@ def test_scan_applies_rules_unless_the_mode_is_read_from_disk(tmp_path):
     assert from_disk["/opt/f"]["mode"] == "600"
 
 
-# -- the command line -------------------------------------------------
+# -- owned directories ------------------------------------------------------
+
+
+@pytest.mark.posix
+def test_owned_parents_are_recorded_first_and_once(tmp_path):
+    p = project(
+        tmp_path,
+        "db.jsonl",
+        own=("/usr/share/doc/hello",),
+        defaults=EntryDefaults(owner="root", group="root", dir_mode="755"),
+    )
+    p.init()
+    src = write(tmp_path / "README")
+    records = p.install([src], "/usr/share/doc/hello", parents=True)
+    assert [path for path, _ in records] == [
+        "/usr/share/doc/hello",
+        "/usr/share/doc/hello/README",
+    ]
+    parent = records[0][1]
+    assert parent["type"] == "directory"
+    assert (parent["mode"], parent["owner"]) == ("755", "root")
+    # Recorded, never chmod'ed.
+    assert os.stat(tmp_path / "root/usr/share/doc/hello").st_mode & 0o777 != 0o000
+    other = write(tmp_path / "NEWS")
+    assert [p_ for p_, _ in p.install([other], "/usr/share/doc/hello")] == [
+        "/usr/share/doc/hello/NEWS"
+    ]
+    assert set(recorded(tmp_path / "db.jsonl")) == {
+        "/usr/share/doc/hello",
+        "/usr/share/doc/hello/README",
+        "/usr/share/doc/hello/NEWS",
+    }
+
+
+@pytest.mark.posix
+def test_owned_parents_nest_below_the_prefix(tmp_path):
+    p = project(tmp_path, "db.jsonl", own=("/opt/app",))
+    p.init()
+    src = write(tmp_path / "f")
+    records = p.install([src], "/opt/app/lib/x", parents=True)
+    assert [path for path, _ in records] == [
+        "/opt/app",
+        "/opt/app/lib",
+        "/opt/app/lib/x",
+        "/opt/app/lib/x/f",
+    ]
+
+
+@pytest.mark.posix
+def test_an_explicit_entry_for_the_prefix_is_kept(tmp_path):
+    p = project(tmp_path, "db.jsonl", own=("/opt/app",))
+    p.init()
+    p.install(
+        [""], "/opt/app", mode="700", type=FileType.Directory, into=False, parents=True
+    )
+    records = p.install([write(tmp_path / "f")], "/opt/app")
+    assert [path for path, _ in records] == ["/opt/app/f"]
+    assert recorded(tmp_path / "db.jsonl")["/opt/app"]["mode"] == "700"
+
+
+@pytest.mark.posix
+def test_noentry_writes_no_parents(tmp_path):
+    p = project(tmp_path, "db.jsonl", own=("/opt/app",))
+    p.init()
+    assert (
+        p.install([write(tmp_path / "f")], "/opt/app", parents=True, record=False) == []
+    )
+    assert recorded(tmp_path / "db.jsonl") == {}
+
+
+@pytest.mark.posix
+def test_without_own_install_never_loads_the_db(tmp_path, monkeypatch):
+    p = project(tmp_path, "db.jsonl", rules=(rule("/opt/**", mode="640"),))
+    p.init()
+    calls = []
+    real = Project.load
+    monkeypatch.setattr(Project, "load", lambda self: calls.append(1) or real(self))
+    p.install([write(tmp_path / "f")], "/opt", parents=True)
+    assert calls == []
+
+
+@pytest.mark.posix
+def test_the_db_is_read_once_per_operation(tmp_path, monkeypatch):
+    p = project(tmp_path, "db.jsonl", own=("/opt/a", "/opt/b"))
+    p.init()
+    calls = []
+    real = Project.load
+    monkeypatch.setattr(Project, "load", lambda self: calls.append(1) or real(self))
+    p.install(
+        [write(tmp_path / "f"), write(tmp_path / "g")],
+        "/opt/a",
+        parents=True,
+    )
+    assert len(calls) == 1
+    p.install([write(tmp_path / "h")], "/opt/b", parents=True)
+    assert len(calls) == 2
+
+
+def test_a_removal_writes_no_parents(tmp_path):
+    p = project(tmp_path, own=("/opt/app",))
+    assert p._write("/opt/app/x", None) is None
+
+
+@pytest.mark.posix
+def test_scan_records_owned_parents_once(tmp_path):
+    p = project(tmp_path, own=("/opt/app",))
+    write(tmp_path / "root/opt/app/lib/a")
+    write(tmp_path / "root/opt/app/lib/b")
+    paths = [path for path, _ in p.scan("/opt")]
+    assert paths.count("/opt/app") == 1
+    assert paths.index("/opt/app") < paths.index("/opt/app/lib/a")
+
+
+# -- dbdump --dirs ----------------------------------------------------------
+
+
+def db_with_dirs(tmp_path: Path) -> Path:
+    path = tmp_path / "files.jsonl"
+    rows = [
+        ("/usr/share/doc", "directory"),
+        ("/usr/share/doc/hello", "directory"),
+        ("/usr/share/doc/hello/README", "file"),
+        ("/usr/share/doc/hello-other", "directory"),
+        ("/usr/bin/hello", "file"),
+    ]
+    lines = [
+        json.dumps(
+            {
+                "path": name,
+                "mode": "-",
+                "owner": "-",
+                "group": "-",
+                "type": kind,
+                "meta": {},
+            }
+        )
+        for name, kind in rows
+    ]
+    path.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
+    return path
+
+
+def manifest(text: bytes) -> typing.List[str]:
+    return [line.split('"')[1] for line in text.decode("utf-8").splitlines()]
+
+
+def test_dirs_owned_drops_other_directories(tmp_path):
+    db = db_with_dirs(tmp_path)
+    p = Project(tmp_path, db, config=ProjectConfig(own=("/usr/share/doc/hello",)))
+    assert manifest(p.dump("rpmspecfiles")) == [
+        "/usr/bin/hello",
+        "/usr/share/doc",
+        "/usr/share/doc/hello",
+        "/usr/share/doc/hello-other",
+        "/usr/share/doc/hello/README",
+    ]
+    assert manifest(p.dump("rpmspecfiles", dirs="owned")) == [
+        "/usr/bin/hello",
+        "/usr/share/doc/hello",
+        "/usr/share/doc/hello/README",
+    ]
+
+
+def test_dirs_owned_needs_prefixes(tmp_path):
+    p = Project(tmp_path, db_with_dirs(tmp_path))
+    with pytest.raises(UsageError, match="needs owned prefixes"):
+        p.dump("rpmspecfiles", dirs="owned")
+    with pytest.raises(UsageError, match="unknown dirs"):
+        p.dump("rpmspecfiles", dirs="some")
+
+
+def test_dbdump_dirs_through_the_command_line(cli, tmp_path, monkeypatch):
+    db = db_with_dirs(tmp_path)
+    base = ("--db", str(db), "dbdump", "-f", "rpmspecfiles")
+    result = cli(*base, "--dirs", "owned", "--own", "/usr/share/doc/hello", "-")
+    assert result.rc == 0, result.err
+    assert manifest(result.out) == [
+        "/usr/bin/hello",
+        "/usr/share/doc/hello",
+        "/usr/share/doc/hello/README",
+    ]
+    result = cli(*base, "--dirs", "owned", "-")
+    assert result.rc == 2
+    assert b"--dirs owned needs owned prefixes" in result.err
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO(db.read_text(encoding="utf-8")))
+    result = cli(
+        "--db", "-", "dbdump", "-f", "rpmspecfiles", "--dirs", "owned",
+        "--own", "/usr/share/doc/hello", "-",
+    )  # fmt: skip
+    assert result.rc == 0, result.err
+    assert manifest(result.out) == [
+        "/usr/bin/hello",
+        "/usr/share/doc/hello",
+        "/usr/share/doc/hello/README",
+    ]
+    result = cli("--db", "-", "dbdump", "-f", "rpmspecfiles", "--dirs", "owned", "-")
+    assert result.rc == 2
+    assert b"--dirs owned needs owned prefixes" in result.err
+
+
+# -- the command line -------------------------------------------------------
 
 
 def config_file(tmp_path: Path, text: str) -> str:
     path = tmp_path / "pkgforge.cfg"
     path.write_bytes(text.encode("utf-8"))
     return str(path)
+
+
+@pytest.mark.parametrize("prefix", ["rel", "/", "/a/../b"])
+def test_a_bad_own_prefix_exits_two(cli, tmp_path, prefix):
+    result = cli("--db", str(tmp_path / "d.jsonl"), "initdb", "--own", prefix)
+    assert result.rc == 2
+    assert b"own" in result.err
+
+
+@pytest.mark.posix
+def test_own_on_the_command_line_replaces_the_files(cli, tmp_path):
+    cfg = config_file(tmp_path, 'own = ["/etc/hello"]\n')
+    (tmp_path / "root").mkdir()
+    src = write(tmp_path / "f")
+    db = tmp_path / "d.jsonl"
+    common = ("--config", cfg, "--db", str(db), "--buildroot", str(tmp_path / "root"))
+    assert cli(*common, "initdb").rc == 0
+    assert cli(*common, "-q", "install", "-p", str(src), "/etc/hello").rc == 0
+    assert "/etc/hello" in recorded(db)
+    assert cli(*common, "initdb").rc == 0
+    result = cli(
+        *common, "-q", "install", "--own", "/opt/x", "-p", str(src), "/etc/hello"
+    )
+    assert result.rc == 0, result.err
+    assert set(recorded(db)) == {"/etc/hello/f"}
 
 
 @pytest.mark.posix

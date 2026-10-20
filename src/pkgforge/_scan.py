@@ -44,6 +44,7 @@ def scan(
     if drop_stale and project.db is None:
         raise UsageError("--drop-stale needs a --db file (not unset or '-')")
     stmts = _statements(exclude)
+    project._begin_operation()
     meta = dict(meta or {})
     # follow_final=False (unlike install's DESTINATION): the leaf is
     # never followed here, only realpath(parent) is checked, so a
@@ -89,7 +90,9 @@ def scan(
     records: FileRecords = []
 
     def write(dbpath: str, entry: typing.Any) -> None:
-        records.append((dbpath, project._write(dbpath, entry)))
+        # Owned parents go to `records` first, then the entry itself.
+        written = project._write(dbpath, entry, records)
+        records.append((dbpath, written))
 
     # `dbdump` OUTPUT files (rpm-files.txt, debian/) are not recognizable
     # by TreeRecorder's DB-file skip and are documented instead -- keep
