@@ -39,7 +39,7 @@ mkdir -p "$PKGFORGE_ROOT"
 
 pkgforge initdb
 pkgforge install -p -m 755 -o root -g root ./build/tool /usr/bin
-pkgforge install -p -m 640 -o root -g adm -O rpmprefix=%config ./tool.conf /etc
+pkgforge install -p -m 640 -o root -g adm -O rpmprefix='%config(noreplace)' ./tool.conf /etc
 pkgforge install -D -d -m 755 -o root -g root --record-tree ./share /usr/share/tool
 pkgforge dbdump -f rpmspecfiles rpm-files.txt
 pkgforge dbdump -f debian debian/
@@ -114,7 +114,7 @@ Output of the Quick start above:
 
 ```
 $ pkgforge dbdump -f rpmspecfiles -
-%config %attr(640,root,adm) "/etc/tool.conf"
+%config(noreplace) %attr(640,root,adm) "/etc/tool.conf"
 %attr(755,root,root) "/usr/bin/tool"
 %dir %attr(755,root,root) "/usr/share/tool"
 %attr(644,root,root) "/usr/share/tool/data.txt"

@@ -26,8 +26,8 @@ pkgforge initdb
 echo "== install binary (0755 root:root) =="
 pkgforge install -p -m 755 -o root -g root "$work/src/tool" /usr/bin
 
-echo "== install config (0640 root:adm, %config on rpm) =="
-pkgforge install -p -m 640 -o root -g adm -O rpmprefix=%config "$work/src/tool.conf" /etc
+echo "== install config (0640 root:adm, %config(noreplace) on rpm) =="
+pkgforge install -p -m 640 -o root -g adm -O "rpmprefix=%config(noreplace)" "$work/src/tool.conf" /etc
 
 echo "== install a directory tree, recording its contents too =="
 # A tree install stages every file but records only its own entry by

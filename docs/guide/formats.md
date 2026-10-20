@@ -219,3 +219,62 @@ pkgforge dbdump -f debian -                # all four to stdout under "# === <na
     `dpkg-buildpackage`, needs `DEB_RULES_REQUIRES_ROOT=binary-targets`
     exported by hand -- `dpkg-buildpackage` is what normally reads
     `Rules-Requires-Root` and exports it for you.
+
+### Debian recipes
+
+Both recipes assume `debian/control` has `Rules-Requires-Root:
+binary-targets` (owner and group pins need root at `binary` time), a
+`debhelper-compat (= 13)` build dependency, and a `stage.sh` that runs the
+`pkgforge install` calls. Replace `<pkg>` with the binary package name. Either way, `override_dh_fixperms` runs `dh_fixperms`
+first and the generated `fixperms` after it, because `dh_fixperms` would
+otherwise strip the very bits being pinned.
+
+**Separate stage root.** Stage into a directory of your own and hand it to
+`dh_install` with `--sourcedir`. `dh_prep` wipes `debian/tmp`, so a root of
+your own survives to `dh_install`; the build target runs before `dh_prep` and
+`dh_installdirs`, so `dirs` already exists when `dh_installdirs` reads it.
+
+```make
+#!/usr/bin/make -f
+export PKGFORGE_ROOT := $(CURDIR)/stage
+export PKGFORGE_DB := $(CURDIR)/debian/pkgforge.jsonl
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	sh stage.sh
+	pkgforge dbdump -f debian debian/
+
+override_dh_install:
+	dh_install --sourcedir=$(PKGFORGE_ROOT)
+
+override_dh_fixperms:
+	dh_fixperms
+	sh debian/fixperms debian/<pkg>
+```
+
+**Stage into `debian/tmp`.** `dh_install` searches `debian/tmp` by itself, so
+no `--sourcedir` is needed. Stage in `override_dh_auto_install`, which runs
+after `dh_prep` has wiped `debian/tmp`. `dh_installdirs` has already run by
+then, before `dirs` existed, so call it again after `dbdump`; without that
+call a directory recorded empty (and any directory pinned only for its mode)
+never reaches the package.
+
+```make
+#!/usr/bin/make -f
+export PKGFORGE_ROOT := $(CURDIR)/debian/tmp
+export PKGFORGE_DB := $(CURDIR)/debian/pkgforge.jsonl
+
+%:
+	dh $@
+
+override_dh_auto_install:
+	sh stage.sh
+	pkgforge dbdump -f debian debian/
+	dh_installdirs
+
+override_dh_fixperms:
+	dh_fixperms
+	sh debian/fixperms debian/<pkg>
+```
