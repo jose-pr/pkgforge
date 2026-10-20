@@ -7,6 +7,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `pkgforge mkdir [-p] DEST...` and `pkgforge symlink TARGET LINK` (and
+  `Project.mkdir`, `Project.symlink`) record a directory or a symbolic link
+  that has no source, so a package can own an empty directory or ship a link
+  without a scratch directory or `install -t symlink -O target=`. Both log
+  under their own operation logger.
 - `[defaults]` and `[[rules]]` of `pkgforge.cfg` are applied when an entry is
   recorded by `install` or `scan`: a `mode`, `owner` or `group` left at `-` is
   taken from the first rule whose `match` fits the path, then from `[defaults]`

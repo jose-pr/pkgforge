@@ -184,7 +184,7 @@ tool's last stderr line.
 The Python API for build scripts; the `pkgforge` command line is a wrapper
 over it. Nothing in it prints, exits or reads `sys.argv`; it logs under the
 operation loggers `pkgforge.install`, `pkgforge.scan`, `pkgforge.initdb`,
-`pkgforge.compact` and `pkgforge.dbdump`. DB paths (`dest`, a scan `path`, a
+`pkgforge.compact`, `pkgforge.dbdump`, `pkgforge.mkdir` and `pkgforge.symlink`. DB paths (`dest`, a scan `path`, a
 DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
 
 - **`Project(buildroot: StrPath, db: StrPath | DbProvider | None = None, *,
@@ -241,6 +241,19 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   sources resolving to one non-directory destination leaves nothing on disk.
   Returns what was written, in write order. Raises `UsageError`,
   `PkgForgeError` and `OSError` exactly where the command exits 2 or 1.
+- **`mkdir(paths: Sequence[str], *, mode="-", owner="-", group="-", meta:
+  Mapping[str, str] | None = None, parents=False) -> FileRecords`** — record
+  each path as a directory and create it under the build root, in order, with
+  no source: one `install([""], path, type=FileType.Directory, into=False)`
+  each. Running it again changes nothing. `paths` is a sequence (a bare `str`
+  is `TypeError`); a missing parent is `UsageError` unless `parents=True`.
+  Logs under `pkgforge.mkdir`.
+- **`symlink(target: str, link: str, *, owner="-", group="-", meta:
+  Mapping[str, str] | None = None, parents=False) -> FileRecords`** — record
+  `link` as a symbolic link to `target` and create it. `target` is stored as
+  written in `meta["target"]` (relative or absolute, and it may name nothing);
+  an empty `target`, or a `meta` that already holds `target`, is `UsageError`.
+  A symlink has no mode. Logs under `pkgforge.symlink`.
 - **`scan(path: str, *, mode="-", owner="-", group="-", meta=None,
   dir_mode: str | None = None, missing=False, drop_stale=False,
   exclude: Sequence[str] = ()) -> FileRecords`** — record every path below
@@ -656,7 +669,8 @@ counts as unset.
 once the operation has succeeded.
 
 Each subcommand logs under `pkgforge.<command>` (`pkgforge.install`,
-`pkgforge.scan`, `pkgforge.dbdump`, `pkgforge.initdb`, `pkgforge.compact`):
+`pkgforge.scan`, `pkgforge.dbdump`, `pkgforge.initdb`, `pkgforge.compact`,
+`pkgforge.mkdir`, `pkgforge.symlink`):
 control one with `--loglevel pkgforge.<command>:LEVEL`, or the running command
 with `--loglevel LEVEL`. A bare `--loglevel pkgforge:LEVEL` has no effect on a
 CLI-dispatched command, whose own logger always has an explicit level (INFO by
@@ -916,6 +930,14 @@ there with a `UsageError`. See [Environment variables](#environment-variables).
   or `"<stdin>"`), so both report an error the same way
   (`{source}:{lineno}: ...`); non-UTF-8 input raises `DbError` prefixed
   `<stdin>:`.
+- **`pkgforge mkdir [-m MODE] [-o OWNER] [-g GROUP] [-O KEY=VALUE] [-p]
+  DEST...`** — `Project.mkdir`: record each `DEST` as a directory and create it
+  under the build root. `-p/--parents` creates the missing parents; without it a
+  missing parent exits 2. Exit 0 on success; with no file DB the records go to
+  stdout like `install`'s.
+- **`pkgforge symlink [-o OWNER] [-g GROUP] [-O KEY=VALUE] [-p] TARGET LINK`**
+  — `Project.symlink`: record `LINK` as a symbolic link to `TARGET`. There is
+  no `--mode`. Exit codes as for `mkdir`.
 - **`pkgforge initdb`** — create or truncate
   an empty DB; a no-op with a WARNING for an unset/stdout DB. A `--db`
   naming a file that doesn't exist yet is not this case -- creating it is

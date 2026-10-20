@@ -35,7 +35,15 @@ from pkgforge.exclude import PathMatch, PathMatchStmt
 
 def test_all_commands_registered():
     names = {c._parsername_ for c in PkgForge._subcommands_}
-    assert names == {"install", "scan", "dbdump", "initdb", "compact"}
+    assert names == {
+        "install",
+        "scan",
+        "dbdump",
+        "initdb",
+        "compact",
+        "mkdir",
+        "symlink",
+    }
 
 
 def test_root_parser_builds_and_help_renders():

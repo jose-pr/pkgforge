@@ -75,7 +75,11 @@ class _Installer(_RecordTree, _Staging):
         record_tree: bool,
         chown: bool,
         remove_source: bool,
+        logger: typing.Optional[logging.Logger] = None,
     ) -> None:
+        if logger is not None:
+            # The operation that built this installer logs under its own name.
+            self._logger_ = logger
         self.project = project
         self.buildroot = project.buildroot
         self.db: typing.Optional[Path] = (

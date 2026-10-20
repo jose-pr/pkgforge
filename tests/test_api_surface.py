@@ -17,7 +17,9 @@ from pkgforge import Project
 from pkgforge.cli._common import ProjectCmd
 from pkgforge.cli.dbdump import DbDump
 from pkgforge.cli.install import Install
+from pkgforge.cli.mkdir import Mkdir
 from pkgforge.cli.scan import ScanCmd
+from pkgforge.cli.symlink import Symlink
 
 SRC = str(Path(__file__).resolve().parents[1] / "src")
 #: The names of the root package: the library API, nothing of the command line.
@@ -69,8 +71,10 @@ def _keywords(method: typing.Callable[..., object]) -> typing.Set[str]:
         (Install, Project.install),
         (ScanCmd, Project.scan),
         (DbDump, Project.dump),
+        (Mkdir, Project.mkdir),
+        (Symlink, Project.symlink),
     ],
-    ids=["install", "scan", "dbdump"],
+    ids=["install", "scan", "dbdump", "mkdir", "symlink"],
 )
 def test_command_fields_match_library_keywords(command, method):
     assert _command_fields(command) == _keywords(method)

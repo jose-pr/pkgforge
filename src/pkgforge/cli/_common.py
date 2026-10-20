@@ -123,13 +123,10 @@ def _exclude_stmt(text: str) -> str:
     return text
 
 
-class EntryArgs(Cmd):
-    """``--mode``, ``--group``, ``--owner`` and ``--meta``: the fields of the
-    commands that record a file entry."""
+class OwnershipArgs(Cmd):
+    """``--group``, ``--owner`` and ``--meta``: the fields of the commands that
+    record an entry with no mode of its own."""
 
-    mode: duho.Arg[str, duho.Meta(type=_parse_mode)] = DEFAULT
-    "permission mode: 1-4 octal digits, '-' (leave default), '--' or 'auto' (resolve from the staged file)"
-    ("--mode", "-m")
     group: duho.Arg[str, duho.Meta(type=_parse_name("group"))] = DEFAULT
     "group to record: an account name, '-' (the OS default) or '--' (resolve from the staged file)"
     ("--group", "-g")
@@ -149,11 +146,25 @@ class EntryArgs(Cmd):
 
     def __init__(self, **kwargs: typing.Any) -> None:
         super().__init__(**kwargs)
-        # argparse before 3.12 strips an attached "--" (--mode=--, -m--) to []
+        # argparse before 3.12 strips an attached "--" (--owner=--, -o--) to []
         # before any converter runs; it means AUTO.
-        for name in ("mode", "owner", "group"):
+        for name in ("owner", "group"):
             if getattr(self, name) == []:
                 setattr(self, name, AUTO)
+
+
+class EntryArgs(OwnershipArgs):
+    """``--mode`` and the ownership fields: the commands that record a file
+    entry."""
+
+    mode: duho.Arg[str, duho.Meta(type=_parse_mode)] = DEFAULT
+    "permission mode: 1-4 octal digits, '-' (leave default), '--' or 'auto' (resolve from the staged file)"
+    ("--mode", "-m")
+
+    def __init__(self, **kwargs: typing.Any) -> None:
+        super().__init__(**kwargs)
+        if self.mode == []:  # argparse before 3.12, as for owner and group
+            self.mode = AUTO
 
 
 class ExcludeArgs(Cmd):

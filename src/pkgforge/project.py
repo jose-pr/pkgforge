@@ -44,6 +44,8 @@ _RESOLVED = ("mode", "owner", "group")
 _INIT_LOGGER = logging.getLogger("pkgforge.initdb")
 _COMPACT_LOGGER = logging.getLogger("pkgforge.compact")
 _DUMP_LOGGER = logging.getLogger("pkgforge.dbdump")
+_MKDIR_LOGGER = logging.getLogger("pkgforge.mkdir")
+_SYMLINK_LOGGER = logging.getLogger("pkgforge.symlink")
 
 
 def _path(value: object, what: str) -> Path:
@@ -574,6 +576,50 @@ class Project:
                 an unsafe archive member).
             OSError: the file system refused.
         """
+        return self._run_install(
+            sources,
+            dest,
+            mode=mode,
+            owner=owner,
+            group=group,
+            type=type,
+            meta=meta,
+            into=into,
+            parents=parents,
+            decompress=decompress,
+            method=method,
+            exclude=exclude,
+            record=record,
+            record_tree=record_tree,
+            chown=chown,
+            remove_source=remove_source,
+        )
+
+    def _run_install(
+        self,
+        sources: typing.Sequence[StrPath],
+        dest: str,
+        *,
+        mode: str = DEFAULT,
+        owner: str = DEFAULT,
+        group: str = DEFAULT,
+        type: typing.Optional[FileType] = None,
+        meta: typing.Optional[typing.Mapping[str, str]] = None,
+        into: bool = True,
+        parents: bool = False,
+        decompress: typing.Optional[str] = None,
+        method: str = "copy",
+        exclude: typing.Sequence[str] = (),
+        record: bool = True,
+        record_tree: bool = False,
+        chown: bool = False,
+        remove_source: bool = False,
+        logger: typing.Optional[logging.Logger] = None,
+        fresh: bool = True,
+    ) -> FileRecords:
+        """:meth:`install`, logging as ``logger`` when given. With ``fresh``
+        false the call joins the operation already running: the owned-parent
+        bookkeeping is not reset."""
         if isinstance(sources, (str, bytes, os.PathLike)) or not isinstance(
             sources, typing.Sequence
         ):
@@ -620,6 +666,7 @@ class Project:
                 record_tree=record_tree,
                 chown=chown,
                 remove_source=remove_source,
+                logger=logger,
             )
             inst._preflight()
             resolved.append((inst, inst._resolve()))
@@ -640,12 +687,159 @@ class Project:
                 "directory sources may share a destination"
             )
 
-        self._begin_operation()
+        if fresh:
+            self._begin_operation()
         records: FileRecords = []
         for inst, target in resolved:
             inst._stage(target)
             records.extend(inst.records)
         return records
+
+    def mkdir(
+        self,
+        paths: typing.Sequence[str],
+        *,
+        mode: str = DEFAULT,
+        owner: str = DEFAULT,
+        group: str = DEFAULT,
+        meta: typing.Optional[typing.Mapping[str, str]] = None,
+        parents: bool = False,
+    ) -> FileRecords:
+        """Record each of ``paths`` (``/``-rooted DB paths) as a directory,
+        creating it under the build root.
+
+        Nothing is read from a source, so this is how a directory with no
+        files of its own is packaged. Running it again changes nothing.
+        ``mode``, ``owner``, ``group`` and ``meta`` are as for :meth:`install`;
+        ``parents`` creates the missing parent directories.
+
+        Returns:
+            What was written, in write order.
+
+        Raises:
+            TypeError: ``paths`` is not a sequence, or a path is not text.
+            UsageError: an argument is unusable, a path leaves the build root,
+                or a parent is missing and ``parents`` is false.
+            OSError: the file system refused.
+        """
+        return self._mkdir(
+            paths,
+            mode=mode,
+            owner=owner,
+            group=group,
+            meta=meta,
+            parents=parents,
+            logger=_MKDIR_LOGGER,
+            fresh=True,
+        )
+
+    def _mkdir(
+        self,
+        paths: typing.Sequence[str],
+        *,
+        mode: str,
+        owner: str,
+        group: str,
+        meta: typing.Optional[typing.Mapping[str, str]],
+        parents: bool,
+        logger: logging.Logger,
+        fresh: bool,
+    ) -> FileRecords:
+        """:meth:`mkdir`, logging as ``logger`` and joining the running
+        operation unless ``fresh``."""
+        if isinstance(paths, (str, bytes)) or not isinstance(paths, typing.Sequence):
+            raise TypeError("paths must be a sequence of paths, not a single path")
+        if fresh:
+            self._begin_operation()
+        records: FileRecords = []
+        for path in paths:
+            records.extend(
+                self._run_install(
+                    [""],
+                    path,
+                    mode=mode,
+                    owner=owner,
+                    group=group,
+                    type=FileType.Directory,
+                    meta=meta,
+                    into=False,
+                    parents=parents,
+                    logger=logger,
+                    fresh=False,
+                )
+            )
+        return records
+
+    def symlink(
+        self,
+        target: str,
+        link: str,
+        *,
+        owner: str = DEFAULT,
+        group: str = DEFAULT,
+        meta: typing.Optional[typing.Mapping[str, str]] = None,
+        parents: bool = False,
+    ) -> FileRecords:
+        """Record ``link`` (a ``/``-rooted DB path) as a symbolic link to
+        ``target`` and create it under the build root.
+
+        ``target`` is stored as written, relative or absolute, and may name
+        nothing. A symlink has no mode. ``owner``, ``group`` and ``meta`` are as
+        for :meth:`install`; ``parents`` creates the missing parent directories.
+
+        Returns:
+            What was written, in write order.
+
+        Raises:
+            TypeError: ``target`` is not text.
+            UsageError: ``target`` is empty or ``meta`` already holds
+                ``target``, an argument is unusable, ``link`` leaves the build
+                root, or a parent is missing and ``parents`` is false.
+            OSError: the file system refused.
+        """
+        return self._symlink(
+            target,
+            link,
+            owner=owner,
+            group=group,
+            meta=meta,
+            parents=parents,
+            logger=_SYMLINK_LOGGER,
+            fresh=True,
+        )
+
+    def _symlink(
+        self,
+        target: str,
+        link: str,
+        *,
+        owner: str,
+        group: str,
+        meta: typing.Optional[typing.Mapping[str, str]],
+        parents: bool,
+        logger: logging.Logger,
+        fresh: bool,
+    ) -> FileRecords:
+        """:meth:`symlink`, logging as ``logger`` and joining the running
+        operation unless ``fresh``."""
+        if not isinstance(target, str):
+            raise TypeError(f"target must be str, not {target.__class__.__name__}")
+        if not target:
+            raise UsageError("a symlink needs a non-empty target")
+        if meta is not None and "target" in meta:
+            raise UsageError("meta must not hold 'target': it is set from target")
+        return self._run_install(
+            [""],
+            link,
+            owner=owner,
+            group=group,
+            type=FileType.Symlink,
+            meta={**(meta or {}), "target": target},
+            into=False,
+            parents=parents,
+            logger=logger,
+            fresh=fresh,
+        )
 
     def scan(
         self,

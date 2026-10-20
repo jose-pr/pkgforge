@@ -103,3 +103,21 @@ def test_install_stdin_source_is_refused(server, tmp_path):
     assert "standard input is not available in an MCP tool call" in text
     assert "AttributeError" not in text
     assert not (tmp_path / "root" / "z").exists()
+
+
+def test_every_command_is_served_as_a_tool(server):
+    reply = server.rpc("tools/list")
+    names = {tool["name"] for tool in reply["result"]["tools"]}
+    wanted = {
+        f"pkgforge.{name}"
+        for name in (
+            "install",
+            "scan",
+            "initdb",
+            "compact",
+            "dbdump",
+            "mkdir",
+            "symlink",
+        )
+    }
+    assert wanted <= names
