@@ -52,6 +52,12 @@ API_DIR = ROOT / "docs" / "api"
 # documents by name but ``pkgforge.__all__`` only exposes as submodules.
 REQUIRED_API_TARGETS = (
     "pkgforge.project.Project",
+    "pkgforge.config.ProjectConfig",
+    "pkgforge.config.PackageInfo",
+    "pkgforge.config.EntryDefaults",
+    "pkgforge.config.EntryRule",
+    "pkgforge.config.StageStep",
+    "pkgforge.config.load",
     "pkgforge.exceptions.PkgForgeError",
     "pkgforge.exceptions.UsageError",
     "pkgforge.entry.FileType",

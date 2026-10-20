@@ -11,7 +11,8 @@ API. For the CLI overview see the shipped `README.md` or <https://github.com/jos
 `UnsupportedOutputError`, `UsageError`, `__version__`, `open_db`. The entry
 functions (`apply_entry`, `entry_from_path`, `normalize_mode`,
 `normalize_name`, `resolve_entry`) are in `pkgforge.entry`. `import pkgforge`
-loads neither `duho` nor `pkgforge.cli`; the command line is documented under
+loads neither `duho`, `anycfg` nor `pkgforge.cli`; the project file is documented
+under [Configuration](#configuration-configpy) and the command line under
 [Command line](#command-line).
 
 ## Entry point
@@ -187,14 +188,24 @@ operation loggers `pkgforge.install`, `pkgforge.scan`, `pkgforge.initdb`,
 DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
 
 - **`Project(buildroot: StrPath, db: StrPath | DbProvider | None = None, *,
-  db_format: str | None = None)`** — a build root plus an optional file DB.
+  db_format: str | None = None, config: ProjectConfig | None = None)`** — a
+  build root plus an optional file DB.
   `db_format` is a registered format name (else inferred from the `db`
   suffix, else `jsonl`). Validates and stores; opens nothing, holds no
   resource, so it is not a context manager, and is not thread-safe. With
   `db=None` no file is written and every operation returns the records it
-  would have written. Attributes: `buildroot: Path`, `db: DbProvider | None`.
-  Raises `TypeError` (a non-path `buildroot`/`db`), `ValueError` (`db="-"`, or
-  a `DbProvider` together with `db_format`), `UsageError` (unknown `db_format`).
+  would have written. Attributes: `buildroot: Path`, `db: DbProvider | None`,
+  `config: ProjectConfig` (`ProjectConfig()` when none was given).
+  Raises `TypeError` (a non-path `buildroot`/`db`, or a `config` that is not a
+  `ProjectConfig`), `ValueError` (`db="-"`, or a `DbProvider` together with
+  `db_format`), `UsageError` (unknown `db_format`).
+- **`Project.from_config(path: StrPath, *, buildroot: StrPath | None = None,
+  db: StrPath | DbProvider | None = None, db_format: str | None = None) ->
+  Project`** — a project described by the file at `path` (see
+  [Configuration](#configuration-configpy)). An argument beats the file and the
+  file beats the default (`buildroot` `"."`, no file DB; a file `db = "-"` means
+  no file DB). The environment is not read. `UsageError` for an invalid file,
+  `FileNotFoundError` for a missing one.
 - **`localpath(dbpath: str) -> Path`** / **`dbpath(localpath: StrPath) -> str`**
   — translate between a DB path and the local path under the build root
   (`ValueError` when `localpath` is outside it).
@@ -211,7 +222,10 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   exclude: Sequence[str] = (), record=True, record_tree=False, chown=False,
   remove_source=False) -> FileRecords`** — stage each source under the build
   root at `dest` and record it; the `pkgforge install` command's behaviour.
-  `sources` is a sequence (a bare `str`/`PathLike` is `TypeError`); `"-"` reads
+  `sources` is a sequence (a bare `str`/`PathLike` is `TypeError`); `type` is a
+  `FileType` or `None` (a `str` is `TypeError`: pass `FileType("directory")`);
+  `exclude` takes statement text only (a parsed `PathMatchStmt` is `TypeError`);
+  `"-"` reads
   `sys.stdin.buffer` (one source at most) and `""` means no source (an empty
   file, or with `type=FileType.Directory` an empty directory). `dest` is a
   `str` (`TypeError` otherwise): the directory to install into, or with
@@ -247,6 +261,55 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   `UsageError` unless it was spelled `/` explicitly. An in-root `..`
   (`/usr/share/../lib/x`) is normalized in the path that is staged and
   recorded (`/usr/lib/x`).
+
+## Configuration (`config.py`)
+
+`pkgforge.cfg` describes one package: a TOML document read through `anycfg`
+(imported only when a file is read) into frozen dataclasses. A key the schema
+does not list is an error, and so is a value of the wrong type: every text field
+must be a quoted string (`mode = 644` and `mode = 0o644` are refused, write
+`mode = "644"`).
+
+- **`load(path: StrPath) -> ProjectConfig`** -- read and validate a file.
+  `UsageError` (its text starts with the path, then `LINE:COL:` for a
+  malformed file or `[at KEY (ProjectConfig)]` for a bad key or value),
+  `FileNotFoundError` for a missing file, `OSError` for an unreadable one.
+- **`ProjectConfig.from_dict(data: Mapping[str, Any]) -> ProjectConfig`** --
+  validate a mapping shaped like the file (no `${...}` replacement, no path
+  joining). `UsageError` as above, without the path.
+- **`${...}`** -- in any text value, `${package.name}` is replaced by that key of
+  the file (`${table.key}`, `${list.0}`); `$${` is a literal `${`. An undefined
+  reference is `UsageError` (`undefined reference`). The environment is not
+  readable from the file.
+- **Relative paths** -- a relative `buildroot`, `db` (unless `"-"`) and each
+  `[[stage]]` `src` are taken relative to the file's directory, so the file
+  works from any working directory.
+
+Tables, all optional (`ProjectConfig` fields in this order):
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `buildroot`, `db`, `db_format` | text | the options of the same name; `db = "-"` means no file DB |
+| `own` | list of text | `/`-rooted directory prefixes the package owns (no `..`, not `/`; stored normalized) |
+| `[package]` | `PackageInfo` | `name` (required), `version`, `release`, `arch`, `summary`, `license`, `maintainer`, `description`, `depends` (list); values to name once and reuse as `${package.KEY}` |
+| `[defaults]` | `EntryDefaults` | `owner`, `group`, `file_mode`, `exec_mode`, `dir_mode` |
+| `[[rules]]` | `EntryRule` | `match` (non-empty list of `-X` statements), `mode`, `owner`, `group` |
+| `[[stage]]` | `StageStep` | `src` + `dest`, or `dir`, or `file`, or `symlink` + `target`; `mode`, `owner`, `group`, `meta` (table); with `src` only: `type`, `into`, `decompress`, `method`, `exclude`, `record_tree` (the `install` options) |
+
+A mode is 1-4 octal digits and an owner or group an account name (`-`, `--` and
+`auto` are refused: a file states values). A `[[stage]]` step names exactly one of
+`src`, `dir`, `file`, `symlink`; `symlink` takes no `mode`. `type` is `file`,
+`directory` or `symlink`, `decompress` a kind or `auto`, `method` `copy`, `link`
+or `move`. `[defaults]`, `[[rules]]`, `own` and `[[stage]]` are parsed,
+validated and stored on `Project.config`; nothing applies them yet. Command
+tables such as `[install]` and any other key are not part of the schema.
+
+Which file the command line reads: `--config/-c FILE`, else `PKGFORGE_CONFIG`
+(the file must exist; empty means no file), else `pkgforge.cfg` in the working
+directory when it exists. There is no per-user or system file. Precedence for
+`db`, `db_format` and `buildroot`: command line, environment, file, default. The
+whole file is validated before any command runs: a problem is one
+`pkgforge: error:` line, status 2.
 
 ## DB backends (`db/`)
 
@@ -547,14 +610,17 @@ def test_my_backend(tmp_path):
 module per subcommand, each a thin call into one `Project` method. Use it through the `pkgforge` console
 script or `python -m pkgforge`.
 
-Global options, written before the subcommand: `--db PATH` (env `PKGFORGE_DB`;
+Global options, written before the subcommand: `--config/-c FILE` (the project
+file; only before the subcommand, see [Configuration](#configuration-configpy)),
+`--db PATH` (env `PKGFORGE_DB`;
 `-` or unset writes records to stdout, and `dbdump` reads them from stdin),
 `--db-format FMT` (env `PKGFORGE_DB_FORMAT`; a built-in or registered
 `DbProvider` `NAME`, else exit 2), `--buildroot/-r DIR` (env `PKGFORGE_ROOT`,
 else `.`), `--debug` (print the traceback of an error before its one-line
 message), `-v`/`-q`/`--loglevel`, `--version` and
 `--print-completion {bash,zsh,fish,powershell}`. Precedence is CLI, then the
-environment, then the default; an empty environment value counts as unset.
+environment, then `pkgforge.cfg`, then the default; an empty environment value
+counts as unset.
 `--help` of every subcommand lists them too. With no file DB, `install` and
 `scan` print each record as one JSON Lines line (`db.jsonl_line`) on stdout
 once the operation has succeeded.
@@ -832,6 +898,9 @@ Read when `pkgforge.cli.main()` runs (CLI wins over env, which wins over
 the default); the `Project` API never reads the environment. An empty value
 counts as unset.
 
+- **`PKGFORGE_CONFIG`** — the project file, like `--config` (which wins over
+  it); a missing file is exit 2. An empty value means no file, the
+  `pkgforge.cfg` in the working directory included.
 - **`PKGFORGE_ROOT`** — default `--buildroot`.
 - **`PKGFORGE_DB`** — default `--db`.
 - **`PKGFORGE_DB_FORMAT`** — default `--db-format`.

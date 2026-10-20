@@ -36,6 +36,7 @@ nav:
       - Unattended builds: guide/unattended.md
   - API Reference:
       - Project: api/project.md
+      - Configuration: api/config.md
       - Overview: api/reference.md
       - File entries: api/entry.md
       - DB backends: api/db.md

@@ -7,6 +7,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `pkgforge.cfg`, a TOML project file read from the working directory, from
+  `--config/-c FILE` (before the subcommand) or from `PKGFORGE_CONFIG`
+  (`--config` wins; an empty `PKGFORGE_CONFIG` means no file). `db`,
+  `db_format` and `buildroot` in it are defaults below the command line and the
+  environment; relative paths are relative to the file. `${package.name}` and
+  any other key of the file can be reused in its text values. `[package]`,
+  `[defaults]`, `[[rules]]`, `own` and `[[stage]]` are validated and kept on
+  `Project.config`; they change nothing yet. A bad file is one
+  `pkgforge: error:` line, status 2.
+- `pkgforge.config` (`ProjectConfig`, `PackageInfo`, `EntryDefaults`,
+  `EntryRule`, `StageStep`, `load`), `Project(..., config=)`, `Project.config`
+  and `Project.from_config(path)`.
+- pkgforge depends on `anycfg>=0.15.1,<0.16` to read the file; it is imported
+  only when a file is read.
 - Third-party DB backends and dump formats are found through the entry-point
   groups `pkgforge.dbs` and `pkgforge.dump_formats` (`name = module:Class`):
   installing the package is enough for `--db-format NAME`, a `--db` suffix
@@ -33,6 +47,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stores.
 
 ### Changed
+- `Project.install(type=)` takes a `FileType` or `None`; a `str` is now a
+  `TypeError`. Pass `FileType("directory")` instead of `"directory"`.
+- `exclude=` of `Project.install`, `Project.scan`, `Project.dump` and
+  `pkgforge.dbdump.dump` takes statement text only; a parsed `PathMatchStmt` is
+  now a `TypeError`. Pass the text you parsed it from.
 - PyYAML is now the optional `yaml` extra instead of a core dependency. The
   `jsonl` and `sqlite` backends need nothing extra; to use the `yaml` backend
   run `pip install 'pkgforge[yaml]'`. Without it a `yaml` DB exits 1 with a
