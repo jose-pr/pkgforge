@@ -464,8 +464,10 @@ tool's last stderr line.
   required first argument, guarded by `${1:?}`) plus the DB path,
   `shlex.quote`d for POSIX `sh`; owner/group/mode go through a
   `functools.lru_cache`d quoting call, since those values repeat far more
-  than paths do. With no pinned entry, the script is just its own
-  four-line header). `install`'s
+  than paths do. Each entry resolves its path through a header function
+  (`<path>` or the `<path>.gz` dh_compress renamed it to); a path that is
+  gone (dh_usrlocal) is named on stderr and skipped, exit status 0. With
+  no pinned entry, the script is just its own header). `install`'s
   source is debhelper-escaped (needs compat 13): a backslash before each
   glob character (`\ * ? [ ] { }`, which also makes a literal `${` read as
   literal since `{`/`}` get escaped), a space as `${Space}`, and a leading
