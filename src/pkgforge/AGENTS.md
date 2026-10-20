@@ -5,10 +5,10 @@ export with its signature, arguments, contract, and gotchas, so this module
 can be consumed without reading its source. Kept current with the public
 API. For the CLI overview see the shipped `README.md` or <https://github.com/jose-pr/pkgforge>.
 
-`pkgforge.__all__`: `PkgForgeCmd`, `PkgForge`, `PkgForgeError`, `DbError`,
+`pkgforge.__all__`: `Project`, `PkgForgeCmd`, `PkgForge`, `PkgForgeError`, `DbError`,
 `DumpError`, `ExcludeSyntaxError`, `InvalidEntryError`,
 `UnsupportedOutputError`, `DbProvider`, `FileEntries`, `FileEntry`,
-`FileEntryArgs`, `FileType`, `UsageError`,
+`FileEntryArgs`, `FileRecords`, `FileType`, `StrPath`, `UsageError`,
 `__version__`, `apply_entry`, `entry_from_args`, `entry_from_path`,
 `normalize_mode`, `resolve_entry`, `main`, `open_db`, plus the
 leaf-command submodules themselves
@@ -107,7 +107,7 @@ tool's last stderr line.
   `%{`, `%[`). `%`, whitespace and
   control characters therefore cannot occur in mode/owner/group.
   `meta["rpmprefix"]` is otherwise written verbatim, as an rpm directive
-  prefix. A format's `dump()` called directly does not run this check.
+  prefix. A format's `render()` called directly does not run this check; `dbdump.dump` does.
 - **`DumpError(PkgForgeError, ValueError)`** — a DB path that a dump
   format's own tooling cannot represent (a `%` or a control character for
   `rpmspecfiles`; a control character for `debian`).
@@ -191,6 +191,74 @@ tool's last stderr line.
 - **`FileEntries`** — type alias `list[tuple[str, FileEntry]]` (surviving DB
   entries after `--exclude` filtering), the shared input shape for both dump
   format shapes.
+- **`FileRecords`** — type alias `list[tuple[str, FileEntry | None]]`: what an
+  operation wrote, in write order (`None` is a removal).
+- **`StrPath`** — type alias `str | os.PathLike[str]`: a local filesystem path.
+
+## Project (`project.py`)
+
+The Python API for build scripts; the `pkgforge` command line is a wrapper
+over it. Nothing in it prints, exits or reads `sys.argv`; it logs under the
+operation loggers `pkgforge.install`, `pkgforge.scan`, `pkgforge.initdb`,
+`pkgforge.compact` and `pkgforge.dbdump`. DB paths (`dest`, a scan `path`, a
+DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
+
+- **`Project(buildroot: StrPath, db: StrPath | DbProvider | None = None, *,
+  db_format: str | None = None)`** — a build root plus an optional file DB.
+  `db_format` is a registered format name (else inferred from the `db`
+  suffix, else `jsonl`). Validates and stores; opens nothing, holds no
+  resource, so it is not a context manager, and is not thread-safe. With
+  `db=None` no file is written and every operation returns the records it
+  would have written. Attributes: `buildroot: Path`, `db: DbProvider | None`.
+  Raises `TypeError` (a non-path `buildroot`/`db`), `ValueError` (`db="-"`, or
+  a `DbProvider` together with `db_format`), `UsageError` (unknown `db_format`).
+- **`localpath(dbpath: str) -> Path`** / **`dbpath(localpath: StrPath) -> str`**
+  — translate between a DB path and the local path under the build root
+  (`ValueError` when `localpath` is outside it).
+- **`init() -> None`** — create or reset (truncate) an empty file DB, creating
+  its parent directory. `UsageError` when `db` is `None`.
+- **`load() -> Db`** — the whole DB, a removed path mapping to `None`; `{}`
+  with no file DB or a file that does not exist yet. `DbError` for a malformed
+  file. **`entries() -> FileEntries`** — the live entries sorted by path.
+- **`compact() -> None`** — collapse the DB to one record per live path.
+  `UsageError` when `db` is `None` or its file does not exist.
+- **`install(sources: Sequence[StrPath], dest: str, *, mode="-", owner="-",
+  group="-", type: FileType | None = None, meta: Mapping[str, str] | None = None,
+  into=True, parents=False, decompress: str | None = None, method="copy",
+  exclude: Sequence[str] = (), record=True, record_tree=False, chown=False,
+  remove_source=False) -> FileRecords`** — stage each source under the build
+  root at `dest` and record it; the `pkgforge install` command's behaviour.
+  `sources` is a sequence (a bare `str`/`PathLike` is `TypeError`); `"-"` reads
+  `sys.stdin.buffer` (one source at most) and `""` means no source (an empty
+  file, or with `type=FileType.Directory` an empty directory). `dest` is a
+  `str` (`TypeError` otherwise): the directory to install into, or with
+  `into=False` the final path. `mode`/`owner`/`group` take a value, `"-"` (leave
+  the default) or `"--"` (read it from the staged file). `decompress` is a kind
+  (`gz`, `xz`, `bz2`, `zst`, `lzma`), `"auto"` (infer it from the source
+  suffix) or `None`. `method` is `copy`, `link` or `move` (`UsageError`
+  otherwise). `exclude` statements follow the exclude grammar below; an
+  absolute glob is relative to each source. `record=False` stages without
+  writing an entry. `record_tree=True` also records every path below an
+  installed directory or archive that the DB does not hold. Every source is
+  validated and resolved before any is staged, so a bad argument or two
+  sources resolving to one non-directory destination leaves nothing on disk.
+  Returns what was written, in write order. Raises `UsageError`,
+  `PkgForgeError` and `OSError` exactly where the command exits 2 or 1.
+- **`scan(path: str, *, mode="-", owner="-", group="-", meta=None,
+  dir_mode: str | None = None, missing=False, drop_stale=False,
+  exclude: Sequence[str] = ()) -> FileRecords`** — record every path below
+  `path` (never `path` itself) with its own on-disk type; `mode` applies to
+  files only, `dir_mode` to directories (default `"--"` when `mode` is `"--"`,
+  else `"-"`); a symlink's mode is always `"-"`. `drop_stale=True` needs a file
+  DB (`UsageError`).
+- **`dump(fmt: str, output: StrPath | None = None, *, exclude: Sequence[str] =
+  ()) -> Rendered`** — render the file DB with the format `fmt` (a name or
+  alias). The format and OUTPUT shape are checked first, then the DB must
+  exist (`UsageError` for `db=None` or a missing file); with `output` the
+  result is also written whole (a file, or a directory for a multi-artifact
+  format). See `dbdump.dump` for the rest and the errors.
+- Every record goes through the private `Project._record(dbpath, entry) ->
+  FileEntry` before it is written; today it returns `entry` unchanged.
 
 ## Command base (`command.py`)
 
@@ -229,10 +297,12 @@ tool's last stderr line.
   `buildpath(localpath: Path) -> Path` (the reverse, `/`-rooted; POSIX only —
   `Path("/", ...)` resolves against the current drive on Windows),
   `loaddb() -> dict[str, FileEntry | None]`, `initdb()`, `compactdb()`,
-  `add_entry(buildpath, entry)`, `remove_entry(buildpath)`. When `--db` is
-  unset or `"-"`, DB-writing methods emit one JSON Lines record to stdout
-  instead of touching a file. `_register()` (classmethod) attaches the class
-  to `PkgForge`'s subcommand tree.
+  `add_entry(buildpath, entry)`, `remove_entry(buildpath)`: each is a call on
+  `_project()`, the `Project` these options describe. `_emit(records)` prints
+  each record as one JSON Lines line (`db.jsonl_line`) when `--db` is unset or
+  `"-"` instead of touching a file; the leaf commands call it with what their
+  `Project` call returned, after the operation. `_register()` (classmethod)
+  attaches the class to `PkgForge`'s subcommand tree.
   A DESTINATION (`install`) or PATH (`scan`) must resolve inside
   `--buildroot`: a `..` that climbs above the root, or a symlinked
   component that leads outside it, raises `UsageError` before anything is
@@ -275,9 +345,15 @@ tool's last stderr line.
   connection open across the whole batch, committing every 1000 rows and
   once more on exit (exception included, so a killed batch keeps whatever
   it already committed) instead of connecting, creating the schema and
-  committing once per call. `scan` wraps its walk in one (`PkgForgeCmd`'s
-  private `_db_batch()`); a direct `add()`/`remove()` outside a batch, and
+  committing once per call. `scan` wraps its walk in one (`Project`'s
+  private `_batch()`); a direct `add()`/`remove()` outside a batch, and
   every other command, are unaffected.
+- **`jsonl_line(path: str, entry: FileEntry | None) -> str`** — the one JSON
+  Lines record (`None` is a removal marker), newline-terminated, that
+  `JSONLinesDb` appends and the commands print with no file DB.
+  **`parse_jsonl(text: str, source: str = "text") -> Db`** — parse such text
+  (the last record per path wins); errors read `{source}:{line}: ...`
+  (`DbError`).
 - **`open_db(path, fmt=None) -> DbProvider`** — resolve and construct the
   provider: an explicit `fmt` wins, else the `path` suffix decides, defaulting
   to `"jsonl"`. The file's content is never inspected; a file in another
@@ -391,14 +467,30 @@ tool's last stderr line.
   `DbProvider`, see above; `DumpFormat.lookup(name)`/`DumpFormat.names()`
   work the same way too). Subclass one of the two shapes below, not
   `DumpFormat` directly.
-- **`PerEntryFormat(DumpFormat)`** — renders one line per DB entry to a
-  single output stream. Abstract `render_entry(path, entry) -> bytes`;
+- **`Rendered`** — type alias `bytes | dict[str, bytes]`: one file's bytes
+  (a `PerEntryFormat`) or `{filename: bytes}` (a `MultiArtifactFormat`).
+- **`dump(db: Mapping[str, FileEntry | None], fmt: str, output: StrPath | None
+  = None, *, exclude: Sequence[str] = ()) -> Rendered`** — the dump pipeline
+  over an already-loaded DB: look up `fmt` (a name or alias), check `output`'s
+  shape (before anything is rendered), drop removed entries and those matching
+  an `exclude` statement (an absolute glob is relative to the DB path), sort by
+  path, validate (`InvalidEntryError`), render, and with `output` write it
+  whole (a file, or a directory created if missing) logging `Wrote %s` per file
+  on `pkgforge.dbdump`. Returns the rendered bytes. `UsageError` for an unknown
+  format or statement, `UnsupportedOutputError` for a wrong-shape `output`,
+  `DumpError` for an entry the format cannot represent.
+- The format contract: `render(entries: FileEntries) -> Rendered` (writes
+  nothing), `check_output(output: Path) -> None` (raises
+  `UnsupportedOutputError`; there is no `-` case) and `write(rendered, output:
+  Path) -> list[Path]` (whole or nothing; returns the files written).
+- **`PerEntryFormat(DumpFormat)`** — renders one line per DB entry into one
+  file. Abstract `render_entry(path, entry) -> bytes`;
   concrete `render(entries) -> bytes` (default: joins every `render_entry`
   call -- a format MAY override `render` itself to validate/render a whole
   batch at once, as `RPMSpecFiles` does below) and
-  `dump(entries, output, logger=None)` (checks OUTPUT, renders, writes
-  OUTPUT whole or not at all: a sibling `.<name>.pkgforge-tmp` is written
-  first and renamed over OUTPUT; `-` writes stdout directly). `check_output` refuses an existing directory.
+  `write(rendered, output)` (OUTPUT whole or not at all: a sibling
+  `.<name>.pkgforge-tmp` is written first and renamed over OUTPUT).
+  `check_output` refuses an existing directory.
   Built in: **`RPMSpecFiles`** (`dbdump/_rpm.py`; `NAME = "rpmspecfiles"`,
   `ALIASES = ("rpm", "rpmspec")`) — RPM `%files` lines:
   `%attr(mode,owner,group) "path"`, `%dir` prefix for directories,
@@ -434,12 +526,11 @@ tool's last stderr line.
   verdicts); choose whichever of the two matches the build host's own
   `rpm --version`.
 - **`MultiArtifactFormat(DumpFormat)`** — renders several named artifacts
-  into a directory (or, for `-`, concatenates them to stdout under
-  `# === <name> ===` section headers). Abstract
-  `render(entries) -> dict[str, bytes]`; concrete `dump(...)` (checks,
-  renders, then writes every artifact to a sibling `.<name>.pkgforge-tmp`
-  and renames them all into place only once every write succeeded; a failure
-  removes the temp files and leaves earlier OUTPUT content as it was). `check_output` refuses an existing non-directory.
+  into a directory. Abstract `render(entries) -> dict[str, bytes]`; concrete
+  `write(rendered, output)` (creates the directory, writes every artifact to a
+  sibling `.<name>.pkgforge-tmp` and renames them all into place only once every
+  write succeeded; a failure removes the temp files and leaves earlier OUTPUT
+  content as it was). `check_output` refuses an existing non-directory.
   Built in: **`DebianFiles`** (`dbdump/_debian.py`; `NAME = "debian"`, `ALIASES = ("deb",)`) —
   `install` (`dh_install`-style `<src> <dest-dir>` lines, non-directory
   entries only) + `dirs`
@@ -493,15 +584,12 @@ or all of them with `logging.getLogger("pkgforge")` (a bare `--loglevel
 pkgforge:LEVEL` has no effect on a CLI-dispatched command; see `PkgForgeCmd`
 above).
 
-- **`install.Install(FileEntryArgs, ExcludeArgs, install.record._RecordTree,
-  PkgForgeCmd, install.staging._Staging)`**
-  (`pkgforge install`) — `install` is a package: `install/__init__.py` (the
-  `Install` class itself), `install/decompress.py` (the `-x`/`--decompress`
-  KIND table), `install/archive.py` (the tar-family/bsdtar extraction policy),
-  `install/staging.py` (the `_Staging` mixin: `Install`'s own file/symlink/
-  directory staging methods, plus `_install()` itself), `install/record.py`
-  (the `_RecordTree` mixin: `--record-tree` plus the walk itself, built on
-  the shared `pkgforge._tree.TreeRecorder`) —
+- **`install.Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd)`**
+  (`pkgforge install`) — maps the command line onto `Project.install`; the
+  staging lives in the private `pkgforge._install` package (the per-source
+  worker, the `-x` kind table, the tar-family/bsdtar extraction policy, the
+  staging mixins and the `--record-tree` walk on the shared
+  `pkgforge._tree.TreeRecorder`) —
   stage a source (file / directory / symlink / tar-family archive /
   decompress-on-copy) into the build root, apply mode/ownership, and record
   the entry. `-D` = `-Tp` shortcut, `-d` = `--type directory` shortcut.
@@ -658,7 +746,7 @@ above).
   DESTINATION. With several merging SOURCEs, each clone's own
   `--record-tree` pass walks the same shared destination, but gap-filling
   means a child two sources both produced is still written only once. The
-  DB write batches (`_db_batch()`, a no-op except sqlite) so
+  DB write batches (`Project._batch()`, a no-op except sqlite) so
   DESTINATION's own entry and every child share one connection; a
   `--record-tree` failure (e.g. an unsupported file type already sitting
   under DESTINATION) exits 1 with the tree staged and the top entry
@@ -708,7 +796,7 @@ above).
   below PATH whose `localpath` no longer exists on disk, skipping a key
   that matches `-X` (so a deliberately-absent entry, e.g. an RPM `%ghost`,
   can be protected) -- never touches disk itself, and raises `UsageError`
-  when `--db` is unset or `-`. The removals run in one `_db_batch()`, so
+  when `--db` is unset or `-`. The removals run in one `_batch()`, so
   `sqlite` holds a single connection for all of them. `--missing` is unaffected: a tombstoned path
   still counts as absent and is re-added if its file exists.
 - **`dbdump.DbDump(ExcludeArgs, PkgForgeCmd)`** (`pkgforge dbdump -f FORMAT [output]`) —
@@ -741,7 +829,7 @@ above).
   is the protocol channel). Otherwise it reads to EOF, blocking on a pipe that
   is never closed. Empty input logs a WARNING and dumps an empty manifest,
   exit 0. A leading BOM is ignored. Parsing is shared with the `jsonl` backend
-  via `db._jsonl._parse_jsonl(text, source, hint="")` (`source` is the file path
+  via `db.parse_jsonl(text, source)` (`source` is the file path
   or `"<stdin>"`), so both report an error the same way
   (`{source}:{lineno}: ...`); non-UTF-8 input raises `DbError` prefixed
   `<stdin>:`.
@@ -755,11 +843,10 @@ above).
   Raises `UsageError` (exit 2) for an unset `--db`, for `--db -` (no file to
   rewrite) and for a file that does not exist (nothing is created, for every
   backend).
-- **`PkgForgeCmd._existing_db() -> Path`** — the configured `--db`, which must
-  exist: `UsageError` for an unset `--db` or a path that does not exist (the
-  messages above). Used by `dbdump` and `compact`; distinct from
-  `_no_file_db() -> bool` ("`--db` unset or `-`: records go to stdout"), which
-  the DB read/write helpers use.
+- **`PkgForgeCmd._no_file_db() -> bool`** — "`--db` unset or `-`: records go to
+  stdout". `dbdump` and `compact` need an existing DB file: `Project` raises
+  `UsageError` for an unset `--db` or a path that does not exist (the messages
+  above).
 
 ## Environment variables
 

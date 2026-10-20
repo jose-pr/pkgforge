@@ -51,6 +51,7 @@ API_DIR = ROOT / "docs" / "api"
 # plus the built-in DB/dump backends and leaf commands the shipped header
 # documents by name but ``pkgforge.__all__`` only exposes as submodules.
 REQUIRED_API_TARGETS = (
+    "pkgforge.project.Project",
     "pkgforge.main",
     "pkgforge.command.PkgForge",
     "pkgforge.exceptions.PkgForgeError",
@@ -71,6 +72,8 @@ REQUIRED_API_TARGETS = (
     "pkgforge.db.DbProvider",
     "pkgforge.db.open_db",
     "pkgforge.db.format_for_suffix",
+    "pkgforge.db.jsonl_line",
+    "pkgforge.db.parse_jsonl",
     "pkgforge.db.JSONLinesDb",
     "pkgforge.db.YAMLDb",
     "pkgforge.db.SQLiteDb",
@@ -82,6 +85,7 @@ REQUIRED_API_TARGETS = (
     "pkgforge.exceptions.DumpError",
     "pkgforge.exceptions.InvalidEntryError",
     "pkgforge.exceptions.UnsupportedOutputError",
+    "pkgforge.dbdump.dump",
     "pkgforge.dbdump.DumpFormat",
     "pkgforge.dbdump.PerEntryFormat",
     "pkgforge.dbdump.MultiArtifactFormat",

@@ -16,6 +16,10 @@ its own `NAME` -- no registration call needed.
     options:
       show_root_heading: true
 
+::: pkgforge.dbdump.dump
+    options:
+      show_root_heading: true
+
 ::: pkgforge.dbdump.DumpFormat
     options:
       show_root_heading: true

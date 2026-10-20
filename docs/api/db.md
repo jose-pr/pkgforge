@@ -24,6 +24,14 @@ needed.
     options:
       show_root_heading: true
 
+::: pkgforge.db.jsonl_line
+    options:
+      show_root_heading: true
+
+::: pkgforge.db.parse_jsonl
+    options:
+      show_root_heading: true
+
 ## Built-in backends
 
 ::: pkgforge.db.JSONLinesDb

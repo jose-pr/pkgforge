@@ -35,6 +35,7 @@ nav:
       - Dump formats: guide/formats.md
       - Unattended builds: guide/unattended.md
   - API Reference:
+      - Project: api/project.md
       - Overview: api/reference.md
       - File entries: api/entry.md
       - Command base: api/command.md

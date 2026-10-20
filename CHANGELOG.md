@@ -6,7 +6,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- `pkgforge.Project`, a Python API for build scripts: `Project(buildroot, db=None,
+  *, db_format=None)` with `init`, `load`, `entries`, `compact`, `install`,
+  `scan` and `dump`. It does what the `install`, `scan`, `initdb`, `compact`
+  and `dbdump` commands do, takes and returns plain Python values, prints
+  nothing and returns the records it wrote (with no file DB, those are the
+  only result). `pkgforge.FileRecords` and `pkgforge.StrPath` are its types.
+- `pkgforge.dbdump.dump(db, fmt, output=None, *, exclude=())` renders an
+  already-loaded DB, and `pkgforge.dbdump.Rendered` is the result type.
+- `pkgforge.db.jsonl_line(path, entry)` and `pkgforge.db.parse_jsonl(text,
+  source="text")` write and read the JSON Lines records the `jsonl` backend
+  stores.
+
 ### Changed
+- A dump format implements `render(entries)`, `check_output(output)` and
+  `write(rendered, output)`; `DumpFormat.dump(entries, output, logger)` is
+  gone, and `-` (standard output) is handled by the `dbdump` command, not by a
+  format. A third-party format that overrode `dump` or `check_output` moves
+  that code to `write` and `check_output`, and drops its `-` case.
+- `install` and `scan` with no `--db` (or `--db -`) print their JSON Lines
+  records once the operation has succeeded, instead of one by one as they are
+  written.
 - On `install` and `scan`, an absolute `-X` pattern is relative to the input,
   like `tar --exclude`: `install -X /tmp ./build /opt/app` excludes
   `./build/tmp`, `install -X '/docs/**' app-1.0.tgz /opt` excludes the
@@ -89,6 +110,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `pkgforge.dbdump.Entries` is now `pkgforge.FileEntries`.
 
 ### Removed
+- The `pkgforge.install.archive`, `decompress`, `staging`, `transfer`, `record`
+  and `_tool` modules and the `Install` staging methods (`_resolve`, `_stage`
+  and the like); staging is `Project.install`, and the helpers live in the
+  private `pkgforge._install` package.
 - The warning that an absolute `-X` pattern could match no install path, and
   `PathMatch.unreachable()` and `log_unreachable()` with it.
 - `dbdump --stdin`; use `--db -`.
