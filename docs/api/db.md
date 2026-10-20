@@ -24,10 +24,6 @@ needed.
     options:
       show_root_heading: true
 
-::: pkgforge.db.sniff_format
-    options:
-      show_root_heading: true
-
 ## Built-in backends
 
 ::: pkgforge.db.jsonl.JsonlDb

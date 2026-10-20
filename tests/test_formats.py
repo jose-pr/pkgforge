@@ -1147,8 +1147,6 @@ def test_validate_entries_empty():
     "row",
     [
         _row("/opt/../../x"),
-        _row("opt/rel"),
-        _row(type=None),
         _row(owner="root,root) %(touch PWNED)"),
         _row(owner="root\n%attr(4755,root"),
         _row(meta={"rpmprefix": "a\nb"}),
@@ -1156,8 +1154,6 @@ def test_validate_entries_empty():
     ],
     ids=[
         "dotdot",
-        "relative",
-        "untyped",
         "owner_macro",
         "owner_newline",
         "prefix",

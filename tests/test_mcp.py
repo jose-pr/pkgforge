@@ -75,11 +75,11 @@ def server(tmp_path):
         srv.close()
 
 
-def test_dbdump_stdin_is_refused_and_output_kept(server, tmp_path):
+def test_dbdump_db_dash_is_refused_and_output_kept(server, tmp_path):
     output = tmp_path / "files.txt"
     output.write_text("keep me\n")
     is_error, text = server.call(
-        "dbdump", {"format": "rpmspecfiles", "stdin": True, "output": "files.txt"}
+        "dbdump", {"format": "rpmspecfiles", "db": "-", "output": "files.txt"}
     )
     assert is_error
     assert "standard input is not available in an MCP tool call" in text

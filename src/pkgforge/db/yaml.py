@@ -6,8 +6,8 @@ import functools
 import typing
 from pathlib import Path
 
-from . import Db, DbError, _fields
-from ._appendlog import AppendLogDb, _normalize
+from . import Db, DbError, _check_record, _fields, _format_hint
+from ._appendlog import AppendLogDb
 
 if typing.TYPE_CHECKING:
     from ..entry import FileEntry
@@ -82,7 +82,7 @@ def _is_flow_style_yaml(path: Path) -> bool:
     a hand-written or third-party file.
     """
     try:
-        with path.open(encoding="utf-8") as fh:
+        with path.open(encoding="utf-8-sig") as fh:
             for line in fh:
                 stripped = line.strip()
                 if not stripped or stripped.startswith("#") or stripped == "---":
@@ -97,9 +97,9 @@ class YamlDb(AppendLogDb):
     """Append-only YAML: a single mapping, appended key by key -- the last
     duplicate key wins.
 
-    Kept for compatibility and as an explicitly-selectable backend. Reading
-    relies on the YAML loader letting a later duplicate mapping key win -- a
-    property of this backend's format, not a general guarantee.
+    Reading relies on the YAML loader letting a later duplicate mapping key
+    win -- a property of this backend's format, not a general guarantee. A
+    ``null`` value is a removal.
     """
 
     NAME = "yaml"
@@ -111,13 +111,15 @@ class YamlDb(AppendLogDb):
         loader, _ = _yaml_io()
         import yaml
 
+        hint = _format_hint(self.NAME)
         try:
-            with self.path.open(encoding="utf-8") as fh:
+            with self.path.open(encoding="utf-8-sig") as fh:
                 data = yaml.load(fh, Loader=loader)
         except UnicodeDecodeError as exc:
-            raise DbError(f"{self.path}: {exc}") from exc
+            raise DbError(f"{self.path}: {exc}{hint}") from exc
         except yaml.YAMLError as exc:
-            raise DbError(f"{self.path}: {exc}") from exc
+            detail = " ".join(str(exc).split())  # PyYAML reports over several lines
+            raise DbError(f"{self.path}: {detail}{hint}") from exc
         except RecursionError as exc:
             raise DbError(f"{self.path}: nested too deeply") from exc
         if data is None:
@@ -125,12 +127,9 @@ class YamlDb(AppendLogDb):
         if not isinstance(data, dict):
             raise DbError(
                 f"{self.path}: invalid YAML file DB: top-level document is "
-                "not a mapping"
+                f"not a mapping{hint}"
             )
-        return {
-            path: (None if rec is None else _normalize(self.path, path, rec))
-            for path, rec in data.items()
-        }
+        return {path: _check_record(path, rec, self.path) for path, rec in data.items()}
 
     def _record(self, path: str, entry: typing.Optional["FileEntry"]) -> str:
         if self.path.exists() and _is_flow_style_yaml(self.path):

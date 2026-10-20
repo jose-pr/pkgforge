@@ -95,7 +95,7 @@ class TreeRecorder:
             if self.matcher is not None and self.matcher.match(path, meta=self.meta):
                 self.cmd._logger_.debug("Excluding %s", path)
                 return False
-            fspath = os.fspath(self.cmd.buildpath(path))
+            fspath = self.cmd.buildpath(path).as_posix()
             if self.known.get(fspath) is None:
                 st = path.lstat()
                 ftype = _file_type(path, st)

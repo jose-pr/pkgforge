@@ -12,13 +12,23 @@ of which is used, because they all load to the same shape.
 | `yaml` | `.yaml`, `.yml` | append-only YAML: a single mapping, appended key by key; last duplicate key wins |
 | `sqlite` | `.db`, `.sqlite`, `.sqlite3` | a real SQLite store, upserted in place |
 
-The backend is chosen from the `--db` file's **extension**; `--db-format`
-(or `PKGFORGE_DB_FORMAT`) overrides it. When *reading* an existing file, its
-actual content is sniffed, so a legacy or mislabeled file still loads. A
-flow-style YAML file (`{...}`) must be compacted
-(`pkgforge --db FILE compact`) before appending.
-`jsonl` and `yaml` files are UTF-8; a malformed one raises `DbError` naming
-the file (and line). Reading a `sqlite` DB never writes to it: an empty or
+The backend is `--db-format` (or `PKGFORGE_DB_FORMAT`) when given, else the
+`--db` file's **extension**, else `jsonl`. The file's content is never
+inspected to choose: a file that is not in the chosen format (a YAML file named
+`.jsonl`, a text file named `.db`) fails to load with a `DbError` that names the
+format and suggests `--db-format`. A flow-style YAML file (`{...}`) must be
+compacted (`pkgforge --db FILE compact`) before appending.
+`jsonl` and `yaml` files are UTF-8, with a leading byte-order mark ignored; a
+malformed one raises `DbError` naming the file (and line). JSON Lines records
+split on `\n` only.
+
+Every backend enforces the same record schema when it loads, and coerces or
+defaults nothing: a path is a string starting with `/`; a record has exactly
+`mode`, `owner`, `group` (strings), `type` (`file`, `directory` or `symlink`)
+and `meta` (string to string); a removal is `{"path": ..., "_removed": true}`
+(jsonl), `null` (yaml) or a flagged row (sqlite). Anything else raises
+`DbError` naming the file and the path, so a bad DB is one error at load time
+instead of a crash while rendering. Reading a `sqlite` DB never writes to it: an empty or
 schema-less file loads as an empty DB, and one with other tables but no
 `entries` table (not a pkgforge DB) raises `DbError` instead of getting a
 table added to it. A path or a field value that is not valid UTF-8 (an
@@ -71,16 +81,10 @@ class TomlDb(pkgforge.DbProvider):
     def remove(self, path): ...
     def compact(self): ...
     def init(self): ...
-
-    @staticmethod
-    def sniff(head: bytes) -> bool:               # or claim a file by content
-        return head.startswith(b"#toml")
 ```
 
 Once defined, the format is selectable with `--db-format toml`, by a `.toml`
-`--db` suffix, or by content sniffing on read (`sniff` counts only when a
-class's own body defines it — a subclass that does not redeclare it is not
-consulted). A `DbProvider` is constructed as `provider_cls(path)` and must
+`--db` suffix. A `DbProvider` is constructed as `provider_cls(path)` and must
 implement `load`/`add`/`remove`/`compact`/`init`; `load()` returns
 `{path: entry-or-None}` like the built-ins. Look one up directly with
 `DbProvider.lookup("toml")`, or list every registered name with

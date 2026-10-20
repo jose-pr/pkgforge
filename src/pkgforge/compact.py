@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .command import PkgForgeCmd
+from .errors import UsageError
 
 
 class Compact(PkgForgeCmd):
@@ -12,13 +13,9 @@ class Compact(PkgForgeCmd):
     _logger_name_ = "pkgforge.compact"
 
     def __call__(self):
-        reason = self._no_db_reason()
-        if reason:
-            self._logger_.warning("%s: nothing to compact", reason)
-            return
-        if not self.db.exists():
-            self._logger_.warning("DB %s does not exist; nothing to compact", self.db)
-            return
+        if str(self.db) == "-":
+            raise UsageError("compact rewrites a file; --db - has none")
+        self._existing_db()
         before = self.loaddb()
         live = sum(1 for entry in before.values() if entry is not None)
         self.compactdb()

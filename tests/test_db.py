@@ -17,13 +17,13 @@ SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 
 import pkgforge.db as dbmod
 from pkgforge.db import (
+    DbError,
     DbProvider,
     JsonlDb,
     SqliteDb,
     YamlDb,
     format_for_suffix,
     open_db,
-    sniff_format,
 )
 
 ALL_FORMATS = ["jsonl", "yaml", "sqlite"]
@@ -44,7 +44,7 @@ def provider(request, tmp_path):
 
 def _reload(provider):
     # A fresh provider instance, as a separate CLI invocation would use.
-    return open_db(provider.path, provider.NAME, for_read=True).load()
+    return open_db(provider.path, provider.NAME).load()
 
 
 def test_roundtrip(provider, make_entry):
@@ -90,7 +90,7 @@ def test_load_missing_is_empty(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# selection: suffix, override, content sniff
+# selection: --db-format, else suffix; content never decides
 # --------------------------------------------------------------------------
 
 
@@ -113,27 +113,6 @@ def test_open_db_by_suffix(tmp_path):
 def test_explicit_format_overrides_suffix(tmp_path):
     # A .yaml suffix but forced sqlite.
     assert isinstance(open_db(tmp_path / "a.yaml", "sqlite"), SqliteDb)
-
-
-def test_sniff_detects_content_over_suffix(tmp_path, make_entry):
-    # Write YAML content into a suffix-less file; a read auto-detects it as yaml.
-    path = tmp_path / "noext"
-    open_db(path, "yaml").add("/a", make_entry())
-    assert sniff_format(path) == "yaml"
-    assert open_db(path, for_read=True).NAME == "yaml"
-
-
-def test_sniff_detects_sqlite(tmp_path):
-    path = tmp_path / "store"  # no .db suffix
-    open_db(path, "sqlite").init()
-    assert sniff_format(path) == "sqlite"
-    assert open_db(path, for_read=True).NAME == "sqlite"
-
-
-def test_sniff_detects_jsonl(tmp_path, make_entry):
-    path = tmp_path / "log"
-    open_db(path, "jsonl").add("/a", make_entry())
-    assert sniff_format(path) == "jsonl"
 
 
 def test_unknown_format_raises(tmp_path):
@@ -274,7 +253,7 @@ def test_yaml_loader_parity(tmp_path, monkeypatch, make_entry, which):
     p.add("/b", make_entry(mode="755"))
     p.remove("/b")  # tombstone
 
-    db = open_db(p.path, "yaml", for_read=True).load()
+    db = open_db(p.path, "yaml").load()
     assert db["/a"]["mode"] == "600"
     assert db["/b"] is None
 
@@ -339,24 +318,18 @@ def test_yaml_reads_legacy_written_db(tmp_path, make_entry):
     path.write_text(
         yaml.safe_dump({"/usr/bin/x": make_entry(mode="755"), "/gone": None})
     )
-    db = open_db(path, for_read=True).load()
+    db = open_db(path).load()
     assert db["/usr/bin/x"]["mode"] == "755"
     assert db["/gone"] is None
 
 
-def test_write_to_sniffed_legacy_yaml_keeps_format(tmp_path, make_entry):
-    # Pin: a legacy YAML mapping under a .jsonl path keeps being appended
-    # to as YAML (open_db's for_read=True sniffing applies on writes too),
-    # never silently switched to JSON Lines.
+def test_yaml_content_under_a_jsonl_suffix_fails_to_load(tmp_path, make_entry):
     path = tmp_path / "legacy.jsonl"
     path.write_text(yaml.safe_dump({"/old": make_entry(mode="755")}))
 
-    open_db(path, for_read=True).add("/new", make_entry(mode="600"))
-
-    assert not path.read_text().lstrip().startswith("{")
-    db = open_db(path, for_read=True).load()
-    assert db["/old"]["mode"] == "755"
-    assert db["/new"]["mode"] == "600"
+    with pytest.raises(DbError, match="legacy.jsonl.*--db-format"):
+        open_db(path).load()
+    assert open_db(path, "yaml").load()["/old"]["mode"] == "755"
 
 
 # --------------------------------------------------------------------------
@@ -381,7 +354,7 @@ def test_cmd_db_format_override(cmd, make_entry):
     inst = cmd(name="files.yaml", db_format="sqlite")
     inst.initdb()
     inst.add_entry("/a", make_entry())
-    assert sniff_format(inst.db) == "sqlite"
+    assert inst.db.read_bytes().startswith(b"SQLite format 3\x00")
 
 
 # --------------------------------------------------------------------------
@@ -457,23 +430,6 @@ def test_db_provider_subclass_selectable_by_suffix(restore_registries, tmp_path)
     assert format_for_suffix(tmp_path / "f.tsv") == "tsv"
 
 
-def test_db_provider_subclass_sniffer_wins(restore_registries, tmp_path):
-    type(
-        "TsvDb",
-        (_TsvDb,),
-        {
-            "NAME": "tsv",
-            "SUFFIXES": (".tsv",),
-            "sniff": staticmethod(lambda head: head.startswith(b"#pkgforge-tsv")),
-        },
-    )
-    path = tmp_path / "noext"
-    open_db(path, "tsv").init()
-    # Content sniffed as tsv even though the suffix is unknown.
-    assert sniff_format(path) == "tsv"
-    assert open_db(path, for_read=True).NAME == "tsv"
-
-
 def test_db_provider_subclass_accepted_as_db_format(restore_registries, tmp_path):
     from pkgforge.errors import UsageError
     from pkgforge.initdb import InitDb
@@ -538,7 +494,7 @@ def test_append_repairs_missing_newline(tmp_path, fmt, make_entry):
     p = open_db(path, fmt)
     p.add("/new", make_entry(mode="600"))
 
-    db = open_db(path, fmt, for_read=True).load()
+    db = open_db(path, fmt).load()
     assert db["/new"]["mode"] == "600"
     if fmt == "jsonl":
         assert db["/old"]["mode"] == "644"
@@ -559,7 +515,7 @@ def test_jsonl_error_names_file_and_line(tmp_path):
         encoding="utf-8",
     )
     with pytest.raises(DbError) as excinfo:
-        open_db(path, "jsonl", for_read=True).load()
+        open_db(path, "jsonl").load()
     assert f"{path}:3:" in str(excinfo.value)
 
 
@@ -569,7 +525,7 @@ def test_yaml_error_names_file(tmp_path):
     path = tmp_path / "f.yaml"
     path.write_text("a:\n  b: [1, 2\n", encoding="utf-8")  # unterminated flow seq
     with pytest.raises(DbError) as excinfo:
-        open_db(path, "yaml", for_read=True).load()
+        open_db(path, "yaml").load()
     assert str(path) in str(excinfo.value)
 
 
@@ -601,7 +557,7 @@ def test_malformed_db_raises(tmp_path, kind):
 
     path, fmt = _write_malformed(tmp_path, kind)
     with pytest.raises(DbError) as excinfo:
-        open_db(path, fmt, for_read=True).load()
+        open_db(path, fmt).load()
     assert str(path) in str(excinfo.value)
 
 
@@ -615,7 +571,10 @@ def test_utf8_db_under_ascii_locale(tmp_path, fmt):
             b'"path": "/etc/caf\xc3\xa9.conf", "type": "file"}\n'
         )
     else:
-        db_path.write_bytes(b"/etc/caf\xc3\xa9.conf:\n  type: file\n")
+        db_path.write_bytes(
+            b"/etc/caf\xc3\xa9.conf:\n  mode: '-'\n  owner: '-'\n  group: '-'\n"
+            b"  type: file\n  meta: {}\n"
+        )
 
     script = (
         "import locale, sys\n"
@@ -626,11 +585,11 @@ def test_utf8_db_under_ascii_locale(tmp_path, fmt):
         "import pathlib\n"
         "from pkgforge.db import open_db\n"
         f"path = pathlib.Path({str(db_path)!r})\n"
-        f"p = open_db(path, {fmt!r}, for_read=True)\n"
+        f"p = open_db(path, {fmt!r})\n"
         "db = p.load()\n"
         "assert '/etc/caf\\u00e9.conf' in db, sorted(db)\n"
         "p.compact()\n"
-        f"p2 = open_db(path, {fmt!r}, for_read=True)\n"
+        f"p2 = open_db(path, {fmt!r})\n"
         "db2 = p2.load()\n"
         "assert '/etc/caf\\u00e9.conf' in db2, sorted(db2)\n"
         "print('OK')\n"
@@ -653,7 +612,7 @@ def test_utf8_db_under_ascii_locale(tmp_path, fmt):
 
 
 # --------------------------------------------------------------------------
-# yaml scalars load as strings; missing fields default; bad types raise
+# yaml scalars load as strings
 # --------------------------------------------------------------------------
 
 
@@ -669,56 +628,12 @@ def test_yaml_scalars_load_as_strings(tmp_path):
         "/gone: null\n",
         encoding="utf-8",
     )
-    db = open_db(path, "yaml", for_read=True).load()
+    db = open_db(path, "yaml").load()
     entry = db["/usr/bin/tool"]
     assert entry["mode"] == "0755"
     assert entry["owner"] == "0"
     assert entry["meta"] == {"enabled": "yes"}
     assert db["/gone"] is None
-
-
-@pytest.mark.parametrize("fmt", ["jsonl", "yaml"])
-def test_missing_fields_normalized(tmp_path, fmt):
-    path = tmp_path / f"f.{fmt}"
-    if fmt == "jsonl":
-        path.write_text('{"path": "/a"}\n', encoding="utf-8")
-    else:
-        path.write_text("/a: {}\n", encoding="utf-8")
-
-    db = open_db(path, fmt, for_read=True).load()
-    entry = db["/a"]
-    assert entry["meta"] == {}
-    assert entry["mode"] == "-"
-    assert entry["owner"] == "-"
-    assert entry["group"] == "-"
-    assert entry["type"] is None
-
-
-def test_null_type_loads(tmp_path):
-    # Pin: FileEntry.from_args writes an explicit "type": null when unset
-    # (not a missing key) -- _normalize must accept that, not reject it.
-    path = tmp_path / "f.jsonl"
-    path.write_text(
-        '{"path": "/a", "mode": "644", "owner": "-", "group": "-", '
-        '"type": null, "meta": {}}\n',
-        encoding="utf-8",
-    )
-    db = open_db(path, "jsonl", for_read=True).load()
-    assert db["/a"]["type"] is None
-
-
-def test_jsonl_int_mode_is_str(tmp_path):
-    path = tmp_path / "f.jsonl"
-    path.write_text(
-        '{"path": "/a", "mode": 755, "owner": 0, "group": 0, '
-        '"type": "file", "meta": {}}\n',
-        encoding="utf-8",
-    )
-    db = open_db(path, "jsonl", for_read=True).load()
-    entry = db["/a"]
-    assert entry["mode"] == "755"
-    assert entry["owner"] == "0"
-    assert entry["group"] == "0"
 
 
 # --------------------------------------------------------------------------
@@ -734,42 +649,48 @@ def test_jsonl_load_errors_pinned(tmp_path):
     def _err(text: str) -> str:
         path.write_text(text, encoding="utf-8")
         with pytest.raises(DbError) as excinfo:
-            open_db(path, "jsonl", for_read=True).load()
+            open_db(path, "jsonl").load()
         return str(excinfo.value)
 
+    hint = " (read as jsonl; pass --db-format to choose another format)"
     # bad JSON with a column
     assert _err('{"path": "/a", not valid json\n') == (
         f"{path}:1: invalid JSON Lines record: "
-        "Expecting property name enclosed in double quotes (column 16)"
+        f"Expecting property name enclosed in double quotes (column 16){hint}"
     )
-    # a BOM-prefixed line
-    assert _err("\ufeff" + '{"path": "/a"}\n') == (
-        f"{path}:1: invalid JSON Lines record: "
-        "Unexpected UTF-8 BOM (decode using utf-8-sig) (column 1)"
+    # a BOM on a line after the first is not dropped
+    assert _err("\n\ufeff" + '{"path": "/a"}\n') == (
+        f"{path}:2: invalid JSON Lines record: "
+        f"Unexpected UTF-8 BOM (decode using utf-8-sig) (column 1){hint}"
     )
     # two objects on one line
-    assert (
-        _err("{}{}\n") == f"{path}:1: invalid JSON Lines record: Extra data (column 3)"
+    assert _err("{}{}\n") == (
+        f"{path}:1: invalid JSON Lines record: Extra data (column 3){hint}"
     )
     # trailing garbage after a valid object
-    assert (
-        _err('{"a":1}xyz\n')
-        == f"{path}:1: invalid JSON Lines record: Extra data (column 8)"
+    assert _err('{"a":1}xyz\n') == (
+        f"{path}:1: invalid JSON Lines record: Extra data (column 8){hint}"
     )
     # a JSON array is not an object
-    assert _err("[1]\n") == f"{path}:1: invalid JSON Lines record: not an object"
+    assert _err("[1]\n") == (
+        f"{path}:1: invalid JSON Lines record: not an object{hint}"
+    )
     # a JSON null is not an object
-    assert _err("null\n") == f"{path}:1: invalid JSON Lines record: not an object"
+    assert _err("null\n") == (
+        f"{path}:1: invalid JSON Lines record: not an object{hint}"
+    )
     # a JSON string is not an object
-    assert _err('"text"\n') == f"{path}:1: invalid JSON Lines record: not an object"
+    assert _err('"text"\n') == (
+        f"{path}:1: invalid JSON Lines record: not an object{hint}"
+    )
     # a valid object missing "path"
     assert _err('{"mode": "644"}\n') == (
-        f'{path}:1: invalid JSON Lines record: missing "path"'
+        f'{path}:1: invalid JSON Lines record: missing "path"{hint}'
     )
     # non-UTF-8 bytes fail before any JSON parsing is attempted
     path.write_bytes(b"\xff\xfe")
     with pytest.raises(DbError) as excinfo:
-        open_db(path, "jsonl", for_read=True).load()
+        open_db(path, "jsonl").load()
     assert str(path) in str(excinfo.value)
 
 
@@ -786,7 +707,7 @@ def test_jsonl_load_tolerant_lines_pinned(tmp_path):
         b'{"path": "/c", "mode": "600", "owner": "-", "group": "-", '
         b'"type": "file", "meta": {}}'  # no final newline
     )
-    db = open_db(path, "jsonl", for_read=True).load()
+    db = open_db(path, "jsonl").load()
     assert db["/a"]["mode"] == "755"  # duplicate path: last record wins
     assert db["/b"] is None  # "_removed" tombstone
     assert db["/c"]["mode"] == "600"  # last line has no trailing newline
@@ -799,7 +720,7 @@ def test_sqlite_load_meta_pinned(tmp_path, make_entry):
     p.add("/empty", make_entry(meta={}))
     p.add("/full", make_entry(meta={"k": "v"}))
 
-    db = open_db(db_path, "sqlite", for_read=True).load()
+    db = open_db(db_path, "sqlite").load()
     assert db["/empty"]["meta"] == {}
     assert db["/full"]["meta"] == {"k": "v"}
 
@@ -808,7 +729,7 @@ def test_sqlite_load_meta_pinned(tmp_path, make_entry):
     assert db["/full"]["meta"] == {"k": "v"}
 
     # a fresh load hands back a fresh object too, not one cached anywhere
-    db2 = open_db(db_path, "sqlite", for_read=True).load()
+    db2 = open_db(db_path, "sqlite").load()
     assert db2["/empty"]["meta"] == {}
     assert db2["/empty"]["meta"] is not db["/empty"]["meta"]
 
@@ -838,7 +759,7 @@ def test_jsonl_load_skips_json_loads_for_valid_lines(tmp_path, monkeypatch, make
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     calls = _counting_json_loads(monkeypatch)
-    db = open_db(path, "jsonl", for_read=True).load()
+    db = open_db(path, "jsonl").load()
     assert len(db) == 50
     assert calls == []
 
@@ -848,10 +769,11 @@ def test_jsonl_load_skips_json_loads_for_valid_lines(tmp_path, monkeypatch, make
 
     path.write_text('{"path": "/a", not valid json\n', encoding="utf-8")
     with pytest.raises(DbError) as excinfo:
-        open_db(path, "jsonl", for_read=True).load()
+        open_db(path, "jsonl").load()
     assert str(excinfo.value) == (
         f"{path}:1: invalid JSON Lines record: "
         "Expecting property name enclosed in double quotes (column 16)"
+        " (read as jsonl; pass --db-format to choose another format)"
     )
     assert calls  # the fallback did call json.loads
 
@@ -864,7 +786,7 @@ def test_sqlite_load_skips_json_for_empty_meta(tmp_path, monkeypatch, make_entry
         p.add(f"/f{i}", make_entry(meta={}))
 
     calls = _counting_json_loads(monkeypatch)
-    db = open_db(db_path, "sqlite", for_read=True).load()
+    db = open_db(db_path, "sqlite").load()
     assert len(db) == 50
     assert all(entry["meta"] == {} for entry in db.values())
     assert calls == []
@@ -921,33 +843,24 @@ def test_bad_field_types_raise(tmp_path, kind):
     path = _write_bad_field(tmp_path, kind)
     fmt = "yaml" if kind == "record_list" else "jsonl"
     with pytest.raises(DbError) as excinfo:
-        open_db(path, fmt, for_read=True).load()
+        open_db(path, fmt).load()
     assert "/a" in str(excinfo.value)
 
 
 # --------------------------------------------------------------------------
-# sniffing: a quoted-first-key jsonl sniffer; flow-style YAML append refusal
+# flow-style YAML append refusal
 # --------------------------------------------------------------------------
 
 
-def test_flow_yaml_sniffs_as_yaml(tmp_path):
+def test_flow_yaml_loads(tmp_path):
     path = tmp_path / "flow.yaml"
     path.write_text(
         "{/usr/bin/x: {mode: '0755', owner: root, group: root, type: file, "
         "meta: {}}}\n",
         encoding="utf-8",
     )
-    assert sniff_format(path) == "yaml"
-    db = open_db(path, for_read=True).load()
+    db = open_db(path).load()
     assert db["/usr/bin/x"]["mode"] == "0755"
-
-
-def test_spaced_jsonl_sniffs_as_jsonl(tmp_path):
-    # Pin: a hand-written record with a space before the quoted key must
-    # keep sniffing as jsonl, not fall through to the yaml fallback.
-    path = tmp_path / "noext"
-    path.write_text('{ "path": "/a", "mode": "644"}\n', encoding="utf-8")
-    assert sniff_format(path) == "jsonl"
 
 
 @pytest.mark.parametrize(
@@ -988,7 +901,7 @@ def test_compact_rewrites_flow_yaml_to_block(tmp_path, make_entry):
 
     # An append now succeeds against the rewritten block-style file.
     p.add("/new", make_entry())
-    db = open_db(path, "yaml", for_read=True).load()
+    db = open_db(path, "yaml").load()
     assert db["/usr/bin/x"]["mode"] == "0755"
     assert db["/new"] is not None
 
@@ -1019,7 +932,7 @@ def test_compact_failure_leaves_db_intact(tmp_path, monkeypatch, make_entry, fmt
 
     assert p.path.read_bytes() == before
     assert not any(name.endswith(".tmp") for name in os.listdir(tmp_path))
-    db = open_db(p.path, fmt, for_read=True).load()
+    db = open_db(p.path, fmt).load()
     assert db["/keep"] is not None
     assert db["/gone"] is None
 
@@ -1043,7 +956,7 @@ def test_compact_keeps_mode_and_symlink(tmp_path, make_entry, fmt):
 
     assert link.is_symlink()
     assert stat.S_IMODE(real.stat().st_mode) == 0o640
-    db = open_db(link, fmt, for_read=True).load()
+    db = open_db(link, fmt).load()
     assert "/keep" in db
     assert "/gone" not in db
 
@@ -1089,7 +1002,7 @@ def test_compact_keeps_concurrent_append(tmp_path, monkeypatch, make_entry, fmt)
         monkeypatch.undo()  # this test's own final load() below must not re-trigger it
         proc.wait(timeout=10)
 
-    db = open_db(db_path, fmt, for_read=True).load()
+    db = open_db(db_path, fmt).load()
     assert "/usr/a" in db
     assert "/usr/b" in db
 
@@ -1151,7 +1064,7 @@ def test_batch_commits_every_n_rows(tmp_path, monkeypatch, make_entry):
         batch.add("/b", make_entry())
         assert _count_via_second_connection() == 2  # 2 rows: committed
 
-    assert len(open_db(db_path, "sqlite", for_read=True).load()) == 2
+    assert len(open_db(db_path, "sqlite").load()) == 2
 
 
 def test_batch_keeps_rows_on_error(tmp_path, make_entry):
@@ -1170,7 +1083,7 @@ def test_batch_keeps_rows_on_error(tmp_path, make_entry):
     # Partial work is kept (append logs keep it too) and the connection is
     # closed even on the exception path -- an open handle would keep this
     # unlink() from succeeding on Windows.
-    loaded = open_db(db_path, "sqlite", for_read=True).load()
+    loaded = open_db(db_path, "sqlite").load()
     assert "/a" in loaded
     db_path.unlink()
 
@@ -1187,9 +1100,7 @@ def test_scan_with_provider_without_batch(tmp_path, cli, restore_registries):
     (tree / "a").write_text("x")
     (tree / "b").write_text("y")
 
-    # --db-format is explicit so open_db's for_read=True sniffing (which
-    # would otherwise re-sniff and silently fall back to yaml once the file
-    # exists, since _TsvDb registered no sniff=) never kicks in.
+    # --db-format is explicit: the .tsv suffix alone would also resolve it.
     db = tmp_path / "files.tsv"
     result = cli(
         "--db",
@@ -1231,7 +1142,7 @@ def test_scan_sqlite_one_connection(tmp_path, cli, monkeypatch):
     assert result.rc == 0
     assert len(calls) == 1
 
-    loaded = open_db(db, "sqlite", for_read=True).load()
+    loaded = open_db(db, "sqlite").load()
     assert len(loaded) == 200
 
 
@@ -1244,7 +1155,7 @@ def test_sqlite_load_leaves_empty_file(tmp_path):
     path = tmp_path / "empty.db"
     path.write_bytes(b"")
 
-    assert open_db(path, "sqlite", for_read=True).load() == {}
+    assert open_db(path, "sqlite").load() == {}
     assert path.stat().st_size == 0
 
 
@@ -1262,7 +1173,7 @@ def test_sqlite_foreign_db_rejected(tmp_path, op):
     finally:
         conn.close()
 
-    p = open_db(path, "sqlite", for_read=True)
+    p = open_db(path, "sqlite")
     with pytest.raises(DbError):
         getattr(p, op)()
 
@@ -1292,4 +1203,4 @@ def test_sqlite_rejects_non_utf8_text(tmp_path, make_entry, which):
     with pytest.raises(DbError) as excinfo:
         p.add(path, entry)
     assert "UTF-8" in str(excinfo.value)
-    assert open_db(p.path, "sqlite", for_read=True).load() == {}
+    assert open_db(p.path, "sqlite").load() == {}

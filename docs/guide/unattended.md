@@ -76,20 +76,19 @@ pkgforge --print-completion zsh > "${fpath[1]}/_pkgforge"
   `-` source reads stdin to EOF (an empty stdin, e.g. `/dev/null` or an empty
   pipe, stages an empty file); a terminal or closed stdin is a usage error,
   not a wait, and a `-` source needs `-T`/`-D` (an explicit destination file
-  name). `dbdump --stdin` is the same shape: it reads the file DB as JSON
-  Lines from stdin instead of `--db`, only when explicitly given (no
-  environment variable enables it), and only ever reads to EOF (a terminal or
-  closed stdin exits 2 instead of waiting).
+  name). `dbdump --db -` is the same shape: it reads the file DB as JSON
+  Lines from stdin, and only ever reads to EOF (a terminal, a closed stdin or
+  a device such as `/dev/null` exits 2 instead of waiting or dumping an empty
+  manifest).
 - **Private build root.** The build root is a private directory the pipeline
   creates (`mktemp -d`), never a fixed path in a shared, world-writable
   directory such as `/tmp` — a predictable, pre-existing path lets another
   local user plant a symlink inside it before the run.
 - **Resilient defaults.** `--buildroot` defaults to the current directory and
-  `--db` to `PKGFORGE_DB`; a missing, unset or `-` DB reads as empty rather
-  than erroring (exit codes are unchanged), and `dbdump`/`initdb`/`compact`
-  now log a WARNING when that's the case, so make sure `PKGFORGE_DB` is
-  actually exported into the build environment rather than relying on
-  the warning to catch a typo. The one exception: if that default resolves
+  `--db` to `PKGFORGE_DB`; `dbdump` and `compact` exit 2 when no DB is
+  configured or the named file does not exist (an existing empty DB is exit 0
+  with a WARNING), so a missing `PKGFORGE_DB` or a typo fails the build
+  instead of packaging an empty manifest; `install` and `scan` create the DB. The one exception: if that default resolves
   to `/` (e.g. a container's default `WORKDIR`, with `PKGFORGE_ROOT` unset
   or lost), `install`/`scan` exit 2 instead of treating the live filesystem
   as the build root -- pass `--buildroot /` (or `PKGFORGE_ROOT=/`) to do

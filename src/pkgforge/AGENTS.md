@@ -207,20 +207,20 @@ tool's last stderr line.
   I/O is always UTF-8, regardless of locale; an append to a DB whose last
   line lacks a trailing newline (e.g. a hand edit) repairs it first instead
   of fusing the new record onto the old one.
-  `JsonlDb.load`/`YamlDb.load` run every live (non-removed) record through a
-  private `_normalize`: a missing `meta` becomes `{}`, a missing
-  `mode`/`owner`/`group` becomes `"-"`, a missing `type` becomes `None`
-  (matching pkgforge's own explicit `null` for an unset `type`); a literal
-  JSONL int `mode`/`owner`/`group` (JSON has no leading-zero int, so this
-  only affects `jsonl`) becomes its string form, and for `mode` only when
-  that string is 1-4 octal digits. A `bool`, a `float`, a non-octal-digit
-  int `mode`, a non-string `type`, or a record that is not a mapping raises
-  `DbError` naming the file and the record's path. This never applies to a
-  third-party `load()`. `YamlDb`'s loader additionally keeps only YAML's
-  `null` implicit resolver (`~`/`null` still load as `None`, for tombstones)
-  and drops int/float/bool/timestamp guessing, so an unquoted scalar loads
-  as the text it was written as (`mode: 0755` is `"0755"`, not the int
-  `493`) instead of PyYAML's YAML-1.1 typing.
+  Every loader (`jsonl`, `yaml`, `sqlite`) checks each record with the private
+  `db._check_record(path, rec, where)` and coerces and defaults nothing: `path`
+  is a `str` starting with `/`; a record is a mapping with exactly `mode`,
+  `owner`, `group` (all `str`), `type` (`file`, `directory` or `symlink`) and
+  `meta` (`str` to `str`), or a removal (jsonl `{"path": P, "_removed": true}`,
+  yaml `null`, sqlite `removed=1`). Anything else raises `DbError` naming the
+  file and the path. Content that is not in the chosen format (a YAML file read
+  as `jsonl`, a text file read as `sqlite`) raises `DbError` that names the
+  format and suggests `--db-format`. This never applies to a third-party
+  `load()`. `YamlDb`'s loader keeps only YAML's `null` implicit resolver
+  (`~`/`null` still load as `None`, for tombstones) and drops
+  int/float/bool/timestamp guessing, so an unquoted scalar loads as the text
+  it was written as (`mode: 0755` is `"0755"`, not the int `493`). A UTF-8 byte
+  order mark at the start of a text DB is ignored; lines split on `\n` only.
 - **`Db`** — type alias `dict[str, FileEntry | None]` (a loaded DB; `None`
   marks a removed path).
 - **`DbProvider(pkgforge._registry.Registered, abc.ABC)`** — storage backend
@@ -233,10 +233,7 @@ tool's last stderr line.
   `"toml"` registers the same as `".toml"`; a suffix with more than one dot,
   e.g. `".tar.gz"`, raises `ValueError` when the class is created, and
   registers nothing at all, not a half-registered class) are optional. An
-  optional `sniff(head: bytes) -> bool` staticmethod inspects a file's first
-  16 bytes to claim it by content; it counts only when the subclass's OWN
-  body defines it (an inherited one is ignored) -- newer registrations are
-  tried first. Two classmethods (from `Registered`, shared with
+  Two classmethods (from `Registered`, shared with
   `dbdump.DumpFormat`): `DbProvider.lookup(name) -> type[DbProvider]`
   (`name` is `NAME` or an `ALIASES` entry; raises `UsageError`, also a
   `ValueError`, naming every registered name with its aliases for an
@@ -253,25 +250,16 @@ tool's last stderr line.
   committing once per call. `scan` wraps its walk in one (`PkgForgeCmd`'s
   private `_db_batch()`); a direct `add()`/`remove()` outside a batch, and
   every other command, are unaffected.
-- **`open_db(path, fmt=None, *, for_read=False) -> DbProvider`** — resolve
-  and construct the provider. Precedence: explicit `fmt` wins; else, when
-  `for_read` and `path` already exists, its content is sniffed (so a
-  mislabeled/legacy file still loads correctly); else the `path` suffix
-  decides, defaulting to `"jsonl"`. Raises `UsageError` (also a
-  `ValueError`, so an existing `except ValueError` caller is unaffected) for
-  an unknown format name -- see `DbProvider.lookup` above. `for_read=True`
-  means "sniff an existing file's content", not "this call only reads" --
-  `PkgForgeCmd._write_entry` passes it on writes too, so an append keeps the
-  file's actual format instead of writing JSON Lines into, say, a legacy
-  YAML file under a `.jsonl` suffix.
+- **`open_db(path, fmt=None) -> DbProvider`** — resolve and construct the
+  provider: an explicit `fmt` wins, else the `path` suffix decides, defaulting
+  to `"jsonl"`. The file's content is never inspected; a file in another
+  format fails in `load()`. Raises `UsageError` (also a `ValueError`) for an
+  unknown format name -- see `DbProvider.lookup` above.
 - **Built-in backends** (each its own module, imported -- and so registered
   -- at `pkgforge.db` import time): **`JsonlDb`** (`db/jsonl.py`;
   `NAME = "jsonl"`, `SUFFIXES = (".jsonl", ".ndjson")`, default when unset) —
   append-only JSON Lines, one object per line, last record per path wins on
-  load; sniffed by a quoted first key (`re.match(r'\s*\{\s*"', head)`, so
-  pkgforge's own output and a hand-written `{ "path": ...}` both match, but a
-  flow-style YAML mapping with a plain key -- what `yaml.safe_dump` emits --
-  does not); **`YamlDb`** (`db/yaml.py`; `NAME = "yaml"`,
+  load; **`YamlDb`** (`db/yaml.py`; `NAME = "yaml"`,
   `SUFFIXES = (".yaml", ".yml")`) —
   append-only YAML: a single mapping, appended key by key (the last
   duplicate key wins); a flow-style
@@ -279,8 +267,8 @@ tool's last stderr line.
   `add`/`remove` raise `DbError` instead of appending a block-style mapping
   after it (which would be invalid YAML) -- `compact()` rewrites the file in
   block style, unblocking further appends; **`SqliteDb`**
-  (`db/sqlite.py`; `NAME = "sqlite"`, `SUFFIXES = (".db", ".sqlite", ".sqlite3")`,
-  sniffed by the SQLite file magic) — a real upserted-in-place table, no append log
+  (`db/sqlite.py`; `NAME = "sqlite"`, `SUFFIXES = (".db", ".sqlite", ".sqlite3")`)
+  — a real upserted-in-place table, no append log
   (`compact()` drops removed rows + `VACUUM`s). `load()`/`compact()` never
   write: an empty or schema-less file loads as (or compacts as a no-op on)
   an empty DB, and a SQLite file that holds other tables but no `entries`
@@ -312,16 +300,12 @@ tool's last stderr line.
   (one record's text) and `_render_all(live) -> str`
   (the whole compacted file's text for the surviving records). Also holds
   the on-disk mechanics: `_locked`, `_compact_lock`, `_atomic_write_text`,
-  `_append_text`, and the record normalizer `_normalize` described above.
+  `_append_text` and `_read_text`.
 - **`format_for_suffix(path: Path) -> str`** — suffix → registered format
   name, else `DEFAULT_FORMAT` (`"jsonl"`). Only a class's OWN `SUFFIXES`
   count (never one inherited from a parent class); registered classes are
   tried newest-first, so a suffix claimed by two classes resolves to
   whichever registered most recently.
-- **`sniff_format(path: Path) -> str | None`** — detect an existing file's
-  format from its first 16 bytes via each registered class's own `sniff`
-  (newest-first); falls back to `"yaml"` for any non-empty content no
-  sniffer claims, `None` for an empty/unreadable file.
 
 ## Exclude / filter grammar (`exclude.py`)
 
@@ -746,16 +730,19 @@ above).
   below PATH whose `localpath` no longer exists on disk, skipping a key
   that matches `-X` (so a deliberately-absent entry, e.g. an RPM `%ghost`,
   can be protected) -- never touches disk itself, and raises `UsageError`
-  when `--db` is unset or `-`. `--missing` is unaffected: a tombstoned path
+  when `--db` is unset or `-`. The removals run in one `_db_batch()`, so
+  `sqlite` holds a single connection for all of them. `--missing` is unaffected: a tombstoned path
   still counts as absent and is re-added if its file exists.
 - **`dbdump.DbDump(ExcludeArgs, PkgForgeCmd)`** (`pkgforge dbdump -f FORMAT [output]`) —
   render surviving (post-`--exclude`) DB entries via the format registry
   above. `-f` accepts a `NAME` or an `ALIASES` entry (`rpm`/`rpmspec` for
   `rpmspecfiles`, `deb` for `debian`); `self.format` is set to the resolved
   `NAME` before `__call__` runs, so an alias and its canonical name always
-  produce identical output. Logs a WARNING (exit code and output unchanged: an
-  empty manifest, exit 0) when `--db` is unset, `-`, or names a file that does
-  not exist, and when the DB has entries but none survive `--exclude`.
+  produce identical output. A DB must be given: with `--db` unset it raises
+  `UsageError("no file DB configured; pass --db or set PKGFORGE_DB")` and with
+  a path that does not exist `UsageError("no file DB at {path}; run pkgforge
+  initdb")` (both exit 2); an existing empty DB logs a WARNING and dumps an
+  empty manifest, exit 0, as does a DB whose entries all fall to `--exclude`.
   `--format`/OUTPUT are validated before the DB is read (an unknown format, or
   OUTPUT of the wrong shape for the chosen format, raise `UnsupportedOutputError`
   or a plain `UsageError`, both exit 2), so a format typo never surfaces as
@@ -764,38 +751,37 @@ above).
   works. Entries are emitted sorted by DB path (code-point order), never
   backend or filesystem order, so the same staged tree gives byte-identical
   manifests on any filesystem or DB backend.
-- **`dbdump --stdin`** — read the DB as JSON Lines from standard input instead
-  of `--db`/`PKGFORGE_DB` (both, including `-`, are ignored -- only a DEBUG
-  log names the ignored `--db`); no environment variable enables it, so this
-  is only ever an explicit, per-invocation choice. Runs after `--format`/OUTPUT
-  are already validated, so a bad one exits 2 without ever touching stdin. A
-  closed stdin (`sys.stdin is None`) or a terminal raises `UsageError` (exit 2)
-  immediately; otherwise it reads to EOF -- blocking on a pipe that is never
-  closed, exactly like any other stdin source pkgforge reads. Empty input
-  (`/dev/null`, an empty pipe) logs a WARNING and dumps an empty manifest,
-  exit 0; the no-DB/missing-DB warnings never fire for `--stdin`. Parsing is
-  shared with the `jsonl` backend's own loader via `db.jsonl._parse_jsonl`
-  (`text: str, source: str`), so both a file and stdin report an error the
-  same way (`{source}:{lineno}: invalid JSON Lines record: ...`, `<stdin>`
-  standing in for the file path); non-UTF-8 input raises `DbError` prefixed
-  the same way.
+- **`dbdump --db -`** — read the DB as JSON Lines from standard input (the
+  `--db -` that `install`/`scan` write to stdout, so
+  `install --db - ... | dbdump --db - -f rpm` works; `--db-format` is not
+  consulted). Runs after `--format`/OUTPUT are validated, so a bad one exits 2
+  without touching stdin. Stdin must be a pipe, socket or regular file
+  (`os.fstat` of its descriptor; a stream with no descriptor passes): a closed
+  stdin (`sys.stdin is None`), a terminal or a character device such as
+  `/dev/null` raises `UsageError` (exit 2), so an inherited `PKGFORGE_DB=-` never
+  dumps an empty manifest. In an MCP tool call it is a `UsageError` too (stdin
+  is the protocol channel). Otherwise it reads to EOF, blocking on a pipe that
+  is never closed. Empty input logs a WARNING and dumps an empty manifest,
+  exit 0. A leading BOM is ignored. Parsing is shared with the `jsonl` backend
+  via `db.jsonl._parse_jsonl(text, source, hint="")` (`source` is the file path
+  or `"<stdin>"`), so both report an error the same way
+  (`{source}:{lineno}: ...`); non-UTF-8 input raises `DbError` prefixed
+  `<stdin>:`.
 - **`initdb.InitDb(PkgForgeCmd)`** (`pkgforge initdb`) — create or truncate
-  an empty DB; a no-op, now with a WARNING, for an unset/stdout DB. A `--db`
+  an empty DB; a no-op with a WARNING for an unset/stdout DB. A `--db`
   naming a file that doesn't exist yet is not this case -- creating it is
   exactly `initdb`'s job.
 - **`compact.Compact(PkgForgeCmd)`** (`pkgforge compact`) — collapse an
   append-log DB to one record per live path, dropping removals and
-  superseded history; for `sqlite`, deletes removal rows and `VACUUM`s. A
-  no-op, now with a WARNING, for an unset/stdout DB or one naming a file
-  that does not exist yet (nothing is created, for every backend).
-- **`PkgForgeCmd._no_db_reason() -> str | None`** — a human-readable reason
-  there is no real DB *file* configured (`--db` unset, or `-`), or `None` if
-  `self.db` names one (existing or not -- a nonexistent path is a separate
-  case each of the three commands above checks for itself, since it means
-  something different to each). Used by `dbdump`/`initdb`/`compact` for
-  their warnings above; distinct from `_no_file_db() -> bool`, which the DB
-  read/write helpers use and which answers the same "unset or `-`" question
-  as a plain boolean.
+  superseded history; for `sqlite`, deletes removal rows and `VACUUM`s.
+  Raises `UsageError` (exit 2) for an unset `--db`, for `--db -` (no file to
+  rewrite) and for a file that does not exist (nothing is created, for every
+  backend).
+- **`PkgForgeCmd._existing_db() -> Path`** — the configured `--db`, which must
+  exist: `UsageError` for an unset `--db` or a path that does not exist (the
+  messages above). Used by `dbdump` and `compact`; distinct from
+  `_no_file_db() -> bool` ("`--db` unset or `-`: records go to stdout"), which
+  the DB read/write helpers use.
 
 ## Environment variables
 

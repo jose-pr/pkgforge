@@ -67,9 +67,8 @@ class Registered:
 
         A class registered under several keys (its ``NAME`` plus each
         ``ALIASES`` entry) appears once, at the position of its most recent
-        key -- so "try the newest registration first" (content sniffing) and
-        "the last registration wins" (a suffix claimed by two classes) are
-        both this same walk.
+        key -- so "the last registration wins" (a suffix claimed by two classes) is
+        this walk.
         """
         seen: typing.Set[type] = set()
         for registered in reversed(list(cls._registry.values())):

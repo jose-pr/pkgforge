@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import contextlib
 import os
-import re
 import stat
 import tempfile
 import typing
@@ -24,7 +23,6 @@ try:  # POSIX-only; pkgforge's runtime is Linux-only, but this module (and
 except ImportError:  # pragma: no cover - non-POSIX (Windows dev box)
     fcntl = None
 
-from ..entry import DEFAULT
 from . import Db, DbError, DbProvider
 
 if typing.TYPE_CHECKING:
@@ -154,82 +152,16 @@ def _append_text(path: Path, text: str) -> None:
         fh.write(text.encode("utf-8"))
 
 
-def _normalize(dbfile: typing.Union[Path, str], path: str, rec: object) -> dict:
-    """Normalize one already-non-``None`` loaded record for the ``jsonl``/
-    ``yaml`` built-in backends: default missing fields, and coerce a JSONL
-    literal ``int`` mode/owner/group to the string pkgforge itself always
-    writes (the ``yaml`` backend's null-only loader already keeps every
-    other scalar as the string it was written as, so this mostly matters
-    for ``jsonl``, where JSON's native ints are unaffected by that loader).
+def _read_text(path: Path, hint: str = "") -> str:
+    """``path``'s content as UTF-8 text, a leading byte-order mark dropped.
 
-    Uses built-ins only (no field-shape knowledge beyond dict/str/int),
-    since a third-party ``load()`` is never routed through this.
-
-    * missing ``meta`` -> ``{}``; missing ``mode``/``owner``/``group`` ->
-      :data:`~pkgforge.entry.DEFAULT` (``"-"``); missing ``type`` -> ``None``
-      (pkgforge's own writer records an explicit ``null`` for an unset
-      ``type``, so a *missing* key means the same thing here).
-    * ``type(v) is int`` (never a ``bool`` -- ``type(True) is bool``, not
-      ``int``, so a bool is never silently accepted here) for ``owner``/
-      ``group`` -> ``str(v)``; for ``mode`` -> ``str(v)`` only when that
-      string is 1-4 octal digits, matching what a hand-typed ``-m`` value
-      would be.
-    * Anything else of the wrong type (a ``bool``, a ``float``, an ``int``
-      that isn't 1-4 octal digits for ``mode``, a non-``str``/non-``None``
-      ``type``, or a record that is not a mapping at all) raises
-      :class:`~pkgforge.db.DbError` naming ``dbfile`` and ``path``.
-
-    No regex is applied to a mode that is *already* a string -- pkgforge's
-    own CLI (``normalize_mode``) accepts spellings such as ``"0o755"`` that
-    wouldn't match a strict octal-digit pattern, and a DB written by an
-    older pkgforge must keep loading.
+    Raises :class:`~pkgforge.db.DbError` (with ``hint`` appended) for bytes
+    that are not UTF-8.
     """
-    # Fast path: every record pkgforge itself writes is already canonical, and
-    # the loaders hand over a freshly decoded dict, so it can be returned as is.
-    if (
-        type(rec) is dict
-        and type(rec.get("mode")) is str
-        and type(rec.get("owner")) is str
-        and type(rec.get("group")) is str
-        and "meta" in rec
-        and "type" in rec
-        and (rec["type"] is None or type(rec["type"]) is str)
-    ):
-        return rec
-    if not isinstance(rec, dict):
-        raise DbError(f"{dbfile}: {path}: record is not a mapping")
-    rec = dict(rec)
-    rec.setdefault("meta", {})
-    rec.setdefault("mode", DEFAULT)
-    rec.setdefault("owner", DEFAULT)
-    rec.setdefault("group", DEFAULT)
-    if "type" not in rec:
-        rec["type"] = None
-
-    for field in ("owner", "group"):
-        value = rec[field]
-        if isinstance(value, str):
-            continue
-        if type(value) is int:
-            rec[field] = str(value)
-        else:
-            raise DbError(f"{dbfile}: {path}: {field} must be a string, got {value!r}")
-
-    mode = rec["mode"]
-    if not isinstance(mode, str):
-        if type(mode) is int and re.fullmatch(r"[0-7]{1,4}", str(mode)):
-            rec["mode"] = str(mode)
-        else:
-            raise DbError(
-                f'{dbfile}: {path}: mode must be a string such as "0755", '
-                f"got {mode!r}"
-            )
-
-    type_ = rec["type"]
-    if type_ is not None and not isinstance(type_, str):
-        raise DbError(f"{dbfile}: {path}: type must be a string or null, got {type_!r}")
-
-    return rec
+    try:
+        return path.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise DbError(f"{path}: {exc}{hint}") from exc
 
 
 class AppendLogDb(DbProvider):

@@ -70,8 +70,8 @@ def test_env_vars_configure_root_db_and_format(tmp_path):
 
     staged = root / "opt" / "src.txt"
     assert stat.S_IMODE(staged.stat().st_mode) == 0o700
-    assert open_db(db, for_read=True).NAME == "sqlite"
-    loaded = open_db(db, "sqlite", for_read=True).load()
+    assert db.read_bytes().startswith(b"SQLite format 3\x00")
+    loaded = open_db(db, "sqlite").load()
     assert loaded["/opt/src.txt"]["mode"] == "700"
 
 
@@ -84,7 +84,7 @@ def _seed_tool_entry(db):
     # Seed the DB directly (not through `install`): a "/"-rooted destination
     # through `install` only works on POSIX (buildpath() has no drive to
     # relative_to() against on Windows), but dbdump itself is cross-platform.
-    open_db(db, for_read=False).add(
+    open_db(db).add(
         "/usr/bin/tool",
         {"mode": "755", "owner": "root", "group": "root", "type": "file", "meta": {}},
     )
@@ -169,7 +169,7 @@ def test_dbdump_closed_pipe_is_quiet(tmp_path):
     # from the fdopen's own finally-flush, producing a traceback plus an
     # "Exception ignored" message at interpreter shutdown.
     db = tmp_path / "files.jsonl"
-    provider = open_db(db, for_read=False)
+    provider = open_db(db)
     for i in range(20000):
         provider.add(
             f"/a/{i:05d}",
@@ -281,7 +281,7 @@ def test_dbdump_unrepresentable_exits_1_without_output(tmp_path, cli, row, ident
     # channel, so a message that reflected it verbatim would be one more
     # place that content could resurface.
     db = tmp_path / "files.jsonl"
-    open_db(db, for_read=False).add(
+    open_db(db).add(
         "/o/%(echo PWNED >&2)",
         {"mode": "-", "owner": "-", "group": "-", "type": "file", "meta": {}},
     )
@@ -307,25 +307,44 @@ def test_dbdump_rpm_onto_directory_exits_2(tmp_path, cli):
     assert list(target.iterdir()) == []
 
 
-@pytest.mark.parametrize("case", ["unset", "dash", "missing"])
-def test_dbdump_warns_without_db(tmp_path, cli, caplog, case):
+@pytest.mark.parametrize("case", ["unset", "missing"])
+def test_dbdump_without_db_exits_2(tmp_path, cli, monkeypatch, case):
+    monkeypatch.chdir(tmp_path)
     argv = []
-    if case == "dash":
-        argv = ["--db", "-"]
-    elif case == "missing":
+    if case == "missing":
         argv = ["--db", str(tmp_path / "nope.jsonl")]
 
+    result = cli(*argv, "dbdump", "-f", "rpmspecfiles", "-")
+    assert result.rc == 2
+    assert result.out == b""
+    err = result.err.decode()
+    if case == "unset":
+        assert "no file DB configured; pass --db or set PKGFORGE_DB" in err
+    else:
+        assert "no file DB at" in err and "run pkgforge initdb" in err
+        assert not (tmp_path / "nope.jsonl").exists()
+
+
+@pytest.mark.parametrize("ext", ["jsonl", "yaml", "db"])
+def test_dbdump_empty_db_exits_0_with_warning(tmp_path, cli, caplog, ext):
+    db = tmp_path / f"files.{ext}"
+    assert cli("--db", str(db), "initdb").rc == 0
     with caplog.at_level("WARNING"):
-        result = cli(*argv, "dbdump", "-f", "rpmspecfiles", "-")
-    assert result.rc == 0
+        result = cli("--db", str(db), "dbdump", "-f", "rpmspecfiles", "-")
+    assert result.rc == 0, result.err
     assert result.out == b""
     assert any(
         "empty manifest" in r.message
         for r in caplog.records
         if r.name == "pkgforge.dbdump"
     )
-    if case == "missing":
-        assert not (tmp_path / "nope.jsonl").exists()
+
+
+def test_initdb_then_dbdump_exits_0(tmp_path, cli, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PKGFORGE_DB", str(tmp_path / "files.jsonl"))
+    assert cli("initdb").rc == 0
+    assert cli("dbdump", "-f", "rpmspecfiles", "-").rc == 0
 
 
 def test_dbdump_warns_when_exclude_drops_all(tmp_path, cli, caplog):
@@ -355,17 +374,20 @@ def test_initdb_warns_without_db(tmp_path, cli, caplog, monkeypatch):
 
 
 @pytest.mark.parametrize("ext", ["jsonl", "yaml", "db"])
-def test_compact_missing_db_creates_nothing(tmp_path, cli, caplog, ext):
+def test_compact_missing_db_exits_2_and_creates_nothing(tmp_path, cli, ext):
     db = tmp_path / f"nope.{ext}"
-    with caplog.at_level("WARNING"):
-        result = cli("--db", str(db), "compact")
-    assert result.rc == 0
+    result = cli("--db", str(db), "compact")
+    assert result.rc == 2
     assert not db.exists()
-    assert any(
-        "nothing to compact" in r.message
-        for r in caplog.records
-        if r.name == "pkgforge.compact"
-    )
+    err = result.err.decode()
+    assert "no file DB at" in err and "run pkgforge initdb" in err
+
+
+def test_compact_without_db_exits_2(tmp_path, cli, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    result = cli("compact")
+    assert result.rc == 2
+    assert "no file DB configured" in result.err.decode()
 
 
 def test_malformed_db_is_one_line_error(tmp_path, cli):
@@ -466,15 +488,15 @@ def test_initdb_creates_parent_and_truncates(tmp_path, cli, ext):
     assert result.rc == 0
     assert db.parent.is_dir()
 
-    provider = open_db(db, for_read=False)
+    provider = open_db(db)
     provider.add(
         "/seed", {"mode": "644", "owner": "-", "group": "-", "type": "file", "meta": {}}
     )
-    assert open_db(db, for_read=True).load() != {}
+    assert open_db(db).load() != {}
 
     result = cli("--db", str(db), "--buildroot", str(tmp_path), "initdb")
     assert result.rc == 0
-    assert open_db(db, for_read=True).load() == {}
+    assert open_db(db).load() == {}
 
 
 def test_initdb_without_db_is_a_noop(tmp_path, cli, monkeypatch):
@@ -502,7 +524,7 @@ def test_global_options_placement(tmp_path, cli, placement):
         argv = ["install", "-p", *globalopts, str(src), "/opt"]
 
     assert cli(*argv).rc == 0
-    row = open_db(db, for_read=True).load()["/opt/a"]
+    row = open_db(db).load()["/opt/a"]
     assert row is not None
 
 
@@ -684,7 +706,7 @@ def test_scan_missing_keeps_existing_entries(tmp_path, cli):
     (sub / "a").write_text("a")
     (sub / "b").write_text("b")
 
-    provider = open_db(db, for_read=False)
+    provider = open_db(db)
     provider.add(
         "/sub/a",
         {"mode": "600", "owner": "-", "group": "-", "type": "file", "meta": {}},
@@ -692,7 +714,7 @@ def test_scan_missing_keeps_existing_entries(tmp_path, cli):
 
     result = cli("--db", str(db), "--buildroot", str(root), "scan", "--missing", "/sub")
     assert result.rc == 0
-    loaded = open_db(db, for_read=True).load()
+    loaded = open_db(db).load()
     assert loaded["/sub/a"]["mode"] == "600"  # untouched
     assert "/sub/b" in loaded
 
@@ -727,7 +749,7 @@ def test_scan_drop_stale_sqlite_sees_walk(tmp_path, cli):
     )
     assert result.rc == 0
 
-    loaded = open_db(db, for_read=True).load()
+    loaded = open_db(db).load()
     assert loaded["/usr/share/tool/keep"] is not None
     assert loaded["/usr/share/tool/gone"] is None
 
@@ -779,7 +801,7 @@ def test_install_source_is_destination_keeps_file(tmp_path, cli):
     assert result.rc == 0
     assert target.read_text() == "keep me"
     assert stat.S_IMODE(target.stat().st_mode) == 0o600
-    assert open_db(db, for_read=True).load()["/etc/b.conf"]["mode"] == "600"
+    assert open_db(db).load()["/etc/b.conf"]["mode"] == "600"
 
 
 # --------------------------------------------------------------------------

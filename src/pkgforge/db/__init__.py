@@ -7,14 +7,14 @@ module: :class:`~pkgforge.db.jsonl.JsonlDb`, :class:`~pkgforge.db.yaml.YamlDb`
 and :class:`~pkgforge.db.sqlite.SqliteDb`.
 
 All three return the **same** ``load()`` shape, so the rest of pkgforge is
-backend-agnostic. Pick a backend with :func:`open_db`: by the ``--db`` file
-suffix, an explicit ``--db-format``, or -- when reading an existing file --
-by sniffing its actual content (so a legacy/mislabeled file still loads).
+backend-agnostic. Pick a backend with :func:`open_db`: an explicit
+``--db-format``, else the ``--db`` file suffix, else ``jsonl``. A file whose
+content is not in the chosen format fails to load with a
+:class:`DbError`; its content is never inspected to pick a backend.
 
 A third party adds a backend by subclassing :class:`DbProvider` with its own
-``NAME`` (and, optionally, ``ALIASES``/``SUFFIXES``/``sniff``) -- no
-registration call is needed, subclassing alone registers it (see
-:mod:`pkgforge._registry`).
+``NAME`` (and, optionally, ``ALIASES``/``SUFFIXES``) -- no registration call
+is needed, subclassing alone registers it (see :mod:`pkgforge._registry`).
 """
 
 from __future__ import annotations
@@ -34,13 +34,12 @@ if typing.TYPE_CHECKING:
 class DbError(PkgForgeError, ValueError):
     """A file DB's on-disk content could not be used as one.
 
-    Raised for a parse error, non-UTF-8 bytes, a JSON Lines line or YAML
-    top-level document that is not a mapping (jsonl: or ``null``, its
-    tombstone spelling), or a field with a value of the wrong type. Caught by
-    :func:`pkgforge.main`'s error boundary like any
+    Raised for a parse error, non-UTF-8 bytes, content that is not in the
+    chosen format, a JSON Lines line or YAML top-level document that is not a
+    mapping, or a record that breaks the schema (see :func:`_check_record`).
+    Caught by :func:`pkgforge.main`'s error boundary like any
     :class:`~pkgforge.errors.PkgForgeError` (one stderr line, exit 1); also a
-    :class:`ValueError`, so an existing ``except ValueError`` caller keeps
-    working unchanged.
+    :class:`ValueError`.
     """
 
 
@@ -72,9 +71,7 @@ class DbProvider(Registered, abc.ABC):
     last dot-segment and such an entry could never match either) are
     normalized -- and validated -- from the class's own body before
     registration, so a bad suffix leaves the class entirely unregistered
-    rather than half-registered. An optional ``sniff(head: bytes) -> bool``
-    staticmethod inspects a file's first 16 bytes to claim it by content;
-    it counts only when the class's own body defines it (never inherited).
+    rather than half-registered.
     """
 
     NAME: typing.ClassVar[str] = ""
@@ -160,58 +157,88 @@ def format_for_suffix(path: Path) -> str:
     return DEFAULT_FORMAT
 
 
-def sniff_format(path: Path) -> typing.Optional[str]:
-    """Detect an existing file's format from its content, or ``None`` if unknown.
-
-    Registered classes are tried newest-first (their own ``sniff``
-    staticmethod, when their own body defines one); if none claims the
-    file, the fallback treats any other non-empty content as YAML (the
-    most permissive text format).
-    """
-    try:
-        # Read only the 16 bytes a sniffer looks at -- an append-log DB can
-        # be arbitrarily large, and read_bytes() would pull all of it in.
-        with path.open("rb") as fh:
-            head = fh.read(16)
-    except OSError:
-        return None
-    for registered in DbProvider._unique():
-        if "sniff" not in registered.__dict__:
-            continue
-        try:
-            if registered.sniff(head):
-                return registered.NAME
-        except Exception:  # pragma: no cover - a broken sniffer must not abort
-            continue
-    stripped = head.lstrip()
-    if not stripped:
-        return None
-    # Fallback: anything non-empty that no sniffer claimed is treated as YAML
-    # (the most permissive text format).
-    return "yaml"
-
-
-def open_db(
-    path: Path, fmt: typing.Optional[str] = None, *, for_read: bool = False
-) -> DbProvider:
+def open_db(path: Path, fmt: typing.Optional[str] = None) -> DbProvider:
     """Resolve and construct the :class:`DbProvider` for ``path``.
 
-    Precedence: an explicit ``fmt`` wins; otherwise, when ``for_read`` and the
-    file already exists, its content is sniffed (so a mislabeled or legacy file
-    still loads); otherwise the suffix decides (defaulting to JSON Lines).
-
-    ``for_read=True`` means "sniff an existing file's content", not
-    "this call only reads" -- :meth:`~pkgforge.command.PkgForgeCmd._write_entry`
-    passes it on *writes* too, on purpose: it keeps an append in the file's
-    actual format (e.g. legacy YAML content under a ``.jsonl`` suffix stays
-    YAML) instead of appending JSON Lines into a file sniffing would have
-    read back as something else.
+    An explicit ``fmt`` wins; otherwise the suffix decides, defaulting to JSON
+    Lines. The file's content is never inspected: a file that is not in the
+    resolved format fails when it is loaded.
     """
-    if fmt is None:
-        detected = sniff_format(path) if (for_read and path.exists()) else None
-        fmt = detected or format_for_suffix(path)
-    provider_cls = DbProvider.lookup(fmt)
-    return provider_cls(path)
+    return DbProvider.lookup(fmt or format_for_suffix(path))(path)
+
+
+def _format_hint(name: str) -> str:
+    """The suffix a loader appends to an error caused by content that is not
+    in its format."""
+    return f" (read as {name}; pass --db-format to choose another format)"
+
+
+_RECORD_FIELDS = ("mode", "owner", "group", "type", "meta")
+_RECORD_TYPES = frozenset(("file", "directory", "symlink"))
+
+
+def _record_ok(path: object, rec: object) -> bool:
+    """Whether ``path`` and the non-tombstone ``rec`` pass :func:`_check_record`.
+
+    The loaders' per-record fast path: ``type(x) is str`` checks, no regex and
+    no message formatting.
+    """
+    if type(rec) is not dict or len(rec) != 5:
+        return False
+    kind = rec.get("type")
+    meta = rec.get("meta")
+    return (
+        type(path) is str
+        and path.startswith("/")
+        and type(rec.get("mode")) is str
+        and type(rec.get("owner")) is str
+        and type(rec.get("group")) is str
+        and type(kind) is str
+        and kind in _RECORD_TYPES
+        and type(meta) is dict
+        and (
+            not meta or all(type(k) is str and type(v) is str for k, v in meta.items())
+        )
+    )
+
+
+def _check_record(
+    path: object, rec: object, where: object
+) -> typing.Optional["FileEntry"]:
+    """Validate one loaded record and return it, or ``None`` for a tombstone.
+
+    ``path`` must be a ``str`` starting with ``/``. ``rec`` is ``None`` (a
+    tombstone) or a ``dict`` with exactly ``mode``, ``owner``, ``group``,
+    ``type`` and ``meta``: the first three ``str``, ``type`` one of ``file``,
+    ``directory`` and ``symlink``, ``meta`` a ``dict`` of ``str`` to ``str``.
+    Nothing is coerced and nothing is defaulted. ``where`` (a file, or
+    ``file:line``) prefixes the :class:`DbError` raised for anything else.
+    """
+    if rec is not None and _record_ok(path, rec):
+        return rec
+    if type(path) is not str or not path.startswith("/"):
+        raise DbError(f"{where}: {path!r}: path must be a string starting with '/'")
+    if rec is None:
+        return None
+    if type(rec) is not dict:
+        raise DbError(f"{where}: {path!r}: record is not a mapping")
+    extra = sorted(str(key) for key in rec if key not in _RECORD_FIELDS)
+    if extra:
+        raise DbError(f"{where}: {path!r}: unknown field {', '.join(extra)}")
+    for field in _RECORD_FIELDS:
+        if field not in rec:
+            raise DbError(f"{where}: {path!r}: missing field {field}")
+    for field in ("mode", "owner", "group"):
+        if type(rec[field]) is not str:
+            raise DbError(
+                f"{where}: {path!r}: {field} must be a string, got {rec[field]!r}"
+            )
+    if type(rec["type"]) is not str or rec["type"] not in _RECORD_TYPES:
+        raise DbError(
+            f"{where}: {path!r}: type must be one of "
+            f"{', '.join(sorted(_RECORD_TYPES))}, got {rec['type']!r}"
+        )
+    raise DbError(f"{where}: {path!r}: meta must map strings to strings")
 
 
 # --------------------------------------------------------------------------
@@ -232,5 +259,4 @@ __all__ = [
     "SqliteDb",
     "format_for_suffix",
     "open_db",
-    "sniff_format",
 ]

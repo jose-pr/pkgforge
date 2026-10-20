@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import json
-import re
 import typing
 
-from . import Db, DbError, _fields
-from ._appendlog import AppendLogDb, _normalize
+from . import Db, DbError, _check_record, _fields, _format_hint, _record_ok
+from ._appendlog import AppendLogDb, _read_text
 
 if typing.TYPE_CHECKING:
     from pathlib import Path
@@ -28,27 +27,25 @@ def _jsonl_line(path: str, entry: typing.Optional["FileEntry"]) -> str:
     return json.dumps({"path": path, **_fields(entry)}, sort_keys=True) + "\n"
 
 
-def _parse_jsonl(text: str, source: typing.Union["Path", str]) -> Db:
+def _parse_jsonl(text: str, source: typing.Union["Path", str], hint: str = "") -> Db:
     """Parse JSON Lines ``text`` into a :data:`~pkgforge.db.Db` mapping.
 
     Shared by :meth:`JsonlDb.load` (``source`` is the DB file's own path)
-    and ``dbdump --stdin`` (``source`` is the literal string ``"<stdin>"``):
-    every error message is tagged with ``source`` so the two cases read the
-    same way (``{source}:{lineno}: invalid JSON Lines record: ...``).
+    and ``dbdump --db -`` (``source`` is the literal string ``"<stdin>"``):
+    every error is tagged ``{source}:{lineno}:``. ``hint`` is appended to an
+    error that means the text is not JSON Lines at all.
 
-    Each stripped line is first tried with the shared :data:`_DECODER`'s
-    :meth:`~json.JSONDecoder.raw_decode`: on a stripped line, that succeeding
-    with its end offset at the line's own length is exactly the case where
-    ``json.loads(line)`` would return the same object (no leading BOM, no
-    trailing garbage) -- the common case for a file pkgforge itself wrote,
-    handled without ``json.loads``'s extra per-call decoder, trailing-
-    whitespace re-match, or its "Extra data" re-scan. Anything else (a
-    decode error, or leftover text after a valid value -- a BOM, two objects
-    on one line, trailing garbage) falls back to plain ``json.loads(line)``,
-    so every error message stays exactly what it always was.
+    Lines split on ``\\n`` only (``str.splitlines`` would also split inside
+    a string on U+2028, U+2029 and NEL). Each stripped line is first tried
+    with the shared :data:`_DECODER`'s :meth:`~json.JSONDecoder.raw_decode`,
+    which on a stripped line is ``json.loads`` without its per-call decoder
+    and trailing-whitespace re-match whenever the value ends at the line's
+    end; anything else falls back to ``json.loads`` for its error message.
+    A line ``{"path": P, "_removed": true}`` is a tombstone; any other line
+    is checked by :func:`~pkgforge.db._check_record`.
     """
     db: Db = {}
-    for lineno, line in enumerate(text.splitlines(), 1):
+    for lineno, line in enumerate(text.split("\n"), 1):
         line = line.strip()
         if not line:
             continue
@@ -67,23 +64,33 @@ def _parse_jsonl(text: str, source: typing.Union["Path", str]) -> Db:
             except json.JSONDecodeError as exc:
                 raise DbError(
                     f"{source}:{lineno}: invalid JSON Lines record: "
-                    f"{exc.msg} (column {exc.colno})"
+                    f"{exc.msg} (column {exc.colno}){hint}"
                 ) from exc
             except RecursionError as exc:
                 raise DbError(
                     f"{source}:{lineno}: invalid JSON Lines record: nested too deeply"
                 ) from exc
-        if not isinstance(rec, dict):
+        if type(rec) is not dict:
             raise DbError(
-                f"{source}:{lineno}: invalid JSON Lines record: not an object"
+                f"{source}:{lineno}: invalid JSON Lines record: not an object{hint}"
             )
         try:
             path = rec.pop("path")
         except KeyError:
             raise DbError(
-                f'{source}:{lineno}: invalid JSON Lines record: missing "path"'
+                f'{source}:{lineno}: invalid JSON Lines record: missing "path"{hint}'
             ) from None
-        db[path] = None if rec.pop("_removed", False) else _normalize(source, path, rec)
+        if "_removed" in rec:
+            if rec["_removed"] is not True or len(rec) != 1:
+                raise DbError(
+                    f"{source}:{lineno}: {path!r}: a removal is exactly "
+                    '{"path": ..., "_removed": true}'
+                )
+            rec = None
+        elif _record_ok(path, rec):
+            db[path] = rec
+            continue
+        db[path] = _check_record(path, rec, f"{source}:{lineno}")
     return db
 
 
@@ -93,22 +100,11 @@ class JsonlDb(AppendLogDb):
     NAME = "jsonl"
     SUFFIXES = (".jsonl", ".ndjson")
 
-    @staticmethod
-    def sniff(head: bytes) -> bool:
-        # A quoted first key: claims pkgforge's own output ({"group": ...)
-        # and a hand-written record ({ "path": ...}), never a flow-style
-        # YAML mapping (yaml.safe_dump's plain-key output, e.g.
-        # {/usr/bin/x: ...}, or {}).
-        return re.match(rb'\s*\{\s*"', head) is not None
-
     def load(self) -> Db:
         if not self.path.exists():
             return {}
-        try:
-            text = self.path.read_text(encoding="utf-8")
-        except UnicodeDecodeError as exc:
-            raise DbError(f"{self.path}: {exc}") from exc
-        return _parse_jsonl(text, self.path)
+        hint = _format_hint(self.NAME)
+        return _parse_jsonl(_read_text(self.path, hint), self.path, hint)
 
     def _record(self, path: str, entry: typing.Optional["FileEntry"]) -> str:
         return _jsonl_line(path, entry)

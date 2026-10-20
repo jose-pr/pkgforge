@@ -185,10 +185,10 @@ class Install(FileEntryArgs, ExcludeArgs, _RecordTree, PkgForgeCmd, _Staging):
                     raise UsageError(f"--chown: unknown group {group!r}") from None
 
         if not self.noentry and not self._no_file_db():
-            # Side-effect free for a read: this only sniffs/validates the
-            # format (surfacing an unknown --db-format or PKGFORGE_DB_FORMAT
-            # before anything is staged) and never creates the file.
-            self._provider(for_read=True)
+            # Resolves the format only (surfacing an unknown --db-format or
+            # PKGFORGE_DB_FORMAT before anything is staged); never creates
+            # the file.
+            self._provider()
             if not Path(self.db).parent.is_dir():
                 raise UsageError(f"--db {self.db}: directory does not exist")
 
@@ -404,7 +404,7 @@ class Install(FileEntryArgs, ExcludeArgs, _RecordTree, PkgForgeCmd, _Staging):
             raise
 
         if not self.noentry:
-            fspath = os.fspath(self.buildpath(dest))
+            fspath = self.buildpath(dest).as_posix()
             # Batched (a no-op except sqlite) so --record-tree's children
             # share one connection with the top entry below.
             with self._db_batch():

@@ -122,7 +122,7 @@ def _assert_scanned(db: Path, fmt: str, expected: int) -> None:
     this, a broken ScanCmd construction would still report a (meaningless)
     fast time instead of failing loudly.
     """
-    count = len(open_db(db, fmt, for_read=True).load())
+    count = len(open_db(db, fmt).load())
     if count < expected:
         raise RuntimeError(
             f"scan metric wrote only {count} entries to {db}, expected at least {expected}"

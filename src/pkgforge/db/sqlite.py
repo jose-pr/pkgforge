@@ -8,7 +8,15 @@ import os
 import typing
 
 from ..errors import PkgForgeError
-from . import Db, DbError, DbProvider, _fields
+from . import (
+    Db,
+    DbError,
+    DbProvider,
+    _check_record,
+    _fields,
+    _format_hint,
+    _record_ok,
+)
 
 if typing.TYPE_CHECKING:
     from ..entry import FileEntry
@@ -68,6 +76,8 @@ def _db_error(path: typing.Any, exc: Exception) -> DbError:
     naming the DB file."""
     if "locked" in str(exc):
         return DbError(f"{path}: database is locked; another process holds it")
+    if "not a database" in str(exc):
+        return DbError(f"{path}: {exc}{_format_hint(SqliteDb.NAME)}")
     return DbError(f"{path}: {exc}")
 
 
@@ -76,10 +86,6 @@ class SqliteDb(DbProvider):
 
     NAME = "sqlite"
     SUFFIXES = (".db", ".sqlite", ".sqlite3")
-
-    @staticmethod
-    def sniff(head: bytes) -> bool:
-        return head.startswith(_SQLITE_MAGIC)
 
     _SCHEMA = (
         "CREATE TABLE IF NOT EXISTS entries ("
@@ -182,29 +188,33 @@ class SqliteDb(DbProvider):
             ):
                 path, mode, owner, group, type_, meta_json, removed = row
                 if removed:
-                    db[path] = None
+                    db[path] = _check_record(path, None, self.path)
+                    continue
+                # pkgforge writes an empty meta as the literal "{}"; skip
+                # json.loads for it and give each row its own fresh dict.
+                if meta_json == "{}":
+                    meta = {}
+                elif meta_json is None:
+                    meta = None
                 else:
-                    # pkgforge always writes an empty meta as the literal
-                    # string "{}" (json.dumps({}, sort_keys=True)); skip
-                    # json.loads for that known value (and a falsy/legacy
-                    # empty value) and hand each row its own fresh dict,
-                    # never one shared object across rows.
-                    if meta_json and meta_json != "{}":
-                        try:
-                            meta = json.loads(meta_json)
-                        except (ValueError, RecursionError) as exc:
-                            raise DbError(
-                                f"{self.path}: {path}: invalid meta_json: {exc}"
-                            ) from exc
-                    else:
-                        meta = {}
-                    db[path] = {
-                        "mode": mode,
-                        "owner": owner,
-                        "group": group,
-                        "type": type_,
-                        "meta": meta,
-                    }
+                    try:
+                        meta = json.loads(meta_json)
+                    except (TypeError, ValueError, RecursionError) as exc:
+                        raise DbError(
+                            f"{self.path}: {path!r}: invalid meta_json: {exc}"
+                        ) from exc
+                rec = {
+                    "mode": mode,
+                    "owner": owner,
+                    "group": group,
+                    "type": type_,
+                    "meta": meta,
+                }
+                db[path] = (
+                    rec
+                    if _record_ok(path, rec)
+                    else _check_record(path, rec, self.path)
+                )
         return db
 
     def _insert_add(self, conn, path: str, entry: "FileEntry") -> None:

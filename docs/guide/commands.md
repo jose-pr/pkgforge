@@ -8,7 +8,7 @@ Global options are read from the command line or the environment:
 
 | Option | Env | Meaning |
 | --- | --- | --- |
-| `--db PATH` | `PKGFORGE_DB` | file DB to read/write (`-` = write records to stdout; reads see an empty DB; `dbdump --stdin` reads records from stdin instead) |
+| `--db PATH` | `PKGFORGE_DB` | file DB to read/write; `-` writes records to stdout for `install`/`scan` and reads them from stdin for `dbdump` (`compact` and `scan --drop-stale` refuse it) |
 | `--db-format FMT` | `PKGFORGE_DB_FORMAT` | backend: `jsonl` / `yaml` / `sqlite` (else inferred from the `--db` suffix) |
 | `--buildroot DIR` | `PKGFORGE_ROOT` | staging root that maps to `/` in the DB; DESTINATION/PATH must resolve inside it |
 | `-v, --verbose` | | raise the running command's log level (repeatable) |
@@ -236,8 +236,8 @@ pkgforge -r stage --db stage.files.jsonl compact
 ```
 
 For `sqlite` it deletes removal rows and `VACUUM`s (it never accumulates an
-append log to collapse). A no-op, with a WARNING, for a stdout/unset `--db`
-or one naming a file that doesn't exist yet -- nothing is created.
+append log to collapse). Exits 2 for an unset `--db`, for `--db -` (there is no file to rewrite)
+and for a file that doesn't exist -- nothing is created.
 
 ## `dbdump`
 
@@ -250,26 +250,29 @@ spelling produces identical output.
 pkgforge dbdump -f FORMAT [-X PATTERN] [OUTPUT]
 ```
 
-`--db` unset or `-`, or naming a file that doesn't exist, logs a WARNING
-and dumps an empty manifest (exit 0 unchanged -- a missing DB has always
-read as empty; this just makes that visible). A `--db` with entries but
-none surviving `--exclude` also warns.
+`dbdump` needs a DB to read. With no `--db` (and no `PKGFORGE_DB`) it exits 2
+with `no file DB configured; pass --db or set PKGFORGE_DB`, and with a `--db`
+that names no file it exits 2 with `no file DB at PATH; run pkgforge initdb`.
+An existing but empty DB exits 0 with a WARNING and an empty manifest, and so
+does a `--db` with entries none of which survive `--exclude`.
 
-`dbdump --stdin` reads the file DB as JSON Lines from standard input
-instead of `--db`/`PKGFORGE_DB` (both are ignored when given): pipe an
-`install`/`scan` run with no `--db` configured straight into `dbdump` to
-render a manifest without ever writing a DB file.
+`--db -` reads the file DB as JSON Lines from standard input, so an
+`install`/`scan` run with `--db -` can be piped straight into `dbdump` to render
+a manifest without ever writing a DB file:
 
 ```bash
-pkgforge install -D -m 644 ./build/tool /usr/bin/tool | pkgforge dbdump --stdin -f rpmspecfiles rpm-files.txt
+pkgforge install -D -m 644 --db - ./build/tool /usr/bin/tool | pkgforge dbdump --db - -f rpmspecfiles rpm-files.txt
 ```
 
 ```bash
-pkgforge dbdump --stdin -f rpmspecfiles rpm-files.txt < records.jsonl
+pkgforge dbdump --db - -f rpmspecfiles rpm-files.txt < records.jsonl
 ```
 
-No environment variable enables `--stdin` -- it only ever comes from that
-invocation's own command line. A terminal or already-closed stdin exits 2
-immediately instead of waiting; otherwise it reads to EOF, so a pipe that is
-never closed blocks (the caller's to close, same as any other stdin source).
-Empty input logs a WARNING and dumps an empty manifest, exit 0.
+Stdin must be a pipe, a socket or a regular file. A terminal, a closed stdin or
+a device such as `/dev/null` (a CI job's usual stdin) exits 2 instead of
+dumping an empty manifest, so an inherited `PKGFORGE_DB=-` never passes
+silently; empty input from a pipe or a file logs a WARNING and dumps an empty
+manifest, exit 0. A pipe that is never closed blocks (the caller's to close,
+same as any other stdin source). `--db-format` is not consulted: the input is
+always JSON Lines. In an MCP tool call, where stdin is the protocol channel,
+`--db -` is a usage error.

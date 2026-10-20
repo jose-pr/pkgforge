@@ -9,11 +9,8 @@ CLI root (:class:`PkgForge`).
 Storage is pluggable (see :mod:`pkgforge.db`: ``jsonl`` by default, plus
 ``yaml`` and ``sqlite``, and a third party can add its own by subclassing
 :class:`~pkgforge.db.DbProvider`). On load, the last record for a path wins.
-An existing file is content-sniffed on both read and write, so a legacy or
-mislabeled DB (e.g. a single-document YAML file, whatever its ``--db``
-suffix) keeps loading, and keeps being appended to, in its own format
-rather than being silently misread or corrupted. To convert one to a
-different backend, ``initdb --db-format FMT`` a new path and re-record.
+The backend is ``--db-format``, else the ``--db`` suffix, else ``jsonl``; a
+file's content is never inspected, so one in another format fails to load.
 """
 
 from __future__ import annotations
@@ -93,9 +90,8 @@ def _check_db_format(value: typing.Optional[str]) -> typing.Optional[str]:
     """Validate a ``db_format`` value against the registered providers,
     returning its canonical :attr:`~pkgforge.db.DbProvider.NAME`.
 
-    A falsy value (``None`` or ``""``) means "auto-detect" and is never
-    checked here -- ``open_db`` still resolves it from the ``--db`` suffix or,
-    for an existing file, by sniffing its content. Anything else must already
+    A falsy value (``None`` or ``""``) means "from the suffix" and is never
+    checked here -- ``open_db`` resolves it from the ``--db`` suffix. Anything else must already
     be a registered :class:`~pkgforge.db.DbProvider` subclass's ``NAME`` or
     ``ALIASES`` entry, checked eagerly so a typo fails before any file is
     staged, instead of surfacing as a traceback the first time the DB is
@@ -125,7 +121,7 @@ class PkgForgeCmd(LoggingArgs, Cmd):
         typing.Optional[Path],
         duho.Meta(env="PKGFORGE_DB", type=_env_path, metavar="PATH"),
     ] = _env_path(os.environ.get("PKGFORGE_DB", ""))
-    "file DB path (env PKGFORGE_DB); unset or '-' records to stdout"
+    "file DB path (env PKGFORGE_DB); '-' (or unset, for install/scan) writes records to stdout, and dbdump reads them from stdin"
     ("--db",)
     db_format: duho.Arg[
         typing.Optional[str],
@@ -231,29 +227,24 @@ class PkgForgeCmd(LoggingArgs, Cmd):
         return local
 
     def _no_file_db(self) -> bool:
-        """True when there is no real DB file to operate on (unset / stdout)."""
+        """True when records go to stdout instead of a file (``--db`` unset or ``-``)."""
         return self.db is None or str(self.db) == "-"
 
-    def _no_db_reason(self) -> typing.Optional[str]:
-        """Human-readable reason there is no real DB *file* configured
-        (``--db`` unset, or ``-``), or ``None`` if ``self.db`` names one --
-        a path that doesn't exist YET is a different case each caller
-        checks for itself: it means something to `initdb` (create it) and
-        something else to `dbdump`/`compact` (warn and act as if empty).
+    def _existing_db(self) -> Path:
+        """The configured file DB, which must already exist.
 
-        Used by `dbdump`/`initdb`/`compact` to log a WARNING instead of
-        silently treating a missing DB as empty, per the documented
-        "resilient defaults" (a missing/unset/`-` DB reads as empty, exit
-        codes unchanged) -- this makes that leniency visible instead of
-        changing it.
+        Raises :class:`UsageError` when ``--db`` is unset or names no file, so
+        a command that only reads (``dbdump``) or rewrites (``compact``) never
+        mistakes a missing DB for an empty one. ``--db -`` is the caller's to
+        handle before this.
         """
         if self.db is None:
-            return "no file DB (--db / PKGFORGE_DB unset)"
-        if str(self.db) == "-":
-            return "--db - is write-only (stdout); reads see an empty DB"
-        return None
+            raise UsageError("no file DB configured; pass --db or set PKGFORGE_DB")
+        if not self.db.exists():
+            raise UsageError(f"no file DB at {self.db}; run pkgforge initdb")
+        return self.db
 
-    def _provider(self, *, for_read: bool = False):
+    def _provider(self):
         """Resolve the DB storage provider for the configured --db/--db-format."""
         # Function-local: db.py imports entry only under TYPE_CHECKING today,
         # so a module-top import here would be safe now, but db.py is expected
@@ -264,8 +255,8 @@ class PkgForgeCmd(LoggingArgs, Cmd):
         # `self.db_format` can be "" from a direct Python-API construction
         # (e.g. PkgForgeCmd(db_format="")), which bypasses the `type=`
         # converter above entirely -- normalize it here too, so an empty
-        # value means "auto-detect" everywhere, not only through argv/env.
-        return open_db(self.db, self.db_format or None, for_read=for_read)
+        # value means "from the suffix" everywhere, not only through argv/env.
+        return open_db(self.db, self.db_format or None)
 
     @contextlib.contextmanager
     def _db_batch(self):
@@ -274,9 +265,7 @@ class PkgForgeCmd(LoggingArgs, Cmd):
         inherits the no-op default), instead of resolving the provider fresh
         for each ``add_entry``/``remove_entry`` call.
 
-        Resolves the provider once (``for_read=True``, same as
-        :meth:`loaddb`/:meth:`_write_entry` outside a batch -- it keeps a
-        write in the file's sniffed format) and stores it so
+        Resolves the provider once and stores it so
         :meth:`_write_entry` uses it directly; a no-op (nothing to batch)
         for an unset/stdout DB. Exits -- committing -- before the caller does
         anything that needs to see those writes through a *fresh* ``load()``
@@ -286,7 +275,7 @@ class PkgForgeCmd(LoggingArgs, Cmd):
         if self._no_file_db():
             yield
             return
-        provider = self._provider(for_read=True)
+        provider = self._provider()
         with provider.batch() as batch_provider:
             self._batch_provider = batch_provider
             try:
@@ -297,13 +286,13 @@ class PkgForgeCmd(LoggingArgs, Cmd):
     def loaddb(self) -> typing.Dict[str, typing.Optional[FileEntry]]:
         if self._no_file_db():
             return {}
-        return self._provider(for_read=True).load()
+        return self._provider().load()
 
     def compactdb(self) -> None:
         """Collapse the DB's redundant history (backend-specific; no-op if none)."""
         if self._no_file_db():
             return
-        self._provider(for_read=True).compact()
+        self._provider().compact()
 
     def initdb(self) -> None:
         """Create or reset an empty DB (no-op for a stdout / unset DB)."""
@@ -312,7 +301,9 @@ class PkgForgeCmd(LoggingArgs, Cmd):
         self._provider().init()
 
     def _write_entry(self, buildpath: Path, entry: typing.Optional[FileEntry]):
-        path = os.fspath(buildpath)
+        # DB keys are POSIX text whatever the host: a Windows Path would
+        # render its "/"-rooted value with backslashes.
+        path = buildpath.as_posix() if isinstance(buildpath, PurePath) else buildpath
         if self._no_file_db():
             # No file: emit the record as a JSON Lines line to stdout.
             # Function-local for the same reason as _provider() above.
@@ -320,9 +311,7 @@ class PkgForgeCmd(LoggingArgs, Cmd):
 
             print(_jsonl_line(path, entry), end="")
             return
-        provider = getattr(self, "_batch_provider", None) or self._provider(
-            for_read=True
-        )
+        provider = getattr(self, "_batch_provider", None) or self._provider()
         if entry is None:
             provider.remove(path)
         else:

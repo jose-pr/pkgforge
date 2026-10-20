@@ -72,7 +72,6 @@ REQUIRED_API_TARGETS = (
     "pkgforge.db.DbProvider",
     "pkgforge.db.open_db",
     "pkgforge.db.format_for_suffix",
-    "pkgforge.db.sniff_format",
     "pkgforge.db.jsonl.JsonlDb",
     "pkgforge.db.yaml.YamlDb",
     "pkgforge.db.sqlite.SqliteDb",
