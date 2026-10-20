@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `--debug` prints the traceback of an error before its one-line
+  `pkgforge: error:` message, like `PKGFORGE_TRACEBACK`.
 - `pkgforge.Project`, a Python API for build scripts: `Project(buildroot, db=None,
   *, db_format=None)` with `init`, `load`, `entries`, `compact`, `install`,
   `scan` and `dump`. It does what the `install`, `scan`, `initdb`, `compact`
@@ -20,6 +22,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stores.
 
 ### Changed
+- The console script is `pkgforge.cli:main` (was `pkgforge:main`); `python -m
+  pkgforge` and every flag, exit status and `--help` text are unchanged. The
+  commands live in `pkgforge.cli`, which is the command line and not library
+  API: use `pkgforge.Project` from Python.
+- The package root exports the library names only: `Project`, `FileEntry`,
+  `FileType`, `FileEntries`, `FileRecords`, `StrPath`, `DbProvider`,
+  `DumpFormat`, `open_db`, the exceptions and `__version__`. Import
+  `apply_entry`, `entry_from_path`, `normalize_mode` and `resolve_entry` from
+  `pkgforge.entry`. `import pkgforge` no longer loads `duho`.
+- `normalize_mode` and `normalize_name` take a `str`; the list that Python 3.9's
+  argparse produces for an attached `--` is mapped by the command line.
 - A dump format implements `render(entries)`, `check_output(output)` and
   `write(rendered, output)`; `DumpFormat.dump(entries, output, logger)` is
   gone, and `-` (standard output) is handled by the `dbdump` command, not by a
@@ -63,7 +76,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   longer warns `Explicit %attr() mode not applicable to symlink`.
 - Requires `duho>=0.7.7,<0.8` (was `>=0.6.0,<0.7`). The command line is
   unchanged: the same flags, exit statuses and `--help` text.
-- `pkgforge.main()` runs through `duho.run`, and `PkgForge` reports its errors
+- `pkgforge.cli.main()` runs through `duho.run`, and the root reports its errors
   with duho's `_errors_` and `_report_error_`. The `pkgforge: error:` line, its
   stream and the statuses (2 for a usage mistake, 1 otherwise) are the same, and
   `--help`, `--version` and a parser usage error still raise `SystemExit`.
@@ -110,6 +123,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `pkgforge.dbdump.Entries` is now `pkgforge.FileEntries`.
 
 ### Removed
+- `pkgforge.main`, `pkgforge.command`, the `pkgforge.install`, `pkgforge.scan`,
+  `pkgforge.initdb` and `pkgforge.compact` modules, and `PkgForgeCmd`,
+  `PkgForge`, `FileEntryArgs`, `FileEntryBaseArgs`, `entry_from_args`,
+  `parsepath`, `ExcludeArgs` and `DbDump` in `pkgforge.dbdump`; the commands
+  are in `pkgforge.cli` and the operations are `Project` methods. Replace
+  `pkgforge.main(argv)` with `pkgforge.cli.main(argv)` (a build script should
+  call `Project` instead).
+- The `List[str]` form of `normalize_mode` and `normalize_name`.
 - The `pkgforge.install.archive`, `decompress`, `staging`, `transfer`, `record`
   and `_tool` modules and the `Install` staging methods (`_resolve`, `_stage`
   and the like); staging is `Project.install`, and the helpers live in the
@@ -118,8 +139,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `PathMatch.unreachable()` and `log_unreachable()` with it.
 - `dbdump --stdin`; use `--db -`.
 - The `FileEntry.from_args`, `from_path`, `resolve_for` and `apply` class
-  aliases; call `entry_from_args`, `entry_from_path`, `resolve_entry` and
-  `apply_entry`.
+  aliases; call `entry_from_path`, `resolve_entry` and `apply_entry`.
 - `PathTest.GENERATORS` and `PathTest.factory`; the registry and builder are
   module-private.
 - `scan --type/-t`, which was hidden and ignored; `scan` now exits 2 for it.
@@ -128,16 +148,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `gz`, `xz`, `bz2`, `zst` or `lzma`, in any case.
 - `FileType._AUTO`; use the `AUTO` string. `list(FileType)` is `file`,
   `directory`, `symlink`.
-- A bare `Path` or `str` as `Install(source=...)`: `source` is a list. An `int`
-  mode in `normalize_mode`: a mode is a string, and an int raises `UsageError`.
+- An `int` mode in `normalize_mode`: a mode is a string, and an int raises
+  `UsageError`.
 - The import-time binding of `PKGFORGE_DB`, `PKGFORGE_DB_FORMAT`,
   `PKGFORGE_ROOT`, `PKGFORGE_INSTALL_METHOD` and `PKGFORGE_INSTALL_RECORD_TREE`
   as class defaults: a command built directly in Python ignores the
-  environment; `main()` and `duho.parse` read it.
+  environment; `pkgforge.cli.main()` reads it.
 - The archive destination-name fallback that cut a name at its last `tar` or
   `iso` segment; `.tar.zst`, `.tzst`, `.tar.lz4`, `.tar.lzma`, `.tlz`,
-  `.tar.lz` and `.cpio` are now listed suffixes. `Install.install` is private
-  (`_install`).
+  `.tar.lz` and `.cpio` are now listed suffixes.
 - Content sniffing of a file DB and the legacy leniency that came with it: an
   unrecognized text file was read as YAML, and a mode, owner or group written
   as a number, or a missing field, was coerced or defaulted at load.

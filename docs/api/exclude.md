@@ -16,10 +16,6 @@ prunes once a statement matches the input.
     options:
       show_root_heading: true
 
-::: pkgforge.exclude.ExcludeArgs
-    options:
-      show_root_heading: true
-
 ::: pkgforge.exceptions.ExcludeSyntaxError
     options:
       show_root_heading: true

@@ -1,21 +1,10 @@
 # API Reference
 
 Generated from docstrings; the contract is the shipped API header,
-`pkgforge/AGENTS.md`. pkgforge is primarily a CLI, but its core types and
-dump helpers are importable -- see the pages in this section, one per
-module.
-
-## Entry point
-
-::: pkgforge.main
-    options:
-      show_root_heading: true
-
-## Application root
-
-::: pkgforge.command.PkgForge
-    options:
-      show_root_heading: true
+`pkgforge/AGENTS.md`. The library is `pkgforge.Project` plus the entry,
+file-DB and dump-format types -- see the pages in this section, one per
+module. The command line, `pkgforge.cli`, is not library API; it is
+documented in the [commands guide](../guide/commands.md).
 
 ## Errors
 

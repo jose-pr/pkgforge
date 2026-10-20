@@ -1,7 +1,7 @@
 """pkgforge's own exception types.
 
 :class:`PkgForgeError` and :class:`UsageError` are caught by
-:func:`pkgforge.main`'s error boundary; see its docstring for the exit-code
+:func:`pkgforge.cli.main`'s error boundary; see its docstring for the exit-code
 mapping. Python-API callers that invoke a command directly still see them
 raised normally.
 """
@@ -22,7 +22,7 @@ __all__ = [
 class PkgForgeError(Exception):
     """Base class for pkgforge's own runtime failures.
 
-    Caught by :func:`pkgforge.main`'s error boundary: prints one
+    Caught by :func:`pkgforge.cli.main`'s error boundary: prints one
     ``pkgforge: error: ...`` line to stderr and exits 1. Python-API callers
     still see it raised normally.
     """
@@ -31,7 +31,7 @@ class PkgForgeError(Exception):
 class UsageError(PkgForgeError, ValueError):
     """An argument-shaped mistake (a bad or missing value the caller gave).
 
-    Caught by :func:`pkgforge.main`'s error boundary and mapped to exit 2,
+    Caught by :func:`pkgforge.cli.main`'s error boundary and mapped to exit 2,
     like an argparse usage error. Subclasses :class:`ValueError` because it
     reports malformed input.
     """
@@ -43,7 +43,7 @@ class DbError(PkgForgeError, ValueError):
     Raised for a parse error, non-UTF-8 bytes, content that is not in the
     chosen format, a JSON Lines line or YAML top-level document that is not a
     mapping, or a record that breaks the schema (see :func:`_check_record`).
-    Caught by :func:`pkgforge.main`'s error boundary like any
+    Caught by :func:`pkgforge.cli.main`'s error boundary like any
     :class:`~pkgforge.exceptions.PkgForgeError` (one stderr line, exit 1). A
     :class:`ValueError` because it reports malformed input.
     """
@@ -54,7 +54,7 @@ class DumpError(PkgForgeError, ValueError):
 
     Raised for a path the target format's own tooling cannot represent -- a
     control character, or (rpm only) a ``%``. Caught by
-    :func:`pkgforge.main`'s error boundary like any
+    :func:`pkgforge.cli.main`'s error boundary like any
     :class:`~pkgforge.exceptions.PkgForgeError`: one stderr line, exit 1. Nothing
     is written to OUTPUT first: every entry is rendered before OUTPUT is
     opened, so this leaves no partial file.
@@ -91,6 +91,6 @@ class ExcludeSyntaxError(UsageError):
     ``(?...`` that never closed.
 
     Subclasses :class:`~pkgforge.exceptions.UsageError`, so
-    ``pkgforge.main()``'s error boundary maps it to a clean one-line message
+    ``pkgforge.cli.main()``'s error boundary maps it to a clean one-line message
     and exit 2; it is also a ``ValueError``.
     """

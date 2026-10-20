@@ -5,27 +5,25 @@ export with its signature, arguments, contract, and gotchas, so this module
 can be consumed without reading its source. Kept current with the public
 API. For the CLI overview see the shipped `README.md` or <https://github.com/jose-pr/pkgforge>.
 
-`pkgforge.__all__`: `Project`, `PkgForgeCmd`, `PkgForge`, `PkgForgeError`, `DbError`,
-`DumpError`, `ExcludeSyntaxError`, `InvalidEntryError`,
-`UnsupportedOutputError`, `DbProvider`, `FileEntries`, `FileEntry`,
-`FileEntryArgs`, `FileRecords`, `FileType`, `StrPath`, `UsageError`,
-`__version__`, `apply_entry`, `entry_from_args`, `entry_from_path`,
-`normalize_mode`, `resolve_entry`, `main`, `open_db`, plus the
-leaf-command submodules themselves
-(`compact`, `dbdump`, `initdb`, `install`, `scan` — importing `pkgforge` runs
-each module's `_register()` call, attaching it to the `PkgForge` subcommand
-tree).
+`pkgforge.__all__`: `DbError`, `DbProvider`, `DumpError`, `DumpFormat`,
+`ExcludeSyntaxError`, `FileEntries`, `FileEntry`, `FileRecords`, `FileType`,
+`InvalidEntryError`, `PkgForgeError`, `Project`, `StrPath`,
+`UnsupportedOutputError`, `UsageError`, `__version__`, `open_db`. The entry
+functions (`apply_entry`, `entry_from_path`, `normalize_mode`,
+`normalize_name`, `resolve_entry`) are in `pkgforge.entry`. `import pkgforge`
+loads neither `duho` nor `pkgforge.cli`; the command line is documented under
+[Command line](#command-line).
 
 ## Entry point
 
-- **`main(argv=None) -> int`** — build the parser and dispatch the selected
-  subcommand (`duho.run(PkgForge, argv, exit="parse")`: `--help`, `--version`
-  and a parser usage error raise `SystemExit`, every other outcome is
-  returned). Bound as the `pkgforge` console script and `python -m pkgforge`.
-  This is pkgforge's only error boundary (`PkgForge._errors_` and
-  `_report_error_`) -- see [Exit status](#exit-status) for its exit codes. Calling a command
-  directly (not through `main()`) still raises the plain exception -- the
-  boundary only wraps the CLI entry point.
+- **`pkgforge.cli:main(argv: Sequence[str] | None = None) -> int`** — run the
+  command line: build the parser and dispatch the selected subcommand
+  (`duho.run(PkgForge, argv, exit="parse")`: `--help`, `--version` and a
+  parser usage error raise `SystemExit`, every other outcome is returned).
+  Bound as the `pkgforge` console script and `python -m pkgforge`. This is
+  pkgforge's only error boundary -- see [Exit status](#exit-status). Calling a
+  library function (`Project.install` and the rest) raises the plain
+  exception.
 - **`__version__: str`** — the installed distribution version
   (`importlib.metadata.version("pkgforge")`); `"0.0.0"` when running from a
   source checkout that is not installed.
@@ -39,18 +37,19 @@ tree).
 | `2` | a usage mistake (`UsageError`), reported as one `pkgforge: error: ...` line |
 | `130` | Ctrl-C, silently |
 
-Anything else propagates with its traceback. Set `PKGFORGE_TRACEBACK` to a true
-value (`1`/`true`/`yes`/`on`; `0`/`false`/`no`/`off`/`n`/`f` are off) to also
-print the traceback before the error line. External tools (`bsdtar`, the
+Anything else propagates with its traceback. Pass `--debug`, or set
+`PKGFORGE_TRACEBACK` to a true value (`1`/`true`/`yes`/`on`;
+`0`/`false`/`no`/`off`/`n`/`f` are off), to also print the traceback before
+the error line. External tools (`bsdtar`, the
 decompressors) and `sqlite3` failures are reported the same way, with the
 tool's last stderr line.
 
 ## Errors (`exceptions.py`)
 
 - **`PkgForgeError(Exception)`** — base class for pkgforge's own runtime
-  failures; caught by `main()` and mapped to exit 1.
+  failures; caught by `pkgforge.cli.main()` and mapped to exit 1.
 - **`UsageError(PkgForgeError, ValueError)`** — an argument-shaped mistake
-  (a bad or missing value); caught by `main()` and mapped to exit 2. Also a
+  (a bad or missing value); caught by `pkgforge.cli.main()` and mapped to exit 2. Also a
   `ValueError`, since it reports malformed input. Raised by `install` for: a missing source, a `-`
   (stdin) source without `-T`/`-D`, a symlink source/type with no target
   (no `-O target=PATH`), an unresolvable stdin compression kind, a
@@ -87,7 +86,7 @@ tool's last stderr line.
   order mark at the start of a text DB is ignored; lines split on `\n` only.
 - **`ExcludeSyntaxError(UsageError)`** — raised for a malformed `-X` statement:
   an unknown inline test name, an invalid `(?type:...)`/`(?meta:...)` argument,
-  or an unterminated `(?...`. Caught by `pkgforge.main()`'s error boundary like
+  or an unterminated `(?...`. Caught by `pkgforge.cli.main()`'s error boundary like
   any `UsageError` (one line, exit 2); the `-X` converter turns it into an
   argparse usage error at parse time.
 - **`UnsupportedOutputError(UsageError, DumpError, NotImplementedError)`** —
@@ -97,7 +96,7 @@ tool's last stderr line.
   (one stderr line, exit 2, same as before); also a `DumpError` (the format
   itself is refusing this OUTPUT) and, per its name, a `NotImplementedError`.
 - **`InvalidEntryError(UsageError, DumpError)`** — a DB entry that no format
-  can render safely, found by `DbDump` before any format renders (exit 2,
+  can render safely, found by `dbdump.dump` before any format renders (exit 2,
   naming the first offending entry in entry order and the field). The rules:
   the key is an absolute path with no empty, `.` or `..` segment and no
   control character; `type` is `file`, `directory` or `symlink`; `mode` is
@@ -126,17 +125,6 @@ tool's last stderr line.
   `type`, `meta: dict[str, str]`. A `FileEntry` value is a **plain dict** at
   runtime (it is a `TypedDict`), so it carries no methods of its own; use the
   module functions below.
-  - **`entry_from_args(args: FileEntryArgs, **overwrite) -> FileEntry`** —
-    build from a parsed CLI mixin. `type` is converted via `FileType` only
-    when `overwrite` does not itself supply `type`. `mode` is normalized via
-    `normalize_mode`; `owner`/`group` go through `normalize_name(value,
-    field)`, which maps Python 3.9's stripped `[]` (an attached `--` argparse
-    consumes before any converter runs) to `AUTO`, an explicit empty string
-    to `DEFAULT`, and raises `UsageError` unless the value is an account
-    name (`[A-Za-z_][A-Za-z0-9_.-]*`, optionally ending in `$`) or the `-`/
-    `--` sentinels; `check_meta(args.meta)` raises `UsageError` for a
-    control character or an rpm expansion (`%(`, `%{`, `%[`) in
-    `meta["rpmprefix"]`.
   - **`entry_from_path(path: Path, meta: Optional[dict[str, str]] = None) ->
     FileEntry`** — build by `lstat`-ing a real path; owner/group resolve via
     `pwd`/`grp` (fall back to `"-"` if those modules are unavailable, i.e.
@@ -163,25 +151,20 @@ tool's last stderr line.
     symlink's mode is never set on disk (skipped via `lstat`; Linux ignores
     it) — only its owner/group, and only its recorded `entry["mode"]`, are
     unaffected by this.
-  - **`normalize_mode(value: str | list) -> str`** — normalize a
+  - **`normalize_mode(value: str) -> str`** — normalize a
     `mode` value to an octal permission string; an `int` is not a mode and
-    raises `UsageError`. `"-"`/`""` mean `DEFAULT`; `"--"`, `"auto"` or Python
-    3.9's stripped `[]` mean `AUTO`; a string of 1-4 octal digits normalizes
-    (`"0644"` -> `"644"`). Anything else raises `UsageError`. `auto` is a
-    mode-only alias — `owner`/`group` get none, since `auto` can be a real
-    account name.
-- **`FileEntryBaseArgs(duho.Cmd)`** — CLI mixin supplying `--mode/-m` (validated
-  at parse time: 1-4 octal digits, `-`, `--` or `auto`; an explicit empty
-  value exits 2; normalized, so `0644` is stored as `644`), `--group/-g`,
-  `--owner/-o` (each default `"-"`; validated at parse time like
-  `normalize_name`: an account name, `-` or `--`, else exit 2) and
-  `-O/--meta KEY=VALUE` (repeatable, merges into a `dict[str, str]`; a value
-  missing `=` exits 2 with `expected KEY=VALUE, got '...'`).
-- **`FileEntryArgs(FileEntryBaseArgs)`** — adds `--type/-t`
-  (`Optional[FileType]`, default `None`; validated at parse time: `file`,
-  `directory` or `symlink` in any case, or `-`/`--` for the sentinels;
-  anything else, including `auto`, exits 2). `install` uses it; `scan` uses
-  the base, so it has no `--type`.
+    raises `UsageError`. `"-"`/`""` mean `DEFAULT`; `"--"` or `"auto"` mean
+    `AUTO`; a string of 1-4 octal digits normalizes (`"0644"` -> `"644"`).
+    Anything else raises `UsageError`. `auto` is a mode-only alias —
+    `owner`/`group` get none, since `auto` can be a real account name.
+  - **`normalize_name(value: str, field: str) -> str`** — validate an
+    `owner`/`group` value (`field` names it in the error): an explicit empty
+    string is `DEFAULT`, and anything but an account name
+    (`[A-Za-z_][A-Za-z0-9_.-]*`, optionally ending in `$`) or the `-`/`--`
+    sentinels raises `UsageError`.
+  - **`check_meta(meta: Mapping[str, str]) -> None`** — raises `UsageError`
+    for a control character or an rpm expansion (`%(`, `%{`, `%[`) in
+    `meta["rpmprefix"]`.
 - **`AUTO = "--"`** / **`DEFAULT = "-"`** — module-level sentinels: `AUTO`
   means "resolve from the file on disk" (used by `resolve_for`); `DEFAULT`
   means "leave at the OS/system default, do not set explicitly" (used by
@@ -259,63 +242,13 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   format). See `dbdump.dump` for the rest and the errors.
 - Every record goes through the private `Project._record(dbpath, entry) ->
   FileEntry` before it is written; today it returns `entry` unchanged.
-
-## Command base (`command.py`)
-
-- **`parsepath(path: str) -> str | Path | None`** — CLI path coercion:
-  `"-"` stays `"-"` (stdin/stdout), `""` becomes `None`, anything else
-  becomes a `Path`.
-- **`PkgForgeCmd(duho.LoggingArgs, duho.Cmd)`** — common base every
-  subcommand extends. Fields: `--db PATH` (from `PKGFORGE_DB`),
-  `--db-format FMT` (from `PKGFORGE_DB_FORMAT`; a built-in or registered
-  `DbProvider` subclass's `NAME`, else `UsageError` -- checked in
-  `__init__`, so it also covers direct Python-API construction),
-  `--buildroot/-r DIR` (from `PKGFORGE_ROOT`, else `.`; a relative build root
-  whose realpath is `/` -- the ordinary cwd default with no `PKGFORGE_ROOT`
-  set, run from a cwd of `/` -- raises `UsageError` unless it was spelled
-  explicitly as `--buildroot /`/`PKGFORGE_ROOT=/`; an unset/empty build root
-  from the Python API also raises). The three env vars are read when
-  `pkgforge.main()`/`duho.parse` runs (precedence CLI > env > the class
-  default); a bare `_parser_().parse_args()` does **not** apply them
-  (duho's env layer lives in `main`/`parse`, not raw argparse), and a command
-  constructed directly in Python ignores the environment and uses the literal
-  defaults. An empty value counts as unset for all three.
-  Each leaf command declares `_logger_name_ = "pkgforge.<command>"`
-  (`pkgforge.install`, `pkgforge.scan`, `pkgforge.dbdump`, `pkgforge.initdb`,
-  `pkgforge.compact`), so `logging.getLogger("pkgforge")` controls every
-  command when it is constructed directly (not through `main()`/`duho.parse`).
-  Through the CLI, `main()` always sets the *dispatched* command's own logger
-  to an explicit level (INFO by default), which then wins over inherited
-  propagation: use `--loglevel LEVEL` (the running command) or
-  `--loglevel pkgforge.<command>:LEVEL`; a bare `--loglevel pkgforge:LEVEL`
-  has no effect on a CLI-dispatched command (the command's own INFO already
-  wins), though it still reaches one built directly in Python and left at
-  its default (NOTSET) level.
-  Helpers: `localpath(buildpath: str | os.PathLike) -> Path` (accepts a
-  `/`-rooted OR build-relative path; an absolute input has its leading `/`
-  stripped, a relative one is taken as already build-relative) /
-  `buildpath(localpath: Path) -> Path` (the reverse, `/`-rooted; POSIX only —
-  `Path("/", ...)` resolves against the current drive on Windows),
-  `loaddb() -> dict[str, FileEntry | None]`, `initdb()`, `compactdb()`,
-  `add_entry(buildpath, entry)`, `remove_entry(buildpath)`: each is a call on
-  `_project()`, the `Project` these options describe. `_emit(records)` prints
-  each record as one JSON Lines line (`db.jsonl_line`) when `--db` is unset or
-  `"-"` instead of touching a file; the leaf commands call it with what their
-  `Project` call returned, after the operation. `_register()` (classmethod)
-  attaches the class to `PkgForge`'s subcommand tree.
-  A DESTINATION (`install`) or PATH (`scan`) must resolve inside
-  `--buildroot`: a `..` that climbs above the root, or a symlinked
-  component that leads outside it, raises `UsageError` before anything is
-  written or recorded; an in-root `..` (`/usr/share/../lib/x`) is
-  normalized in the path that is actually staged and recorded
-  (`/usr/lib/x`), never left verbatim.
-- **`PkgForge(PkgForgeCmd, duho.Cli)`** — the application root (the
-  `pkgforge` command). Adds `--version`/completion via `duho.Cli`
-  (`_version_ = duho.AUTO`, `_distribution_ = "pkgforge"`,
-  `_completion_ = True`). `_parsername_ = "pkgforge"` names usage, errors,
-  `--version` and the generated shell-completion scripts; without it duho
-  falls back to the class name (`PkgForge`), which shell completion cannot
-  bind to (case-sensitive lookup on bash/zsh/fish).
+- A `dest` (`install`) or `path` (`scan`) must resolve inside the build root:
+  a `..` that climbs above it, or a symlinked component that leads outside
+  it, raises `UsageError` before anything is written or recorded. A relative
+  build root whose realpath is `/` (the cwd default, run from `/`) raises
+  `UsageError` unless it was spelled `/` explicitly. An in-root `..`
+  (`/usr/share/../lib/x`) is normalized in the path that is staged and
+  recorded (`/usr/lib/x`).
 
 ## DB backends (`db/`)
 
@@ -454,11 +387,6 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   own dict, e.g. a live DB record in `dbdump`); an explicit `entry` of `{}`
   still counts as "the caller supplied one" (`is not None`, not a
   truthiness check). An empty `PathMatch` always matches (`True`).
-- **`ExcludeArgs(duho.Cmd)`** — the `--exclude`/`-X` field, declared once and
-  shared: `Install`, `ScanCmd` and `DbDump` all take `--exclude` from this
-  mixin instead of each declaring it separately. `--help` shows the
-  grammar (`[!][(?[!]test:arg)...]GLOB`).
-
 ## `dbdump` format registry (`dbdump/`)
 
 - **`DumpFormat(pkgforge._registry.Registered, abc.ABC)`** — a packaging
@@ -574,18 +502,37 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   separator, which split a path containing one (e.g. a source named
   `back\slash`) in the wrong place on Windows.
 
-## CLI subcommands
+## Command line
 
-Each is a `duho.Cmd` subclass self-registered onto `PkgForge`; use them via
-the CLI (`pkgforge <name> ...`) rather than instantiating directly unless
-you're embedding the CLI layer itself. Each declares `_logger_name_ =
-"pkgforge.<command>"`: control one with `--loglevel pkgforge.<command>:LEVEL`
-or all of them with `logging.getLogger("pkgforge")` (a bare `--loglevel
-pkgforge:LEVEL` has no effect on a CLI-dispatched command; see `PkgForgeCmd`
-above).
+`pkgforge.cli` is not library API: it holds the root command, `main` and one
+module per subcommand, each a thin call into one `Project` method. Use it through the `pkgforge` console
+script or `python -m pkgforge`.
 
-- **`install.Install(FileEntryArgs, ExcludeArgs, PkgForgeCmd)`**
-  (`pkgforge install`) — maps the command line onto `Project.install`; the
+Global options, written before the subcommand: `--db PATH` (env `PKGFORGE_DB`;
+`-` or unset writes records to stdout, and `dbdump` reads them from stdin),
+`--db-format FMT` (env `PKGFORGE_DB_FORMAT`; a built-in or registered
+`DbProvider` `NAME`, else exit 2), `--buildroot/-r DIR` (env `PKGFORGE_ROOT`,
+else `.`), `--debug` (print the traceback of an error before its one-line
+message), `-v`/`-q`/`--loglevel`, `--version` and
+`--print-completion {bash,zsh,fish,powershell}`. Precedence is CLI, then the
+environment, then the default; an empty environment value counts as unset.
+`--help` of every subcommand lists them too. With no file DB, `install` and
+`scan` print each record as one JSON Lines line (`db.jsonl_line`) on stdout
+once the operation has succeeded.
+
+Each subcommand logs under `pkgforge.<command>` (`pkgforge.install`,
+`pkgforge.scan`, `pkgforge.dbdump`, `pkgforge.initdb`, `pkgforge.compact`):
+control one with `--loglevel pkgforge.<command>:LEVEL`, or the running command
+with `--loglevel LEVEL`. A bare `--loglevel pkgforge:LEVEL` has no effect on a
+CLI-dispatched command, whose own logger always has an explicit level (INFO by
+default).
+
+With `PKGFORGE_MCP=stdio` the command tree is served as MCP tools
+(`pkgforge.install`, ...) instead of running a command; standard input is the
+protocol channel, so a `-` source of `install` and `dbdump --db -` are refused
+there with a `UsageError`. See [Environment variables](#environment-variables).
+
+- **`pkgforge install SOURCE... DESTINATION`** — maps the command line onto `Project.install`; the
   staging lives in the private `pkgforge._install` package (the per-source
   worker, the `-x` kind table, the tar-family/bsdtar extraction policy, the
   staging mixins and the `--record-tree` walk on the shared
@@ -675,9 +622,7 @@ above).
   is refused with `UsageError`, before any staging, when a directory source
   contains the resolved destination or the `--db` file. A failed install
   removes the parent directories its own `-p` created (deepest first, exit
-  1); directories that already existed stay. `Install(...)` built from
-  Python accepts `str` or path-like `source`, `destination`, `db` and
-  `buildroot`; anything else raises `UsageError`.
+  1); directories that already existed stay.
   `--method {copy,link,move}` (env `PKGFORGE_INSTALL_METHOD`; default
   `copy`) controls how a filesystem file or directory source is staged; a
   `-` (stdin) source, `-x`/`--decompress`, an archive source and a symlink
@@ -688,7 +633,7 @@ above).
   `os.link` can't span (`OSError` with `errno` `EXDEV`/`EPERM`/`EMLINK`/
   `EACCES` -- a different filesystem, `fs.protected_hardlinks`, the
   per-inode link limit, or a permission error) falls back to a copy for
-  that file, logging one WARNING per `Install` clone (i.e. once per
+  that file, logging one WARNING per source (i.e. once per
   command, for the common single-source case) rather than once per file; a
   directory source hardlinks file by file the same way, via `copytree`'s
   own `copy_function`, and a symlink in the tree is still recreated fresh
@@ -710,8 +655,8 @@ above).
   moved, source removed). `--remove-source` is redundant with `move` (the
   source is already gone) and a no-op there, rather than an error.
   `-d` cannot be combined with `-t`/`--type` (a declared `conflicts=`
-  group; exit 2, enforced by argparse itself before `Install` is
-  constructed). `-X` is source-relative: `_Staging._exclude_matcher(root)`
+  group; exit 2, enforced by argparse itself before the command
+  runs). `-X` is source-relative: `_Staging._exclude_matcher(root)`
   builds a `PathMatch(self.exclude, root)` once per source (`root` the
   source directory, or an archive's extraction temp dir), so `/x` means
   `SRC/x`, never the destination path. `-X`'s `(?meta:k=v)` inline test
@@ -754,7 +699,7 @@ above).
   succeeded. Replaces the `scan --missing DEST` step for a tree `install`
   itself just staged; `scan --missing` is still what to use for a tree
   staged by something else.
-- **`scan.ScanCmd(FileEntryArgs, ExcludeArgs, PkgForgeCmd)`** (`pkgforge scan`) — walk
+- **`pkgforge scan PATH`** — walk
   PATH, recording an entry for every directory and file **below** it (never
   PATH itself); `--missing` only fills gaps not already in the DB, else scan
   replaces an existing entry (e.g. one `install` already recorded).
@@ -799,11 +744,10 @@ above).
   when `--db` is unset or `-`. The removals run in one `_batch()`, so
   `sqlite` holds a single connection for all of them. `--missing` is unaffected: a tombstoned path
   still counts as absent and is re-added if its file exists.
-- **`dbdump.DbDump(ExcludeArgs, PkgForgeCmd)`** (`pkgforge dbdump -f FORMAT [output]`) —
+- **`pkgforge dbdump -f FORMAT [output]`** —
   render surviving (post-`--exclude`) DB entries via the format registry
   above. `-f` accepts a `NAME` or an `ALIASES` entry (`rpm`/`rpmspec` for
-  `rpmspecfiles`, `deb` for `debian`); `self.format` is set to the resolved
-  `NAME` before `__call__` runs, so an alias and its canonical name always
+  `rpmspecfiles`, `deb` for `debian`); an alias and its canonical name always
   produce identical output. A DB must be given: with `--db` unset it raises
   `UsageError("no file DB configured; pass --db or set PKGFORGE_DB")` and with
   a path that does not exist `UsageError("no file DB at {path}; run pkgforge
@@ -833,26 +777,21 @@ above).
   or `"<stdin>"`), so both report an error the same way
   (`{source}:{lineno}: ...`); non-UTF-8 input raises `DbError` prefixed
   `<stdin>:`.
-- **`initdb.InitDb(PkgForgeCmd)`** (`pkgforge initdb`) — create or truncate
+- **`pkgforge initdb`** — create or truncate
   an empty DB; a no-op with a WARNING for an unset/stdout DB. A `--db`
   naming a file that doesn't exist yet is not this case -- creating it is
   exactly `initdb`'s job.
-- **`compact.Compact(PkgForgeCmd)`** (`pkgforge compact`) — collapse an
+- **`pkgforge compact`** — collapse an
   append-log DB to one record per live path, dropping removals and
   superseded history; for `sqlite`, deletes removal rows and `VACUUM`s.
   Raises `UsageError` (exit 2) for an unset `--db`, for `--db -` (no file to
   rewrite) and for a file that does not exist (nothing is created, for every
   backend).
-- **`PkgForgeCmd._no_file_db() -> bool`** — "`--db` unset or `-`: records go to
-  stdout". `dbdump` and `compact` need an existing DB file: `Project` raises
-  `UsageError` for an unset `--db` or a path that does not exist (the messages
-  above).
-
 ## Environment variables
 
-Read when `pkgforge.main()`/`duho.parse` runs (CLI wins over env, which wins
-over the class default); a command built directly in Python instead uses the
-value as of import. An empty value counts as unset for all three.
+Read when `pkgforge.cli.main()` runs (CLI wins over env, which wins over
+the default); the `Project` API never reads the environment. An empty value
+counts as unset.
 
 - **`PKGFORGE_ROOT`** — default `--buildroot`.
 - **`PKGFORGE_DB`** — default `--db`.
@@ -885,7 +824,7 @@ value as of import. An empty value counts as unset for all three.
   (never its BSD file flags or extended attributes, e.g. an SELinux label);
   `-m`/`--chown` apply to the staged copy only, and the source keeps its
   original content, mode and ownership. `--method link`/`move` opt into
-  sharing or consuming the source instead -- see `install.Install` above.
+  sharing or consuming the source instead -- see `pkgforge install` above.
 - `chown` (owner/group) requires the Unix `pwd`/`grp` stdlib modules; both
   import guarded to `None` off POSIX, so `.apply(chown=True, ...)` raises
   `RuntimeError` there. Parser/`--help` construction still works everywhere.

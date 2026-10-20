@@ -187,15 +187,14 @@ file-DB model, exclude grammar, dump formats, and the API reference.
 
 ## API overview
 
-pkgforge is primarily a CLI; the modules below are its importable surface.
+The modules below are the importable surface; the command line, `pkgforge.cli`, is not library API.
 See the full contract in `pkgforge/AGENTS.md`, shipped inside the installed
 package, or the [API reference](https://jose-pr.github.io/pkgforge/api/reference/).
 
 | Module | Purpose |
 | --- | --- |
-| `pkgforge` | the `main` entry point, `__version__`, and the errors (`PkgForgeError`, `UsageError`) |
+| `pkgforge` | `Project`, the Python API for build scripts, `__version__`, and the errors (`PkgForgeError`, `UsageError`) |
 | `pkgforge.entry` | `FileEntry`/`FileType` records and their mode/owner/group resolution |
-| `pkgforge.command` | `PkgForgeCmd`/`PkgForge`, the build-root and DB helpers every command shares |
 | `pkgforge.db` | the file-DB backend registry (`jsonl`/`yaml`/`sqlite`, plus your own) |
 | `pkgforge.dbdump` | the packaging-manifest format registry (`rpmspecfiles`/`debian`, plus your own) |
 | `pkgforge.exclude` | the `--exclude` match grammar shared by `install`/`scan`/`dbdump` |
