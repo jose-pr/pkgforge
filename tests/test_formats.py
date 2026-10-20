@@ -283,6 +283,9 @@ def test_debian_non_utf8_keeps_bytes():
     assert b"opt/app/caf\xe9 opt/app\n" in arts["install"]
 
 
+_UNPINNED_FILE = {"mode": "-", "owner": "-", "group": "-", "type": "file", "meta": {}}
+
+
 @pytest.mark.parametrize(
     "path,expected",
     [
@@ -296,9 +299,8 @@ def test_debian_non_utf8_keeps_bytes():
     ids=["utf8", "plain", "space", "glob", "quote", "backslash"],
 )
 def test_rpmspecfile_quotes(path, expected):
-    from pkgforge.dbdump.rpm import _rpm_quote
-
-    assert _rpm_quote(path).encode("utf-8", "surrogateescape") == expected
+    line = RpmSpecFiles().render_entry(path, _UNPINNED_FILE)
+    assert line == b"%attr(-,-,-) " + expected + b"\n"
 
 
 @pytest.mark.parametrize(
@@ -307,10 +309,8 @@ def test_rpmspecfile_quotes(path, expected):
     ids=["nl", "tab", "del", "pct", "pct_brace", "pct_paren"],
 )
 def test_rpmspecfile_rejects(path):
-    from pkgforge.dbdump.rpm import _rpm_quote
-
     with pytest.raises(DumpError):
-        _rpm_quote(path)
+        RpmSpecFiles().render_entry(path, _UNPINNED_FILE)
 
 
 @pytest.mark.parametrize(
@@ -324,9 +324,8 @@ def test_rpmspecfile_rejects(path):
     ids=["plain", "utf8", "dquote", "backslash"],
 )
 def test_rpmspecfiles_pre419_quotes(path, expected):
-    from pkgforge.dbdump.rpm import _rpm_quote_pre419
-
-    assert _rpm_quote_pre419(path).encode("utf-8", "surrogateescape") == expected
+    line = RpmSpecFilesPre419().render_entry(path, _UNPINNED_FILE)
+    assert line == b"%attr(-,-,-) " + expected + b"\n"
 
 
 @pytest.mark.parametrize(
@@ -344,10 +343,8 @@ def test_rpmspecfiles_pre419_quotes(path, expected):
     ids=["space", "star", "qmark", "bracket", "brace", "pct", "pct_brace", "nonutf8"],
 )
 def test_rpmspecfiles_pre419_rejects(path):
-    from pkgforge.dbdump.rpm import _rpm_quote_pre419
-
     with pytest.raises(DumpError):
-        _rpm_quote_pre419(path)
+        RpmSpecFilesPre419().render_entry(path, _UNPINNED_FILE)
 
 
 def test_rpmspecfile_non_utf8_keeps_bytes():
@@ -1205,3 +1202,55 @@ def test_dbdump_refuses_invalid_entry(tmp_path, cli, fmt, row):
     assert err.count("\n") == 1
     assert "Traceback" not in err
     assert not out.exists()
+
+
+@pytest.mark.parametrize("fmt", [RpmSpecFiles, RpmSpecFilesPre419])
+def test_rpm_symlink_pins_no_mode(fmt):
+    entry = {**_UNPINNED_FILE, "type": "symlink", "mode": "777", "owner": "root"}
+    line = fmt().render_entry("/usr/lib/libx.so", entry)
+    assert line.startswith(b"%attr(-,root,-) ")
+
+
+def _golden_debian_entries():
+    names = [
+        "plain",
+        "with space",
+        "#hash",
+        "glob*?[x]",
+        "br{ace}",
+        "dol${lar}",
+        "back\\slash",
+        "q'uote",
+        "$bare",
+        "ünï",
+    ]
+    out = []
+    for i in range(1100):
+        entry = {
+            "mode": ["644", "-", "4755"][i % 3],
+            "owner": ["root", "-", "svc"][i % 3],
+            "group": ["root", "-", "adm"][(i // 3) % 3],
+            "type": ["file", "directory", "symlink"][i % 3],
+            "meta": {},
+        }
+        out.append((f"/opt/d{i % 7}/{names[i % len(names)]}{i}", entry))
+    out.append(("/#top", {**_UNPINNED_FILE, "type": "directory"}))
+    out.append(("/#topf", dict(_UNPINNED_FILE)))
+    return sorted(out)
+
+
+def test_debian_render_golden_hashes():
+    # Digests of a 1100-entry render, taken before the debhelper escaping
+    # was simplified to one call per entry: the output must not change.
+    import hashlib
+
+    arts = Debian().render(_golden_debian_entries())
+    digests = {
+        name: hashlib.sha256(arts[name]).hexdigest()
+        for name in ("install", "dirs", "fixperms")
+    }
+    assert digests == {
+        "install": "cdbce5277664e91c60e2eec5b5b7d59c87200d79e8f997fdd4cf49b66916395c",
+        "dirs": "95deb2467fc8e87027affcb7b9c3ccfa32f6ae74f3441ac215fed5e5d72c7a8f",
+        "fixperms": "56e129fbca6d69dcf497c4c11caf824311702f62ae752ab691598e2a1a42d995",
+    }

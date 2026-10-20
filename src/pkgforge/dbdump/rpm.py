@@ -12,7 +12,7 @@ def _rpm_reject(path: str) -> None:
     """Raise :class:`DumpError` if ``path`` cannot be represented in an rpm
     ``%files``/``%attr`` line (rpm 4.19+): a control character, or a ``%``
     (macro-expanded by rpm's ``%files -f`` parser on every version -- see
-    :func:`_rpm_quote`). Validation only; :func:`_rpm_escape` does the
+    :func:`_rpm_escape`). Validation only; :func:`_rpm_escape` does the
     quoting once a path is known good.
     """
     _reject_control(path, "rpmspecfiles")
@@ -42,15 +42,7 @@ def _rpm_escape(path: str) -> str:
     return f'"{escaped}"'
 
 
-def _rpm_quote(path: str) -> str:
-    """Validate then quote ``path`` for an rpm ``%files``/``%attr`` line
-    (rpm 4.19+): see :func:`_rpm_reject` and :func:`_rpm_escape`.
-    """
-    _rpm_reject(path)
-    return _rpm_escape(path)
-
-
-#: Characters :func:`_rpm_quote_pre419` refuses outright: a space (ends rpm's
+#: Characters :func:`_rpm_reject_pre419` refuses outright: a space (ends rpm's
 #: unquoted token early), every glob character (unquoted, so rpm's own
 #: globbing may match a sibling instead of the literal name), and ``%`` (rpm
 #: macro-expands every ``%files -f`` line, on every version). Measured
@@ -72,8 +64,9 @@ def _rpm_reject_pre419(path: str) -> None:
     older than 4.19's ``%files -f`` parser (measured against real rpmbuild
     runs on 4.14.3, 4.16.1 and 4.18.2): a control character, a byte that is
     not valid UTF-8, a space, or a glob character (``* ? [ ] { }``) or ``%``
-    (see :func:`_rpm_quote_pre419`). Validation only; a validated path is
-    written back completely unquoted -- there is no separate escaping step.
+    (below rpm 4.19 a quoted name is macro-expanded twice, and an unquoted
+    glob character is globbed by rpm, so no escaping is safe). Validation
+    only; a validated path is written back completely unquoted.
     """
     _reject_control(path, "rpmspecfiles-pre419")
     if _SURROGATE_RE.search(path):
@@ -89,22 +82,6 @@ def _rpm_reject_pre419(path: str) -> None:
                 "rpm older than 4.19 cannot represent it; use rpmspecfiles "
                 "with rpm 4.19+ or write this line by hand"
             )
-
-
-def _rpm_quote_pre419(path: str) -> str:
-    """Validate then return ``path`` unquoted for rpm older than 4.19's
-    ``%files -f`` parser: see :func:`_rpm_reject_pre419`.
-
-    Below rpm 4.19, a quoted ``%files -f`` name is macro-expanded TWICE
-    (``specExpand``, then ``rpmExpand`` again while resolving the file), and
-    an unquoted name's glob characters are matched by rpm's own globbing
-    before pkgforge's own escaping is ever consulted -- there is no
-    escaping on that range that is safe for a space or a glob character.
-    This writes the path completely unquoted instead (rpm's bare-token
-    reader passes a literal ``"`` or ``\\`` straight through, unescaped).
-    """
-    _rpm_reject_pre419(path)
-    return path
 
 
 class RpmSpecFiles(PerEntryFormat):
@@ -123,19 +100,10 @@ class RpmSpecFiles(PerEntryFormat):
 
     NAME = "rpmspecfiles"
     ALIASES = ("rpm", "rpmspec")
-    #: The quoting hook (validate + escape together): a plain function, held
-    #: as a class attribute so a subclass can override it without also
-    #: overriding `render`/`render_entry`. Used only by `render_entry` (a
-    #: one-entry batch) and, within `render`, only on the slow per-entry
-    #: fallback path once a batch check finds something wrong.
-    _quote = staticmethod(_rpm_quote)
-    #: The escaping half alone, for an already-validated path -- what a
-    #: clean batch's per-line loop uses instead of re-validating every path
-    #: it already knows is good.
+    #: Quote an already-validated path for the ``%files`` line.
     _escape = staticmethod(_rpm_escape)
-    #: The rejection half alone, for the per-entry fallback once a batch
-    #: check finds something wrong -- raises with today's exact message on
-    #: the first offending entry, in entry order.
+    #: Raise :class:`DumpError` for a path the format cannot represent; run
+    #: per entry, in entry order, once :meth:`_batch_reject_needed` fires.
     _reject = staticmethod(_rpm_reject)
 
     @staticmethod
@@ -177,7 +145,11 @@ class RpmSpecFiles(PerEntryFormat):
                 prefix += " "
             if entry["type"] == FileType.Directory:
                 prefix += "%dir "
-            mode = entry["mode"] or DEFAULT
+            # rpm warns on an explicit mode for a symlink, which it ignores.
+            if entry["type"] == FileType.Symlink:
+                mode = DEFAULT
+            else:
+                mode = entry["mode"] or DEFAULT
             owner = entry["owner"] or DEFAULT
             group = entry["group"] or DEFAULT
             lines.append(
@@ -205,7 +177,7 @@ class RpmSpecFilesPre419(RpmSpecFiles):
 
     Inherits :class:`RpmSpecFiles`'s ``%attr``/``%dir``/``rpmprefix``
     rendering and batch-then-per-entry validation, overriding only the
-    quoting/rejection hooks: the path is written completely unquoted, and a
+    escaping/rejection hooks: the path is written completely unquoted, and a
     path containing a space, a glob character (``* ? [ ] { }``), ``%`` (in
     any form), or a byte that is not valid UTF-8 raises
     :class:`~pkgforge.dbdump.DumpError` instead of risking a silently wrong
@@ -215,9 +187,8 @@ class RpmSpecFilesPre419(RpmSpecFiles):
 
     NAME = "rpmspecfiles-pre419"
     ALIASES = ("rpm-pre419",)
-    _quote = staticmethod(_rpm_quote_pre419)
     #: No escaping at all here -- an already-validated path is written back
-    #: unquoted (see :func:`_rpm_quote_pre419`).
+    #: unquoted (see :func:`_rpm_reject_pre419`).
     _escape = staticmethod(lambda path: path)
     _reject = staticmethod(_rpm_reject_pre419)
 

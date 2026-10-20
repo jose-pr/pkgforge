@@ -52,37 +52,6 @@ def _dh_dest(rel: str) -> str:
     return rel.replace("${", "${Dollar}{").replace(" ", "${Space}")
 
 
-def _dh_src_batch(rels: typing.List[str]) -> typing.List[str]:
-    """:func:`_dh_src`, applied to every SOURCE in one pass: one
-    ``str.translate`` over every ``rel`` newline-joined, instead of one
-    Python-level call (and one ``translate``) per entry.
-
-    Safe only because every ``rel`` here has already passed the batch's own
-    control-character check (:func:`~pkgforge.dbdump._has_control`, run
-    before this is ever called) -- a real ``\\n`` inside a ``rel`` would
-    otherwise be indistinguishable from the join separator. The leading-``#``
-    case is still per-line (it depends on each line's own first character),
-    applied after the join/translate/split round-trip.
-    """
-    if not rels:
-        return []
-    lines = "\n".join(rels).translate(_DH_SRC_TABLE).split("\n")
-    return ["\\" + line if line.startswith("#") else line for line in lines]
-
-
-def _dh_dest_batch(rels: typing.List[str]) -> typing.List[str]:
-    """:func:`_dh_dest`, applied to every DESTINATION in one pass: two
-    ``str.replace`` calls over every ``rel`` newline-joined, instead of two
-    Python-level calls per entry. Safe for the same reason as
-    :func:`_dh_src_batch` -- every ``rel`` is already known control-free.
-    """
-    if not rels:
-        return []
-    return (
-        "\n".join(rels).replace("${", "${Dollar}{").replace(" ", "${Space}").split("\n")
-    )
-
-
 #: The generated ``fixperms`` script's header. With no pinned entry, this is
 #: the whole file: ``$1`` is required (``${1:?}``, so an unset or empty
 #: argument aborts before any command runs -- an empty ``$d`` would
@@ -210,41 +179,15 @@ class Debian(MultiArtifactFormat):
             for path, _entry, _mode, _owner, _group in resolved:
                 _reject_control(path, "debian")
 
-        # Two passes: gather every SOURCE/DESTINATION that needs debhelper
-        # escaping first, then escape each kind in one batched call
-        # (_dh_src_batch/_dh_dest_batch) instead of once per entry -- safe
-        # now that the batch validation above has already ruled out a
-        # control character (a literal newline included) anywhere in a
-        # path. `is_dirs` is kept alongside each entry's index so the second
-        # pass never has to recompute the entry's type.
-        is_dirs: typing.List[bool] = []
-        dest_inputs: typing.List[str] = []
-        src_indices: typing.List[int] = []
-        src_inputs: typing.List[str] = []
-        for i, (path, entry, mode, owner, group) in enumerate(resolved):
-            is_dir = entry["type"] == FileType.Directory
-            rel = path.lstrip("/")
-            is_dirs.append(is_dir)
-            if is_dir:
-                dest_inputs.append(rel)
-            else:
-                # rel is relative, so this equals posixpath.dirname(rel).
-                dest_inputs.append(rel.rpartition("/")[0].rstrip("/"))
-                src_indices.append(i)
-                src_inputs.append(rel)
-
-        escaped_dests = _dh_dest_batch(dest_inputs)
-        escaped_srcs = _dh_src_batch(src_inputs)
-        srcs_by_index = dict(zip(src_indices, escaped_srcs))
-
         install_lines: typing.List[str] = []
         perm_lines: typing.List[str] = []
         dir_lines: typing.List[str] = []
         fixperms_lines: typing.List[str] = []
-        for i, (path, entry, mode, owner, group) in enumerate(resolved):
+        for path, entry, mode, owner, group in resolved:
             is_symlink = entry["type"] == FileType.Symlink
-            if is_dirs[i]:
-                dline = escaped_dests[i]
+            rel = path.lstrip("/")
+            if entry["type"] == FileType.Directory:
+                dline = _dh_dest(rel)
                 # dh_installdirs, like dh_install, treats a line starting
                 # with "#" as a comment; "./" is a directory-neutral prefix
                 # that keeps the leaf name literal instead of backslash-
@@ -254,7 +197,9 @@ class Debian(MultiArtifactFormat):
                     dline = "./" + dline
                 dir_lines.append(dline)
             else:
-                install_lines.append(f"{srcs_by_index[i]} {escaped_dests[i]}".rstrip())
+                # rel is relative, so the rpartition equals posixpath.dirname.
+                dest = _dh_dest(rel.rpartition("/")[0].rstrip("/"))
+                install_lines.append(f"{_dh_src(rel)} {dest}".rstrip())
             if mode != DEFAULT or owner != DEFAULT or group != DEFAULT:
                 perm_lines.append(f"{path} {mode} {owner} {group}")
                 fixperms_lines.append(
