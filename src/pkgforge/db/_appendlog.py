@@ -23,11 +23,9 @@ try:  # POSIX-only; pkgforge's runtime is Linux-only, but this module (and
 except ImportError:  # pragma: no cover - non-POSIX (Windows dev box)
     fcntl = None
 
+from ..entry import FileEntry
 from ..exceptions import DbError
 from . import Db, DbProvider
-
-if typing.TYPE_CHECKING:
-    from ..entry import FileEntry
 
 
 @contextlib.contextmanager

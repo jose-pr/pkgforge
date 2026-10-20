@@ -308,7 +308,7 @@ class PathMatch(typing.List[PathMatchStmt]):
         self,
         stmts: typing.Iterable[PathMatchStmt],
         root: typing.Optional[Path] = None,
-    ):
+    ) -> None:
         # Absolutized, never resolved (no symlink following).
         self.root = Path(root).absolute() if root is not None else None
         super().__init__(stmts)
@@ -331,7 +331,7 @@ class PathMatch(typing.List[PathMatchStmt]):
         path: typing.Union[str, Path],
         entry: typing.Optional[FileEntry] = None,
         _default: typing.Optional[bool] = None,
-        **overrides,
+        **overrides: typing.Any,
     ) -> typing.Optional[bool]:
         if not self:
             return True

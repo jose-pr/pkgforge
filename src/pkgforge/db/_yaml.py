@@ -7,12 +7,10 @@ import re
 import typing
 from pathlib import Path
 
+from ..entry import FileEntry
 from ..exceptions import DbError
 from . import Db, _check_record, _fields, _format_hint
 from ._appendlog import AppendLogDb
-
-if typing.TYPE_CHECKING:
-    from ..entry import FileEntry
 
 #: The one YAML 1.1 implicit-resolver tag :func:`_yaml_io`'s loader keeps
 #: (every other implicit tag -- int, float, bool, timestamp -- is dropped so

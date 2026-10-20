@@ -4,15 +4,12 @@ from __future__ import annotations
 
 import json
 import typing
+from pathlib import Path
 
+from ..entry import FileEntry
 from ..exceptions import DbError
 from . import Db, _check_record, _fields, _format_hint, _record_ok
 from ._appendlog import AppendLogDb, _read_text
-
-if typing.TYPE_CHECKING:
-    from pathlib import Path
-
-    from ..entry import FileEntry
 
 #: Reused across every line of every load: a bare :func:`json.loads` call
 #: builds a fresh ``JSONDecoder`` (and, for an object, its own regexes) each

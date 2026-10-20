@@ -304,7 +304,7 @@ def entry_from_path(
 
 
 def resolve_entry(
-    entry: FileEntry, path: Path, lookupval: str = AUTO, **overwrite
+    entry: FileEntry, path: Path, lookupval: str = AUTO, **overwrite: typing.Any
 ) -> FileEntry:
     """Replace every field of ``entry`` equal to ``lookupval`` with the
     on-disk value -- a single ``lstat``, and a ``pwd``/``grp`` name lookup

@@ -29,11 +29,8 @@ import typing
 from pathlib import Path
 
 from .._registry import Registered
+from ..entry import FileEntry
 from ..exceptions import DbError, PkgForgeError
-
-if typing.TYPE_CHECKING:
-    from ..entry import FileEntry
-
 
 _LOGGER = logging.getLogger("pkgforge.db")
 
@@ -75,7 +72,7 @@ class DbProvider(Registered, abc.ABC):
     _KIND = "db format"
     _GROUP = "pkgforge.dbs"
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path) -> None:
         self.path = path
 
     def __init_subclass__(cls, **kwargs: typing.Any) -> None:
