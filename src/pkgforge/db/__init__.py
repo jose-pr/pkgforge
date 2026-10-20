@@ -38,8 +38,8 @@ class DbError(PkgForgeError, ValueError):
     chosen format, a JSON Lines line or YAML top-level document that is not a
     mapping, or a record that breaks the schema (see :func:`_check_record`).
     Caught by :func:`pkgforge.main`'s error boundary like any
-    :class:`~pkgforge.errors.PkgForgeError` (one stderr line, exit 1); also a
-    :class:`ValueError`.
+    :class:`~pkgforge.errors.PkgForgeError` (one stderr line, exit 1). A
+    :class:`ValueError` because it reports malformed input.
     """
 
 

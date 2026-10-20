@@ -46,10 +46,20 @@ _TARFILE_HAS_FILTER = hasattr(tarfile, "data_filter")
 
 #: Suffixes stripped from an extracted archive's destination directory name
 #: (``app-1.0.tgz`` -> ``app-1.0``): every :data:`TAR_SUFFIXES` entry plus the
-#: two bsdtar-only formats named on the ``-x``/``--decompress`` KIND list
-#: elsewhere in this module. Matched case-insensitively by
+#: formats only ``bsdtar`` extracts. Matched case-insensitively by
 #: :func:`_archive_dir_name`, longest match first.
-ARCHIVE_SUFFIXES: typing.Tuple[str, ...] = (*TAR_SUFFIXES, ".iso", ".zip")
+ARCHIVE_SUFFIXES: typing.Tuple[str, ...] = (
+    *TAR_SUFFIXES,
+    ".tar.zst",
+    ".tzst",
+    ".tar.lz4",
+    ".tar.lzma",
+    ".tlz",
+    ".tar.lz",
+    ".cpio",
+    ".iso",
+    ".zip",
+)
 
 
 def _archive_dir_name(name: str) -> str:
@@ -59,13 +69,10 @@ def _archive_dir_name(name: str) -> str:
     directory source, which keeps its own name (``conf.tar.d`` stays
     ``conf.tar.d``).
 
-    Matches the longest of :data:`ARCHIVE_SUFFIXES` against ``name.lower()``
-    first. Failing that, falls back to the old ``tar``/``iso`` dot-segment
-    rule (now case-insensitive) for a bsdtar-only tar variant with no fixed
-    suffix list entry, such as ``.tar.zst`` or ``.tar.lz4``: it cuts at the
-    last ``tar`` or ``iso`` segment, preferring ``tar`` when both are
-    present. Never returns an empty name -- a source literally named e.g.
-    ``.tgz``, with nothing before the suffix, keeps it as-is.
+    Matches the longest of :data:`ARCHIVE_SUFFIXES` against ``name.lower()``;
+    a name with none of them is returned unchanged, as is a source
+    literally named e.g. ``.tgz``, with nothing before the suffix (never an
+    empty name).
     """
     low = name.lower()
     matched = max(
@@ -76,17 +83,6 @@ def _archive_dir_name(name: str) -> str:
     if matched is not None and len(name) > len(matched):
         return name[: -len(matched)]
 
-    parts = name.split(".")
-    if len(parts) > 1:
-        suffixes = list(reversed(parts[1:]))
-        lowered = [s.lower() for s in suffixes]
-        for ty in ("tar", "iso"):
-            if ty in lowered:
-                idx = lowered.index(ty)
-                stripped = ".".join([parts[0], *reversed(suffixes[idx + 1 :])])
-                if stripped:
-                    return stripped
-                break
     return name
 
 

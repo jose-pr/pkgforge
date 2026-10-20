@@ -43,7 +43,7 @@ class ExcludeSyntaxError(UsageError, argparse.ArgumentTypeError):
 
     Subclasses both :class:`~pkgforge.errors.UsageError` (so
     ``pkgforge.main()``'s error boundary maps it to a clean one-line message
-    and exit 2, and a Python-API caller catching ``ValueError`` still works)
+    and exit 2; it is also a ``ValueError``)
     and :class:`argparse.ArgumentTypeError` (the only exception type argparse
     itself reports as a usage error rather than letting escape as a
     traceback, since ``--exclude`` is parsed through a ``type=`` converter).
@@ -293,8 +293,8 @@ class PathMatchStmt(argparse.Namespace):
 
         if pattern.startswith("(?"):
             # FilterTestRe stopped matching partway through a "(?...": the
-            # old behavior silently turned the rest into a literal glob
-            # that excluded nothing. A leading "(" meant as a literal
+            # rest would silently become a literal glob that excludes
+            # nothing. A leading "(" meant as a literal
             # character is written as the glob class "[(]" instead.
             raise ExcludeSyntaxError(
                 f"unterminated or malformed inline test in {original!r}"

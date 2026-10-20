@@ -1,6 +1,6 @@
 """``install``'s staging helpers and the :class:`_Staging` mixin holding
 ``Install``'s own staging methods (file/symlink/directory + the top-level
-``install()`` dispatcher)."""
+``_install()`` dispatcher)."""
 
 from __future__ import annotations
 
@@ -110,7 +110,7 @@ def _copy_ignore(
     already-existing destination.
 
     Beyond the ``-X`` filtering (delegated to ``exclude``'s
-    :class:`~pkgforge.exclude.PathMatch`, unchanged from before -- a
+    :class:`~pkgforge.exclude.PathMatch` -- a
     statement whose glob already matched but whose inline test needs a
     file type ``copytree`` cannot give still raises :class:`PkgForgeError`)
     and ``skip`` (paths -- relative to ``src``, as :meth:`Install._self_copy_skips`
@@ -284,12 +284,8 @@ class _Staging(_Transfer):
         resolved target. Never touches ``dst`` itself; see :meth:`_stage_file`.
         """
         if str(src) == DEFAULT or not src:
-            target = self.meta.get("target")
-            if not target:
-                # __call__ already checks this right after type resolution
-                # (before the destination is even computed); this raise
-                # stays for a direct Python-API caller of install() itself.
-                raise UsageError("a symlink with no source needs -O target=PATH")
+            # _resolve has already required meta["target"] for this case.
+            target = self.meta["target"]
             copystat_from = None
         else:
             target = os.fspath(src.readlink())
@@ -472,7 +468,7 @@ class _Staging(_Transfer):
             raise
         return dst
 
-    def install(self, src: Path, dst: Path) -> Path:
+    def _install(self, src: Path, dst: Path) -> Path:
         """Stage ``src`` at ``dst`` and return the path holding the final
         content: either ``dst`` itself (nothing further to do -- a merge,
         an in-place no-op, or an already-empty directory) or a sibling temp

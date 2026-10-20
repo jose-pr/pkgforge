@@ -49,8 +49,7 @@ tool's last stderr line.
   failures; caught by `main()` and mapped to exit 1.
 - **`UsageError(PkgForgeError, ValueError)`** — an argument-shaped mistake
   (a bad or missing value); caught by `main()` and mapped to exit 2. Also a
-  `ValueError`, so existing `except ValueError`/`pytest.raises(ValueError)`
-  code keeps working. Raised by `install` for: a missing source, a `-`
+  `ValueError`, since it reports malformed input. Raised by `install` for: a missing source, a `-`
   (stdin) source without `-T`/`-D`, a symlink source/type with no target
   (no `-O target=PATH`), an unresolvable stdin compression kind, a
   `--decompress` value that looks like a path, and an unknown `--chown`
@@ -197,8 +196,8 @@ tool's last stderr line.
   undecodable file name, or a `pwd`/`grp` entry containing one — `sqlite3`
   encodes `str` parameters strictly). The message names the DB file (and,
   for `jsonl`, the line number). Caught by `main()`'s error boundary
-  like any `PkgForgeError` (one stderr line, exit 1); also a `ValueError`, so
-  an existing `except ValueError` caller is unaffected. `jsonl`/`yaml` text
+  like any `PkgForgeError` (one stderr line, exit 1); also a `ValueError`
+  (malformed input). `jsonl`/`yaml` text
   I/O is always UTF-8, regardless of locale; an append to a DB whose last
   line lacks a trailing newline (e.g. a hand edit) repairs it first instead
   of fusing the new record onto the old one.
@@ -501,7 +500,7 @@ above).
   `Install` class itself), `install/decompress.py` (the `-x`/`--decompress`
   KIND table), `install/archive.py` (the tar-family/bsdtar extraction policy),
   `install/staging.py` (the `_Staging` mixin: `Install`'s own file/symlink/
-  directory staging methods, plus `install()` itself), `install/record.py`
+  directory staging methods, plus `_install()` itself), `install/record.py`
   (the `_RecordTree` mixin: `--record-tree` plus the walk itself, built on
   the shared `pkgforge._tree.TreeRecorder`) —
   stage a source (file / directory / symlink / tar-family archive /
@@ -511,9 +510,9 @@ above).
   source, same as leaving `-t` unset. Without `-T`, an extracted archive
   lands at `DESTINATION/<name minus its archive suffix>` (`.tar`,
   `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz2`/`.tbz`, `.tar.xz`/`.txz`, `.iso`,
-  `.zip`, matched case-insensitively, longest suffix first; a bsdtar-only
-  tar variant with no fixed entry, e.g. `.tar.zst`, falls back to cutting
-  at the last `tar`/`iso` dot-segment); a directory source keeps its own
+  `.tar.zst`/`.tzst`, `.tar.lz4`, `.tar.lzma`/`.tlz`, `.tar.lz`, `.cpio`,
+  `.zip`, matched case-insensitively, longest suffix first; any other name
+  is unchanged); a directory source keeps its own
   name unchanged (`conf.tar.d` stays `conf.tar.d`).
   `-x`/`--decompress [KIND]` accepts `gz`, `xz`, `bz2`, `zst`, `lzma`
   (matched case-insensitively; a tool name such as `unxz` is not a kind); any other

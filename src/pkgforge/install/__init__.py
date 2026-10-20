@@ -273,9 +273,9 @@ class Install(FileEntryArgs, ExcludeArgs, _RecordTree, PkgForgeCmd, _Staging):
         ):
             # Checked here, right after type resolution: before the
             # destination is computed, before any -p mkdir, and before
-            # install() reaches its own check. On Windows a "/"-rooted
+            # _install() reaches its own check. On Windows a "/"-rooted
             # destination fails inside buildpath() (and -p would mkdir
-            # outside the build root) before install() ever runs.
+            # outside the build root) before _install() ever runs.
             if not self.meta.get("target"):
                 raise UsageError("a symlink with no source needs -O target=PATH")
 
@@ -370,7 +370,7 @@ class Install(FileEntryArgs, ExcludeArgs, _RecordTree, PkgForgeCmd, _Staging):
     def _stage(self, dest: Path) -> None:
         """Stage this clone's source at ``dest`` and record its entry.
 
-        ``install()`` returns either ``dest`` itself (nothing further to
+        ``_install()`` returns either ``dest`` itself (nothing further to
         swap) or a sibling temp; the entry is applied to whichever of the
         two actually holds the content, and only then is the temp (if any)
         replaced onto ``dest`` -- so a failed chmod/chown/record leaves an
@@ -407,7 +407,7 @@ class Install(FileEntryArgs, ExcludeArgs, _RecordTree, PkgForgeCmd, _Staging):
     def _stage_into(self, dest: Path) -> None:
         """Stage this clone's source at ``dest`` (whose parent exists), apply
         and record its entry, then honour ``--remove-source``."""
-        staged = self.install(self.source, dest)
+        staged = self._install(self.source, dest)
         try:
             fileentry = entry_from_args(self)
             fileentry = resolve_entry(fileentry, staged)

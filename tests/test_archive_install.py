@@ -791,6 +791,12 @@ def test_tar_as_root_drops_owner(tmp_path):
         ".iso",
         ".zip",
         ".tar.zst",
+        ".tzst",
+        ".tar.lz4",
+        ".tar.lzma",
+        ".tlz",
+        ".tar.lz",
+        ".cpio",
     ],
 )
 def test_archive_dir_name(suffix):

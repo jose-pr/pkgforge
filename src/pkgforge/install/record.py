@@ -1,7 +1,7 @@
 """``install --record-tree``: after staging a directory or archive
 DESTINATION, also record every path below it that the DB does not already
-hold -- replacing the ``scan --missing`` step the shipped recipe used to
-need for a tree ``install`` itself just staged.
+hold, so no separate ``scan --missing`` step is needed for a tree
+``install`` itself just staged.
 """
 
 from __future__ import annotations

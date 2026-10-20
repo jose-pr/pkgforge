@@ -22,7 +22,6 @@ class UsageError(PkgForgeError, ValueError):
     """An argument-shaped mistake (a bad or missing value the caller gave).
 
     Caught by :func:`pkgforge.main`'s error boundary and mapped to exit 2,
-    like an argparse usage error. Subclasses :class:`ValueError` so existing
-    ``pytest.raises(ValueError, ...)`` tests, and any Python-API caller
-    catching ``ValueError``, keep working unchanged.
+    like an argparse usage error. Subclasses :class:`ValueError` because it
+    reports malformed input.
     """

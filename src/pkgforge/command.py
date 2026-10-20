@@ -225,7 +225,7 @@ class PkgForgeCmd(LoggingArgs, Cmd):
         # breaks PurePosixPath parsing -- self.buildpath() builds exactly
         # such a "/"-rooted Path for _stage()'s re-check. A plain str (scan's
         # PATH) is already posix-shaped text from the caller, so it goes
-        # through PurePosixPath directly, as before.
+        # through PurePosixPath directly.
         if isinstance(path, PurePath):
             posix_path = path.as_posix()
         else:
