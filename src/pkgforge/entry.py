@@ -59,14 +59,11 @@ _RPM_EXPANSION_RE = re.compile(RPM_EXPANSION_PATTERN)
 
 class FileType(str, enum.Enum):
     """The three on-disk kinds pkgforge stages/records: ``File``, ``Directory``,
-    ``Symlink``. The sentinel member ``_AUTO`` (value :data:`AUTO`) means
-    "determine from the file on disk"; :meth:`from_path` does that lookup."""
+    ``Symlink``. :meth:`from_path` looks one up from a file on disk."""
 
     File = "file"
     Directory = "directory"
     Symlink = "symlink"
-    #: Placeholder meaning "determine the type from the file on disk".
-    _AUTO = AUTO
 
     @classmethod
     def from_path(cls, path: Path) -> FileType:
@@ -140,18 +137,16 @@ def _normalize_field(value: typing.Union[str, typing.List[str]]) -> str:
     return value
 
 
-def normalize_mode(value: typing.Union[str, int, typing.List[str]]) -> str:
+def normalize_mode(value: typing.Union[str, typing.List[str]]) -> str:
     """Normalize a ``mode`` value to an octal permission string.
 
-    An ``int`` is rendered via :func:`mode_to_octal`. ``-``/``""`` mean
+    ``-``/``""`` mean
     :data:`DEFAULT`; ``--``, ``auto`` (mode only -- ``owner``/``group`` get no
     such alias, since ``auto`` can be a real account name) or Python 3.9's
     stripped ``[]`` mean :data:`AUTO`. A string of 1-4 octal digits is
     normalized (``"0644"`` -> ``"644"``). Anything else raises
     :class:`UsageError`.
     """
-    if isinstance(value, int):
-        return mode_to_octal(value)
     value = _normalize_field(value)
     if value == AUTO or value == "auto":
         return AUTO
@@ -227,21 +222,26 @@ def _or_default(value: str) -> str:
     return value if value else DEFAULT
 
 
+def _is_auto(value: typing.Any) -> bool:
+    """True for an unset ``--type``: :data:`DEFAULT`, :data:`AUTO`, or Python
+    3.9's stripped ``[]`` (an attached ``--``)."""
+    return value == DEFAULT or value == AUTO or value == []
+
+
 def _filetype(value: typing.Union[str, FileType]) -> typing.Union[FileType, str]:
     """Normalize a ``--type`` value.
 
-    ``-`` means :data:`DEFAULT` (auto-detect from the source); ``--`` or
-    :attr:`FileType._AUTO` means :data:`AUTO` (the explicit auto-detect
-    sentinel). The value or member name of ``File``, ``Directory`` or
+    ``-`` means :data:`DEFAULT` (auto-detect from the source); ``--`` means
+    :data:`AUTO` (the explicit auto-detect sentinel). The value or member name of ``File``, ``Directory`` or
     ``Symlink``, matched case-insensitively, returns that member. Anything
-    else -- including ``auto``/``_AUTO``, which name the sentinel member but
-    are not a documented spelling of it -- raises :class:`UsageError`.
+    else -- including ``auto``, which is not a spelling of the sentinel --
+    raises :class:`UsageError`.
     """
     if value == DEFAULT:
         return DEFAULT
-    if value == AUTO or value == FileType._AUTO:
+    if value == AUTO:
         return AUTO
-    if isinstance(value, FileType) and value != FileType._AUTO:
+    if isinstance(value, FileType):
         return value
     if isinstance(value, str):
         for member in (FileType.File, FileType.Directory, FileType.Symlink):
@@ -453,7 +453,7 @@ def apply_entry(
             if logger:
                 logger.debug("Not setting mode on symlink %s (Linux ignores it)", path)
         else:
-            mode_int = int(mode, 8) if isinstance(mode, str) else mode
+            mode_int = int(mode, 8)
             if logger:
                 logger.debug("Setting mode for %s to %o", path, mode_int)
             if os.chmod in os.supports_follow_symlinks:

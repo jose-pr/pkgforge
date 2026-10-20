@@ -229,7 +229,7 @@ def measure():
                 shutil.copytree(template, src, dirs_exist_ok=True)
                 buildroot = Path(tempfile.mkdtemp(dir=td))
                 kwargs = dict(
-                    source=src,
+                    source=[src],
                     destination=Path("/tree"),
                     buildroot=buildroot,
                     db=db_path,

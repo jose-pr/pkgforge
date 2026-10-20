@@ -104,9 +104,9 @@ tool's last stderr line.
     symlink's mode is never set on disk (skipped via `lstat`; Linux ignores
     it) — only its owner/group, and only its recorded `entry["mode"]`, are
     unaffected by this.
-  - **`normalize_mode(value: str | int | list) -> str`** — normalize a
-    `mode` value to an octal permission string. An `int` renders via
-    `mode_to_octal`; `"-"`/`""` mean `DEFAULT`; `"--"`, `"auto"` or Python
+  - **`normalize_mode(value: str | list) -> str`** — normalize a
+    `mode` value to an octal permission string; an `int` is not a mode and
+    raises `UsageError`. `"-"`/`""` mean `DEFAULT`; `"--"`, `"auto"` or Python
     3.9's stripped `[]` mean `AUTO`; a string of 1-4 octal digits normalizes
     (`"0644"` -> `"644"`). Anything else raises `UsageError`. `auto` is a
     mode-only alias — `owner`/`group` get none, since `auto` can be a real
@@ -146,11 +146,10 @@ tool's last stderr line.
   explicitly as `--buildroot /`/`PKGFORGE_ROOT=/`; an unset/empty build root
   from the Python API also raises). The three env vars are read when
   `pkgforge.main()`/`duho.parse` runs (precedence CLI > env > the class
-  default), not once at import time; a bare `_parser_().parse_args()` does
-  **not** apply them (duho's env layer lives in `main`/`parse`, not raw
-  argparse); a command constructed directly in Python (not through
-  `main()`/`parse`) uses each var's value **as of import** (its own class
-  default), same as before. An empty value counts as unset for all three.
+  default); a bare `_parser_().parse_args()` does **not** apply them
+  (duho's env layer lives in `main`/`parse`, not raw argparse), and a command
+  constructed directly in Python ignores the environment and uses the literal
+  defaults. An empty value counts as unset for all three.
   Each leaf command declares `_logger_name_ = "pkgforge.<command>"`
   (`pkgforge.install`, `pkgforge.scan`, `pkgforge.dbdump`, `pkgforge.initdb`,
   `pkgforge.compact`), so `logging.getLogger("pkgforge")` controls every

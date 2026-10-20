@@ -332,7 +332,7 @@ def test_api_bad_mode_stages_nothing(tmp_path):
 
     inst = Install(
         mode="0o644",
-        source=src,
+        source=[src],
         destination=Path("/etc"),
         buildroot=root,
         db=db,
@@ -403,21 +403,32 @@ def test_install_mode_normalized_and_resolved(tmp_path):
 # --------------------------------------------------------------------------
 
 
-def test_help_hides_private_type_sentinel():
+def test_scan_help_lists_no_type_option():
     import re
 
-    from pkgforge.install import Install
     from pkgforge.scan import ScanCmd
 
-    assert "_AUTO" not in Install._parser_().format_help()
     scan_help = ScanCmd._parser_().format_help()
-    assert "_AUTO" not in scan_help
-    # The class docstring itself mentions "--type/-t" in prose; only the
-    # OPTIONS listing (after that heading -- "options:" on 3.10+, "optional
-    # arguments:" on 3.9) must omit the flag.
+    # "options:" on 3.10+, "optional arguments:" on 3.9.
     heading = re.search(r"\n(?:optional arguments|options):\n", scan_help)
     assert heading, scan_help
     assert "--type" not in scan_help[heading.end() :]
+
+
+def test_filetype_has_three_members():
+    assert list(FileType) == [FileType.File, FileType.Directory, FileType.Symlink]
+
+
+def test_normalize_mode_rejects_int():
+    with pytest.raises(UsageError):
+        normalize_mode(0o644)
+
+
+def test_install_rejects_non_list_source(tmp_path):
+    from pkgforge.install import Install
+
+    with pytest.raises(UsageError, match="list"):
+        Install(source=tmp_path / "x", destination=Path("/a"))
 
 
 @pytest.mark.parametrize(
@@ -471,8 +482,8 @@ def test_install_type_auto_sentinel_detects(tmp_path):
     )()
 
     inst = Install(
-        type=FileType._AUTO,
-        source=src,
+        type=AUTO,
+        source=[src],
         destination=Path("/b"),
         buildroot=root,
         db=db,

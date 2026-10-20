@@ -36,6 +36,7 @@ from ..entry import (
     normalize_name,
     resolve_entry,
     _filetype,
+    _is_auto,
     _parse_filetype,
 )
 from ..command import PkgForgeCmd, _as_path, parsepath
@@ -111,10 +112,9 @@ class Install(FileEntryArgs, ExcludeArgs, _RecordTree, PkgForgeCmd, _Staging):
     # Declared as a plain ``List[Path]``, not a ``Union[List[Path], Path]``:
     # duho resolves a union by composing its members' scalar factories, so a
     # collection member (which needs its own argparse action) is rejected at
-    # parser-build time. ``__call__`` still accepts a bare ``Path`` from the
-    # Python API -- it fans a list out into one clone per source and each
-    # clone carries a scalar.
-    #: One or more source paths; a bare ``Path`` is accepted from the Python API.
+    # parser-build time. ``__call__`` fans the list out into one clone per
+    # source, and each clone carries a scalar.
+    #: One or more source paths.
     source: duho.Arg[
         typing.List[Path],
         duho.Meta(type=parsepath, nargs="+"),
@@ -143,10 +143,9 @@ class Install(FileEntryArgs, ExcludeArgs, _RecordTree, PkgForgeCmd, _Staging):
         if decompress is None or decompress == "-":
             kwargs["decompress"] = True
         super().__init__(**kwargs)
-        if isinstance(self.source, list):
-            self.source = [_as_path(item, "source") for item in self.source]
-        else:
-            self.source = _as_path(self.source, "source")
+        if not isinstance(self.source, list):
+            raise UsageError("source must be a list of paths")
+        self.source = [_as_path(item, "source") for item in self.source]
         if hasattr(self, "destination"):
             self.destination = _as_path(self.destination, "destination")
 
@@ -224,7 +223,7 @@ class Install(FileEntryArgs, ExcludeArgs, _RecordTree, PkgForgeCmd, _Staging):
         checks entirely.
         """
         source = self.source
-        if self.type not in (DEFAULT, AUTO, FileType._AUTO, []):
+        if not _is_auto(self.type):
             type_ = _filetype(self.type)
         elif source and source != DEFAULT and Path(source).is_symlink():
             type_ = FileType.Symlink
@@ -260,7 +259,7 @@ class Install(FileEntryArgs, ExcludeArgs, _RecordTree, PkgForgeCmd, _Staging):
                 "destination file name"
             )
 
-        if self.type in (DEFAULT, AUTO, FileType._AUTO, []):
+        if _is_auto(self.type):
             self._logger_.debug("Determining type from source")
             if self.source and self.source != DEFAULT:
                 self.type = _detect_source_type(self.source)
@@ -473,49 +472,44 @@ class Install(FileEntryArgs, ExcludeArgs, _RecordTree, PkgForgeCmd, _Staging):
                 self.source.unlink()
 
     def __call__(self):
-        if isinstance(self.source, list):
-            if sum(1 for s in self.source if str(s) == DEFAULT) > 1:
-                raise UsageError("only one source may read stdin ('-') per invocation")
+        if sum(1 for s in self.source if str(s) == DEFAULT) > 1:
+            raise UsageError("only one source may read stdin ('-') per invocation")
 
-            # Resolve every clone (type, decompress kind, destination --
-            # writes no file) before staging any of them, so a collision
-            # between two sources -- or a bad argument on a later source --
-            # is caught with nothing on disk yet.
-            resolved: typing.List[typing.Tuple["Install", Path]] = []
-            for source in self.source:
-                cloned = dict(self._get_kwargs())
-                cloned["source"] = source
-                # Each clone owns its meta dict: the symlink branch already
-                # rebinds rather than mutates, but a fresh copy per clone is
-                # cheap defense in depth against any other future writer.
-                cloned["meta"] = dict(cloned.get("meta") or {})
-                inst = Install(**cloned)
-                inst._preflight()
-                resolved.append((inst, inst._resolve()))
+        # Resolve every clone (type, decompress kind, destination --
+        # writes no file) before staging any of them, so a collision
+        # between two sources -- or a bad argument on a later source --
+        # is caught with nothing on disk yet.
+        resolved: typing.List[typing.Tuple["Install", Path]] = []
+        for source in self.source:
+            cloned = dict(self._get_kwargs())
+            cloned["source"] = [source]
+            # Each clone owns its meta dict: the symlink branch already
+            # rebinds rather than mutates, but a fresh copy per clone is
+            # cheap defense in depth against any other future writer.
+            cloned["meta"] = dict(cloned.get("meta") or {})
+            inst = Install(**cloned)
+            inst.source = source
+            inst._preflight()
+            resolved.append((inst, inst._resolve()))
 
-            by_dest: typing.Dict[Path, typing.List["Install"]] = {}
-            for inst, dest in resolved:
-                by_dest.setdefault(dest, []).append(inst)
-            for dest, insts in by_dest.items():
-                if len(insts) < 2:
-                    continue
-                names = sorted({os.fspath(i.source) for i in insts})
-                if len(names) == 1:
-                    continue  # the same source path, harmlessly repeated
-                if all(i.type == FileType.Directory for i in insts):
-                    continue  # directory (and archive) sources merge
-                raise UsageError(
-                    f"{', '.join(names)} all resolve to {dest}; only "
-                    "directory sources may share a destination"
-                )
+        by_dest: typing.Dict[Path, typing.List["Install"]] = {}
+        for inst, dest in resolved:
+            by_dest.setdefault(dest, []).append(inst)
+        for dest, insts in by_dest.items():
+            if len(insts) < 2:
+                continue
+            names = sorted({os.fspath(i.source) for i in insts})
+            if len(names) == 1:
+                continue  # the same source path, harmlessly repeated
+            if all(i.type == FileType.Directory for i in insts):
+                continue  # directory (and archive) sources merge
+            raise UsageError(
+                f"{', '.join(names)} all resolve to {dest}; only "
+                "directory sources may share a destination"
+            )
 
-            for inst, dest in resolved:
-                inst._stage(dest)
-            return
-
-        self._preflight()
-        dest = self._resolve()
-        self._stage(dest)
+        for inst, dest in resolved:
+            inst._stage(dest)
 
 
 Install._register()

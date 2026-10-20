@@ -99,7 +99,7 @@ _BAD_MODES_RE = re.compile(rf"^(?!(?:{MODE_PATTERN})$).+", re.M)
 #: Finds a key that is not an absolute path with no empty, ``.`` or ``..``
 #: segment (the key ``/`` alone is allowed), over newline-joined keys.
 _BAD_KEYS_RE = re.compile(r"^(?!/)|//|/\.\.?(?:/|$)|(?<=.)/$", re.M)
-_FILE_TYPES = frozenset(member.value for member in FileType if member != FileType._AUTO)
+_FILE_TYPES = frozenset(member.value for member in FileType)
 
 
 def _reject_control(path: str, fmt: str) -> None:

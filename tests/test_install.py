@@ -153,7 +153,7 @@ def test_install_direct_construction_does_not_decompress_path():
     # Cross-platform: constructing Install() directly (not through the
     # parser) with no `decompress=` must keep the documented default
     # (False), not silently infer decompression the way a bare CLI -x does.
-    inst = Install(source=Path("a.txt"), destination=Path("opt"))
+    inst = Install(source=[Path("a.txt")], destination=Path("opt"))
     assert inst.decompress is False
 
 
@@ -166,8 +166,7 @@ def test_install_direct_construction_does_not_decompress_list():
 def test_install_direct_construction_never_runs_source(tmp_path):
     # Before the fix, leaving `decompress` out made __call__ infer a
     # decompressor from the source's suffix and run it as a subprocess --
-    # for a `.sh` source that means executing it. Guard both the bare-Path
-    # and the list form.
+    # for a `.sh` source that means executing it.
     root = tmp_path / "root"
     root.mkdir()
     marker = tmp_path / "marker"
@@ -175,19 +174,16 @@ def test_install_direct_construction_never_runs_source(tmp_path):
     src.write_text(f"#!/bin/sh\ntouch {marker}\necho ran\n")
     src.chmod(src.stat().st_mode | stat.S_IEXEC)
 
-    for source in (src, [src]):
-        if marker.exists():
-            marker.unlink()
-        Install(
-            source=source,
-            destination=Path("/usr/bin"),
-            buildroot=root,
-            parents=True,
-            db=None,
-        )()
-        assert not marker.exists()
-        staged = root / "usr" / "bin" / "hello.sh"
-        assert staged.read_bytes() == src.read_bytes()
+    Install(
+        source=[src],
+        destination=Path("/usr/bin"),
+        buildroot=root,
+        parents=True,
+        db=None,
+    )()
+    assert not marker.exists()
+    staged = root / "usr" / "bin" / "hello.sh"
+    assert staged.read_bytes() == src.read_bytes()
 
 
 # --------------------------------------------------------------------------
@@ -762,7 +758,7 @@ def test_install_symlink_meta_does_not_leak(tmp_path):
     from pkgforge.entry import FileEntryArgs
 
     Install(
-        source=link, destination=Path("/opt3"), buildroot=root, parents=True, db=None
+        source=[link], destination=Path("/opt3"), buildroot=root, parents=True, db=None
     )()
     assert FileEntryArgs.meta == {}
 
@@ -1193,7 +1189,7 @@ def test_install_bad_args_touch_nothing(tmp_path, bad):
     src.write_text("data")
 
     kwargs = dict(
-        source=src,
+        source=[src],
         destination=Path("/etc"),
         buildroot=root,
         parents=True,
@@ -1722,7 +1718,7 @@ def test_install_falsy_buildroot_refused(tmp_path, monkeypatch, buildroot):
 
     with pytest.raises(UsageError):
         Install(
-            source=src,
+            source=[src],
             destination=Path("/etc/f"),
             buildroot=buildroot,
             parents=True,
