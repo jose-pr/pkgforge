@@ -7,6 +7,11 @@ import re
 from ..entry import DEFAULT, FileEntry, FileType
 from . import Entries, PerEntryFormat, DumpError, _has_control, _reject_control
 
+#: Plain strings, compared with a DB's own (str) type values: cheaper per
+#: entry than a ``FileType`` member comparison, and equal to the members.
+_DIRECTORY = FileType.Directory.value
+_SYMLINK = FileType.Symlink.value
+
 
 def _rpm_reject(path: str) -> None:
     """Raise :class:`DumpError` if ``path`` cannot be represented in an rpm
@@ -143,10 +148,11 @@ class RpmSpecFiles(PerEntryFormat):
             prefix = entry["meta"].get("rpmprefix") or ""
             if prefix:
                 prefix += " "
-            if entry["type"] == FileType.Directory:
+            kind = entry["type"]
+            if kind == _DIRECTORY:
                 prefix += "%dir "
             # rpm warns on an explicit mode for a symlink, which it ignores.
-            if entry["type"] == FileType.Symlink:
+            if kind == _SYMLINK:
                 mode = DEFAULT
             else:
                 mode = entry["mode"] or DEFAULT
