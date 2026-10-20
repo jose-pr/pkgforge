@@ -134,18 +134,18 @@ class PkgForgeCmd(LoggingArgs, Cmd):
     db: duho.Arg[
         typing.Optional[Path],
         duho.Meta(env="PKGFORGE_DB", type=_env_path, metavar="PATH"),
-    ] = _env_path(os.environ.get("PKGFORGE_DB", ""))
+    ] = None
     "file DB path (env PKGFORGE_DB); '-' (or unset, for install/scan) writes records to stdout, and dbdump reads them from stdin"
     ("--db",)
     db_format: duho.Arg[
         typing.Optional[str],
         duho.Meta(env="PKGFORGE_DB_FORMAT", type=_env_str, metavar="FORMAT"),
-    ] = _env_str(os.environ.get("PKGFORGE_DB_FORMAT", ""))
+    ] = None
     "storage backend: jsonl, yaml, sqlite, or a registered DbProvider subclass's NAME (env PKGFORGE_DB_FORMAT); else inferred from the --db suffix"
     ("--db-format",)
     buildroot: duho.Arg[
         Path, duho.Meta(env="PKGFORGE_ROOT", type=_env_root, metavar="DIR")
-    ] = _env_root(os.environ.get("PKGFORGE_ROOT", ""))
+    ] = Path(".")
     "staging root that maps to '/' in the DB (env PKGFORGE_ROOT; default '.')"
     ("--buildroot", "-r")
 

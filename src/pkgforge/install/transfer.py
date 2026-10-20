@@ -11,12 +11,9 @@ from pathlib import Path
 def _env_method(value: str) -> str:
     """Env-var/CLI value -> an install method (one of :data:`_INSTALL_METHODS`).
 
-    Empty means unset, the same as :meth:`PkgForgeCmd.db`'s own env fields:
-    giving this a non-``str`` ``type=`` converter (even though it's just an
-    ``str -> str`` identity otherwise) is what makes duho's "empty env value
-    means unset" rule apply to it -- a bare ``str``-typed field would keep an
-    explicitly-empty ``PKGFORGE_INSTALL_METHOD=`` as a real, choices-checked
-    value instead of falling through to the default.
+    Empty means unset: a non-``str`` ``type=`` converter is what makes duho's
+    "empty env value means unset" rule apply, where a bare ``str`` field would
+    keep an empty ``PKGFORGE_INSTALL_METHOD=`` as a value to check.
     """
     return value if value else "copy"
 

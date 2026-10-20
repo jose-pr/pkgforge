@@ -66,38 +66,22 @@ def test_env_root_read_at_main_time(tmp_path, monkeypatch):
     assert (root / "etc" / "src").exists()
 
 
-def test_direct_construction_keeps_import_env(tmp_path):
-    # Guard (subprocess, since the env must be set BEFORE `import pkgforge`
-    # for the import-time snapshot to see it): a command built directly in
-    # Python, not through main()/duho.parse, must keep resolving PKGFORGE_DB
-    # the way it always has -- from the environment at import time.
-    db = tmp_path / "start.jsonl"
-    script = (
-        "import pkgforge\n"
-        "from pkgforge.initdb import InitDb\n"
-        "print(InitDb().db)\n"
-    )
-    env = dict(os.environ)
-    for name in (
-        "PKGFORGE_ROOT",
-        "PKGFORGE_DB_FORMAT",
-        "PKGFORGE_MCP",
-        "PKG_FORGE_MCP",
-        "AGENT_HELP",
-        "AGENTS_HELP",
-    ):
-        env.pop(name, None)
-    env["PKGFORGE_DB"] = str(db)
+def test_direct_construction_ignores_env(tmp_path, monkeypatch):
+    # Env is read only while duho parses a command line; a command built
+    # directly in Python keeps its literal defaults.
+    monkeypatch.setenv("PKGFORGE_DB", str(tmp_path / "x.jsonl"))
+    monkeypatch.setenv("PKGFORGE_DB_FORMAT", "yaml")
+    monkeypatch.setenv("PKGFORGE_ROOT", str(tmp_path / "r"))
+    monkeypatch.setenv("PKGFORGE_INSTALL_METHOD", "move")
+    monkeypatch.setenv("PKGFORGE_INSTALL_RECORD_TREE", "1")
+    from pkgforge.install import Install
 
-    result = subprocess.run(
-        [sys.executable, "-c", script],
-        env=env,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-
-    assert result.stdout.strip() == str(db)
+    cmd = Install(source=[tmp_path / "s"], destination="/x")
+    assert cmd.db is None
+    assert cmd.db_format is None
+    assert cmd.buildroot == Path(".")
+    assert cmd.method == "copy"
+    assert cmd.record_tree is False
 
 
 @pytest.mark.parametrize("mode", ["subprocess", "main"])

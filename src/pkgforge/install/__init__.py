@@ -67,7 +67,7 @@ class Install(FileEntryArgs, ExcludeArgs, _RecordTree, PkgForgeCmd, _Staging):
             choices=_INSTALL_METHODS,
             metavar="METHOD",
         ),
-    ] = _env_method(os.environ.get("PKGFORGE_INSTALL_METHOD", ""))
+    ] = "copy"
     (
         "how to stage a file or directory source: copy (default) or, to "
         "avoid re-copying a build output you already have on disk, link "

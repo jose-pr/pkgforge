@@ -6,7 +6,6 @@ need for a tree ``install`` itself just staged.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import duho
@@ -14,18 +13,6 @@ import duho
 from .. import _tree
 from ..entry import AUTO, DEFAULT, FileEntry, FileType, _normalize_field
 from ..exclude import PathMatch
-
-
-def _env_flag(value: str) -> bool:
-    """Env-var default for :attr:`_RecordTree.record_tree`: truthy tokens
-    only (``1 true yes on y t``, case-insensitive; anything else, including
-    empty/unset, is ``False``). Used only for the class default -- a direct
-    Python-API construction bypasses duho's own strict CLI/env bool parsing
-    entirely (the same reason :func:`~pkgforge.install.transfer._env_method`
-    exists), so this never raises for a bogus value, unlike duho's own
-    resolution through ``main()``/``parse``, which exits 2.
-    """
-    return value.strip().lower() in ("1", "true", "yes", "on", "y", "t")
 
 
 class _RecordTree(duho.Cmd):
@@ -37,9 +24,7 @@ class _RecordTree(duho.Cmd):
     ``loaddb``/``add_entry``/``buildpath``.
     """
 
-    record_tree: duho.Arg[bool, duho.Meta(env="PKGFORGE_INSTALL_RECORD_TREE")] = (
-        _env_flag(os.environ.get("PKGFORGE_INSTALL_RECORD_TREE", ""))
-    )
+    record_tree: duho.Arg[bool, duho.Meta(env="PKGFORGE_INSTALL_RECORD_TREE")] = False
     (
         "after installing a directory or archive DESTINATION, also record "
         "every path below it not already in the DB: owner/group/meta from "

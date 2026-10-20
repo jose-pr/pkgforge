@@ -1,40 +1,16 @@
 """Shared pytest fixtures and markers for the pkgforge test suite.
 
-Hermeticity: ``pkgforge.command`` binds ``PKGFORGE_ROOT``/``PKGFORGE_DB``/
-``PKGFORGE_DB_FORMAT`` into class defaults AT IMPORT TIME, so a developer
-shell that exports the README's env vars -- or a stray ``PKGFORGE_DB_FORMAT``
--- would otherwise change what the suite does, and duho's MCP/agent-help
-triggers would make ``main()`` serve MCP or print agent help instead of running
-a command. This module pops all of them BEFORE the first ``import pkgforge``
-anywhere in the process: pytest always imports a directory's ``conftest.py``
-before collecting its test modules, so this runs first. Keep the pop here, at MODULE level, not
-inside a fixture -- a fixture runs per-test, long after the class defaults are
-already bound.
+Hermeticity: a developer shell that exports the README's env vars would change
+what the suite does, and duho's MCP/agent-help triggers would make ``main()``
+serve MCP or print agent help instead of running a command. The autouse
+``_isolated_env`` fixture removes them around every test.
 """
 
 from __future__ import annotations
 
-import os
-
-#: Env vars that change what an in-process ``main()`` does: pkgforge's own
-#: configuration, plus duho's triggers that would serve MCP or print agent help
-#: instead of running the command.
-SCRUBBED_ENV = (
-    "PKGFORGE_ROOT",
-    "PKGFORGE_DB",
-    "PKGFORGE_DB_FORMAT",
-    "PKGFORGE_MCP",
-    "PKG_FORGE_MCP",
-    "PKGFORGE_TRACEBACK",
-    "AGENT_HELP",
-    "AGENTS_HELP",
-)
-
-for _name in SCRUBBED_ENV:
-    os.environ.pop(_name, None)
-
 import errno
 import logging
+import os
 import typing
 from pathlib import Path
 
@@ -43,6 +19,22 @@ import pytest
 import pkgforge
 from pkgforge.entry import FileEntry
 from pkgforge.command import PkgForgeCmd
+
+#: Env vars that change what an in-process ``main()`` does: pkgforge's own
+#: configuration, plus duho's triggers that would serve MCP or print agent help
+#: instead of running the command.
+SCRUBBED_ENV = (
+    "PKGFORGE_ROOT",
+    "PKGFORGE_DB",
+    "PKGFORGE_DB_FORMAT",
+    "PKGFORGE_INSTALL_METHOD",
+    "PKGFORGE_INSTALL_RECORD_TREE",
+    "PKGFORGE_MCP",
+    "PKG_FORGE_MCP",
+    "PKGFORGE_TRACEBACK",
+    "AGENT_HELP",
+    "AGENTS_HELP",
+)
 
 
 def skip_if_fs_rejects_non_utf8(dirpath: Path) -> None:
@@ -78,13 +70,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items) -> None:
 
 @pytest.fixture(autouse=True)
 def _isolated_env(monkeypatch: pytest.MonkeyPatch):
-    """Scrub ``SCRUBBED_ENV`` around every test.
-
-    The module-level pop above only guards the one-time import-time binding;
-    this additionally protects a test that reads the environment
-    directly (e.g. a subprocess test that forgets to override one of the
-    three), and stays correct once env resolution moves to parse time.
-    """
+    """Scrub ``SCRUBBED_ENV`` around every test."""
     for name in SCRUBBED_ENV:
         monkeypatch.delenv(name, raising=False)
     yield
