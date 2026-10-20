@@ -19,6 +19,8 @@ from pathlib import Path, PurePath, PurePosixPath
 from . import dbdump
 from ._install import _Installer
 from ._scan import scan as _scan
+from .config import ProjectConfig
+from .config import load as _load_config
 from .db import Db, DbProvider, open_db
 from .entry import (
     DEFAULT,
@@ -76,8 +78,13 @@ class Project:
     DB paths (``dest``, a scan ``path``, a DB key) are ``/``-rooted POSIX
     text; local paths are :data:`~pkgforge.entry.StrPath`.
 
+    ``config`` is the parsed ``pkgforge.cfg``
+    (:class:`~pkgforge.config.ProjectConfig`); :meth:`from_config` builds a
+    project from a file.
+
     Raises:
-        TypeError: ``buildroot`` or ``db`` is not a path (or provider).
+        TypeError: ``buildroot`` or ``db`` is not a path (or provider), or
+            ``config`` is not a :class:`~pkgforge.config.ProjectConfig`.
         ValueError: ``db`` is ``"-"``, or a provider is given with ``db_format``.
         UsageError: ``db_format`` names no registered format.
     """
@@ -86,6 +93,8 @@ class Project:
     buildroot: Path
     #: The file DB, or ``None`` when there is none.
     db: typing.Optional[DbProvider]
+    #: The project configuration; an empty one when none was given.
+    config: ProjectConfig
 
     _batch_provider: typing.Optional[DbProvider] = None
 
@@ -95,7 +104,15 @@ class Project:
         db: typing.Optional[typing.Union[StrPath, DbProvider]] = None,
         *,
         db_format: typing.Optional[str] = None,
+        config: typing.Optional[ProjectConfig] = None,
     ) -> None:
+        if config is None:
+            config = ProjectConfig()
+        elif not isinstance(config, ProjectConfig):
+            raise TypeError(
+                f"config must be a ProjectConfig, not {config.__class__.__name__}"
+            )
+        self.config = config
         self.buildroot = _path(buildroot, "buildroot")
         fmt = _check_db_format(db_format)
         if isinstance(db, DbProvider):
@@ -111,6 +128,34 @@ class Project:
             )
         else:
             self.db = open_db(_path(db, "db"), fmt)
+
+    @classmethod
+    def from_config(
+        cls,
+        path: StrPath,
+        *,
+        buildroot: typing.Optional[StrPath] = None,
+        db: typing.Optional[typing.Union[StrPath, DbProvider]] = None,
+        db_format: typing.Optional[str] = None,
+    ) -> "Project":
+        """A project described by the configuration file at ``path``.
+
+        An argument beats the file, and the file beats the default (build root
+        ``"."``, no file DB). A ``db`` of ``"-"`` in the file means no file DB.
+        The environment is not read.
+
+        Raises:
+            UsageError: the file is invalid (see :func:`pkgforge.config.load`).
+            FileNotFoundError: there is no such file.
+        """
+        config = _load_config(path)
+        if buildroot is None:
+            buildroot = config.buildroot or "."
+        if db is None and config.db not in (None, "-"):
+            db = config.db
+        if db_format is None and not isinstance(db, DbProvider):
+            db_format = config.db_format
+        return cls(buildroot, db, db_format=db_format, config=config)
 
     # -- paths -------------------------------------------------------------
 

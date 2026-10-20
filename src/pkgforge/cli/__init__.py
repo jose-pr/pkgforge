@@ -12,11 +12,11 @@ import traceback
 import typing
 
 import duho
-from duho import Cli
+from duho import Cli, ConfigArgs
 from duho.text import BOOL_TRUE
 
 from ..exceptions import PkgForgeError, UsageError
-from ._common import ProjectCmd, _silence_broken_pipe
+from ._common import ProjectCmd, _load_config, _silence_broken_pipe
 from .compact import Compact
 from .dbdump import DbDump
 from .initdb import InitDb
@@ -26,11 +26,17 @@ from .scan import ScanCmd
 __all__ = ["PkgForge", "main"]
 
 
-class PkgForge(ProjectCmd, Cli):
+class PkgForge(ConfigArgs, ProjectCmd, Cli):
     """Stage files into a build root and record their intended install
     metadata (mode, owner, group, type) in a file DB. Dump that DB into
     packaging manifests (RPM %files, Debian install/dirs/fixperms).
     """
+
+    # The project file: --config, else PKGFORGE_CONFIG (must exist; empty
+    # means none), else pkgforge.cfg in the working directory when present.
+    _config_ = "pkgforge.cfg"
+    _config_env_ = "PKGFORGE_CONFIG"
+    _config_loader_ = staticmethod(_load_config)
 
     _version_ = duho.AUTO
     _distribution_ = "pkgforge"
@@ -73,9 +79,10 @@ def main(argv: typing.Optional[typing.Sequence[str]] = None) -> int:
 
     Returns:
         0 on success. An error prints one ``pkgforge: error:`` line to stderr
-        and returns 2 for a usage mistake (:class:`~pkgforge.exceptions.UsageError`)
-        or 1 for any other :class:`~pkgforge.exceptions.PkgForgeError` or
-        ``OSError``; 1 silently for a closed output pipe; 130 for Ctrl-C.
+        and returns 2 for a usage mistake (:class:`~pkgforge.exceptions.UsageError`,
+        a bad configuration file included) or 1 for any other
+        :class:`~pkgforge.exceptions.PkgForgeError` or ``OSError``; 1 silently
+        for a closed output pipe; 130 for Ctrl-C.
 
     Raises:
         SystemExit: for ``--help``, ``--version`` and an error in the arguments
@@ -93,3 +100,11 @@ def main(argv: typing.Optional[typing.Sequence[str]] = None) -> int:
     except BrokenPipeError:
         _silence_broken_pipe()
         return 1
+    except tuple(PkgForge._errors_) as exc:
+        # Choosing or reading the configuration file raises before duho
+        # applies _errors_, so the same mapping is applied here.
+        status = next(
+            code for kind, code in PkgForge._errors_.items() if isinstance(exc, kind)
+        )
+        PkgForge._report_error_(str(exc), status, exc, None)
+        return status

@@ -113,6 +113,9 @@ def _isolated_env(monkeypatch: pytest.MonkeyPatch):
     """Scrub ``SCRUBBED_ENV`` around every test."""
     for name in SCRUBBED_ENV:
         monkeypatch.delenv(name, raising=False)
+    # An empty value names no configuration file, so a pkgforge.cfg in the
+    # developer's working directory never reaches a test.
+    monkeypatch.setenv("PKGFORGE_CONFIG", "")
     yield
 
 

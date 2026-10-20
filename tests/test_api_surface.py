@@ -100,8 +100,24 @@ def test_public_module_declares_all(name):
 def test_importing_the_library_does_not_load_the_command_line():
     code = (
         "import sys, pkgforge\n"
-        "loaded = [m for m in ('duho', 'pkgforge.cli', 'yaml', 'sqlite3')"
-        " if m in sys.modules]\n"
+        "loaded = [m for m in ('duho', 'pkgforge.cli', 'yaml', 'sqlite3',"
+        " 'anycfg', 'pathapi') if m in sys.modules]\n"
+        "print(','.join(loaded))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={**os.environ, "PYTHONPATH": SRC},
+    )
+    assert result.stdout.strip() == ""
+
+
+def test_importing_the_command_line_does_not_load_the_config_reader():
+    code = (
+        "import sys, pkgforge.cli\n"
+        "loaded = [m for m in ('anycfg', 'pathapi') if m in sys.modules]\n"
         "print(','.join(loaded))\n"
     )
     result = subprocess.run(

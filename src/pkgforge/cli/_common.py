@@ -163,9 +163,35 @@ class ExcludeArgs(Cmd):
     ("--exclude", "-X")
 
 
+def _load_config(path: Path, source: str) -> typing.Dict[str, typing.Any]:
+    """The ``_config_loader_`` of the root: read ``path``, check the whole file
+    before any command runs and return its mapping for duho to layer.
+
+    ``source`` is where duho found the path (``"env"`` for ``PKGFORGE_CONFIG``).
+    """
+    from ..config import ProjectConfig, _read
+
+    try:
+        data = _read(path)
+    except FileNotFoundError as exc:
+        if source == "env":
+            raise UsageError(f"PKGFORGE_CONFIG names no file: {path}") from exc
+        raise
+    try:
+        ProjectConfig.from_dict(data)
+    except UsageError as exc:
+        raise UsageError(f"{path}: {exc}") from exc
+    return data
+
+
 class ProjectCmd(LoggingArgs, Cmd):
     """The options every command shares, and the bridge to
     :class:`~pkgforge.project.Project`."""
+
+    #: The configuration file's mapping, set when a file was read.
+    _config_data: typing.ClassVar[typing.Optional[typing.Mapping[str, typing.Any]]] = (
+        None
+    )
 
     db: duho.Arg[
         typing.Optional[Path],
@@ -192,14 +218,28 @@ class ProjectCmd(LoggingArgs, Cmd):
         """Whether records go to stdout: ``--db`` is unset or ``-``."""
         return self.db is None or str(self.db) == "-"
 
+    def _config_validate_(self, config: typing.Mapping[str, typing.Any]) -> None:
+        """Keep the configuration file's mapping on the command.
+
+        duho calls this on the selected command after a parse that read a file;
+        it is how a command gets the file's tables.
+        """
+        self._config_data = config
+
     def _project(self) -> "Project":
         """The project these options describe."""
+        from ..config import ProjectConfig
         from ..project import Project
 
         return Project(
             self.buildroot,
             None if self._no_file_db() else self.db,
             db_format=self.db_format or None,
+            config=(
+                None
+                if self._config_data is None
+                else ProjectConfig.from_dict(self._config_data)
+            ),
         )
 
     def _emit(self, records: FileRecords) -> None:
