@@ -259,23 +259,6 @@ def test_debian_rejects_control_char():
         Debian().render(_one_entry("/usr/share/x\ny"))
 
 
-def test_debian_rejects_space_in_owner():
-    entries = [
-        (
-            "/a",
-            {
-                "mode": "644",
-                "owner": "ro ot",
-                "group": "root",
-                "type": "file",
-                "meta": {},
-            },
-        )
-    ]
-    with pytest.raises(DumpError):
-        Debian().render(entries)
-
-
 def test_debian_permissions_rsplit_keeps_path():
     # Guard: the permissions format is unescaped, so a path containing
     # spaces must still be parseable right-to-left.
@@ -747,23 +730,8 @@ def test_debian_render_matches_entries_rendered_alone():
     "make_bad,message_fragment",
     [
         (lambda: _one_entry("/a\nb"), "control character"),
-        (
-            lambda: [
-                (
-                    "/a",
-                    {
-                        "mode": "644",
-                        "owner": "ro ot",
-                        "group": "root",
-                        "type": "file",
-                        "meta": {},
-                    },
-                )
-            ],
-            "owner",
-        ),
     ],
-    ids=["control", "owner_whitespace"],
+    ids=["control"],
 )
 def test_debian_render_first_error_wins(make_bad, message_fragment):
     good = _one_entry("/ok")[0]
@@ -834,12 +802,9 @@ def test_debian_render_checks_once(monkeypatch):
     import pkgforge.dbdump as dbdump_mod
 
     control_counter = _CountingPattern(dbdump_mod._CONTROL_RE)
-    whitespace_counter = _CountingPattern(dbdump_mod._WHITESPACE_RE)
     monkeypatch.setattr(dbdump_mod, "_CONTROL_RE", control_counter)
-    monkeypatch.setattr(dbdump_mod, "_WHITESPACE_RE", whitespace_counter)
     Debian().render(_clean_entries(1000))
     assert control_counter.calls == 1
-    assert whitespace_counter.calls == 1
 
 
 # --------------------------------------------------------------------------
@@ -1128,3 +1093,115 @@ def test_dbdump_debian_writes_directory(tmp_path):
     # No directory entries in this DB -> an empty (but present) dirs file.
     assert (outdir / "dirs").read_text() == ""
     assert (outdir / "fixperms").read_text().startswith("#!/bin/sh\n")
+
+
+# --------------------------------------------------------------------------
+# entry validation shared by every dump format
+# --------------------------------------------------------------------------
+
+
+def _row(path="/opt/a", mode="644", owner="root", group="root", type="file", meta=None):
+    return json.dumps(
+        {
+            "path": path,
+            "mode": mode,
+            "owner": owner,
+            "group": group,
+            "type": type,
+            "meta": meta or {},
+        }
+    )
+
+
+def _validate(*rows):
+    from pkgforge.dbdump import _validate_entries
+
+    _validate_entries([(r["path"], r) for r in map(json.loads, rows)])
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        _row(),
+        _row("/"),
+        _row(mode="-", owner="-", group="--"),
+        _row(mode="0644", owner="_svc.a-b$", group="a1"),
+        _row(mode="4755", type="directory"),
+        _row(type="symlink", meta={"rpmprefix": "%ghost"}),
+    ],
+    ids=["plain", "root", "sentinels", "names", "dir", "prefix"],
+)
+def test_validate_entries_accepts(row):
+    _validate(row)
+
+
+@pytest.mark.parametrize(
+    "row,field",
+    [
+        (_row("/opt/../../x"), "path"),
+        (_row("/opt/./x"), "path"),
+        (_row("/opt/.."), "path"),
+        (_row("/opt//x"), "path"),
+        (_row("/opt/x/"), "path"),
+        (_row("opt/x"), "path"),
+        (_row(""), "path"),
+        (_row("/a\nb"), "path"),
+        (_row(type=None), "type"),
+        (_row(type="-"), "type"),
+        (_row(type="dir"), "type"),
+        (_row(mode="9"), "mode"),
+        (_row(mode="12345"), "mode"),
+        (_row(mode="644) %(id"), "mode"),
+        (_row(mode="64%"), "mode"),
+        (_row(owner="root,root) %(id)"), "owner"),
+        (_row(owner="%(id)"), "owner"),
+        (_row(owner="ro ot"), "owner"),
+        (_row(owner="root\n"), "owner"),
+        (_row(owner="root\n%attr(4755,root"), "owner"),
+        (_row(owner="1000"), "owner"),
+        (_row(owner="a$b"), "owner"),
+        (_row(group="adm\t"), "group"),
+        (_row(group="a:b"), "group"),
+        (_row(meta={"rpmprefix": "x\n%attr(4755,root,root) /z"}), "rpmprefix"),
+    ],
+)
+def test_validate_entries_rejects(row, field):
+    from pkgforge.dbdump import InvalidEntryError
+
+    with pytest.raises(InvalidEntryError) as excinfo:
+        _validate(_row(), row, _row("/opt/also-bad", owner="%"))
+    assert field in str(excinfo.value)
+    assert "also-bad" not in str(excinfo.value)
+    assert isinstance(excinfo.value, UsageError)
+
+
+def test_validate_entries_empty():
+    from pkgforge.dbdump import _validate_entries
+
+    _validate_entries([])
+
+
+@pytest.mark.parametrize("fmt", ["rpmspecfiles", "debian"])
+@pytest.mark.parametrize(
+    "row",
+    [
+        _row("/opt/../../x"),
+        _row("opt/rel"),
+        _row(type=None),
+        _row(owner="root,root) %(touch PWNED)"),
+        _row(owner="root\n%attr(4755,root"),
+        _row(meta={"rpmprefix": "a\nb"}),
+    ],
+    ids=["dotdot", "relative", "untyped", "owner_macro", "owner_newline", "prefix"],
+)
+def test_dbdump_refuses_invalid_entry(tmp_path, cli, fmt, row):
+    db = tmp_path / "files.jsonl"
+    db.write_text(_row("/opt/ok") + "\n" + row + "\n", encoding="utf-8")
+    out = tmp_path / "out"
+    result = cli("--db", str(db), "dbdump", "-f", fmt, str(out))
+    assert result.rc == 2
+    err = result.err.decode()
+    assert err.startswith("pkgforge: error: ")
+    assert err.count("\n") == 1
+    assert "Traceback" not in err
+    assert not out.exists()

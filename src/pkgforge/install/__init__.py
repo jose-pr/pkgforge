@@ -31,10 +31,11 @@ from ..entry import (
     FileType,
     apply_entry,
     entry_from_args,
+    check_meta,
     normalize_mode,
+    normalize_name,
     resolve_entry,
     _filetype,
-    _normalize_field,
     _parse_filetype,
 )
 from ..command import PkgForgeCmd, parsepath
@@ -164,17 +165,14 @@ class Install(FileEntryArgs, ExcludeArgs, _RecordTree, PkgForgeCmd, _Staging):
         archive source is filtered during staging).
         """
         self.mode = normalize_mode(self.mode)
+        self.owner = normalize_name(self.owner, "owner")
+        self.group = normalize_name(self.group, "group")
+        check_meta(self.meta)
 
         if self.chown:
             if pwd is None or grp is None:
                 raise RuntimeError("chown requires the Unix pwd/grp modules")
-            # Normalize py3.9's stripped `--owner=--` -> [] to AUTO first
-            # (the same conversion entry_from_args does later): checking
-            # the raw list against DEFAULT/AUTO would never match, and
-            # pwd.getpwnam([]) crashes with TypeError instead of a clean
-            # UsageError.
-            owner = _normalize_field(self.owner)
-            group = _normalize_field(self.group)
+            owner, group = self.owner, self.group
             if owner not in (DEFAULT, AUTO):
                 try:
                     pwd.getpwnam(owner)

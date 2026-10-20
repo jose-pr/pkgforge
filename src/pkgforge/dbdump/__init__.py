@@ -28,7 +28,14 @@ from pathlib import Path
 from .._registry import Registered
 from ..db import Db, DbError
 from ..db.jsonl import _parse_jsonl
-from ..entry import DEFAULT, FileEntry
+from ..entry import (
+    CONTROL_PATTERN,
+    DEFAULT,
+    MODE_PATTERN,
+    NAME_PATTERN,
+    FileEntry,
+    FileType,
+)
 from ..errors import PkgForgeError, UsageError
 from ..command import PkgForgeCmd, _refuse_mcp_stdin
 from ..exclude import ExcludeArgs, PathMatch
@@ -40,12 +47,23 @@ Entries = typing.List[typing.Tuple[str, FileEntry]]
 class DumpError(PkgForgeError, ValueError):
     """A DB entry cannot be rendered in the chosen format.
 
-    Raised for a path (or, for ``debian``, a mode/owner/group) the target
-    format's own tooling cannot represent -- a control character, or (rpm
-    only) a ``%``. Caught by :func:`pkgforge.main`'s error boundary like any
+    Raised for a path the target format's own tooling cannot represent -- a
+    control character, or (rpm only) a ``%``. Caught by
+    :func:`pkgforge.main`'s error boundary like any
     :class:`~pkgforge.errors.PkgForgeError`: one stderr line, exit 1. Nothing
     is written to OUTPUT first: every entry is rendered before OUTPUT is
     opened, so this leaves no partial file.
+    """
+
+
+class InvalidEntryError(UsageError, DumpError):
+    """A DB entry is malformed for every format: a key that is not an absolute
+    normalized path, an unknown ``type``, a ``mode``/``owner``/``group`` outside
+    the recorded grammar, or a control character in ``meta["rpmprefix"]``.
+
+    Raised by :func:`_validate_entries` before any format renders, so it
+    leaves no output behind. A :class:`~pkgforge.errors.UsageError` (exit 2):
+    the DB, not the format, holds the bad value.
     """
 
 
@@ -64,8 +82,19 @@ class UnsupportedOutputError(UsageError, DumpError, NotImplementedError):
 #: Every C0 control character (0x00-0x1f) plus DEL (0x7f): rpm and debhelper
 #: both choke on these one way or another (a bare newline splits a line, a
 #: literal DEL is simply illegal), and neither format has an escape for them.
-_CONTROL_RE = re.compile("[\x00-\x1f\x7f]")
-_WHITESPACE_RE = re.compile(r"\s")
+_CONTROL_RE = re.compile(CONTROL_PATTERN)
+
+_NAME_RE = re.compile(NAME_PATTERN)
+_MODE_RE = re.compile(MODE_PATTERN)
+#: Finds a line of newline-joined values that is not a valid name / mode.
+#: Empty values (rendered as ``-``) never match. Run only after
+#: :data:`_CONTROL_RE` found no newline in the values.
+_BAD_NAMES_RE = re.compile(rf"^(?!(?:{NAME_PATTERN})$).+", re.M)
+_BAD_MODES_RE = re.compile(rf"^(?!(?:{MODE_PATTERN})$).+", re.M)
+#: Finds a key that is not an absolute path with no empty, ``.`` or ``..``
+#: segment (the key ``/`` alone is allowed), over newline-joined keys.
+_BAD_KEYS_RE = re.compile(r"^(?!/)|//|/\.\.?(?:/|$)|(?<=.)/$", re.M)
+_FILE_TYPES = frozenset(member.value for member in FileType if member != FileType._AUTO)
 
 
 def _reject_control(path: str, fmt: str) -> None:
@@ -91,13 +120,65 @@ def _has_control(texts: typing.Iterable[str]) -> bool:
     return _CONTROL_RE.search("".join(texts)) is not None
 
 
-def _has_whitespace(texts: typing.Iterable[str]) -> bool:
-    """Whether any string in ``texts`` contains whitespace (:data:`_WHITESPACE_RE`).
+def _entry_error(path: str, field: str, value: object = None) -> InvalidEntryError:
+    shown = "" if value is None else f" {value!r}"
+    return InvalidEntryError(f"dbdump: entry {path!r}: invalid {field}{shown}")
 
-    Same shape and same batching rationale as :func:`_has_control`, for
-    debian's mode/owner/group check.
+
+def _check_entry(path: str, entry: FileEntry) -> None:
+    """Raise :class:`InvalidEntryError` for the first bad field of one entry."""
+    if _BAD_KEYS_RE.search(path) or _CONTROL_RE.search(path):
+        raise _entry_error(path, "path")
+    kind = entry["type"]
+    kind = kind.value if isinstance(kind, FileType) else kind
+    if kind not in _FILE_TYPES:
+        raise _entry_error(path, "type", entry["type"])
+    for field, pattern in (
+        ("mode", _MODE_RE),
+        ("owner", _NAME_RE),
+        ("group", _NAME_RE),
+    ):
+        value = entry[field]
+        if value and not (isinstance(value, str) and pattern.fullmatch(value)):
+            raise _entry_error(path, field, value)
+    prefix = entry["meta"].get("rpmprefix")
+    if prefix and _CONTROL_RE.search(prefix):
+        raise _entry_error(path, "meta rpmprefix", prefix)
+
+
+def _validate_entries(entries: Entries) -> None:
+    """Refuse the first entry (in entry order) that no format can render
+    safely: see :class:`InvalidEntryError`.
+
+    One regex search per field over the newline-joined values decides whether
+    anything is wrong; only then does a per-entry pass find and name it. A
+    control character anywhere (a newline included) goes to the per-entry
+    pass too, since it would otherwise be indistinguishable from the join.
     """
-    return _WHITESPACE_RE.search("".join(texts)) is not None
+    if not entries:
+        return
+    keys = "\n".join(path for path, _entry in entries)
+    columns = [
+        "\n".join(str(entry[field] or "") for _path, entry in entries)
+        for field in ("mode", "owner", "group")
+    ]
+    prefixes = "".join(entry["meta"].get("rpmprefix") or "" for _path, entry in entries)
+    kinds = {
+        entry["type"].value if isinstance(entry["type"], FileType) else entry["type"]
+        for _path, entry in entries
+    }
+    if (
+        _CONTROL_RE.search(keys)
+        or _CONTROL_RE.search(prefixes)
+        or any(_CONTROL_RE.search(column) for column in columns)
+        or _BAD_KEYS_RE.search(keys)
+        or _BAD_MODES_RE.search(columns[0])
+        or _BAD_NAMES_RE.search(columns[1])
+        or _BAD_NAMES_RE.search(columns[2])
+        or not kinds <= _FILE_TYPES
+    ):
+        for path, entry in entries:
+            _check_entry(path, entry)
 
 
 @contextlib.contextmanager
@@ -355,6 +436,7 @@ class DbDump(ExcludeArgs, PkgForgeCmd):
     def __call__(self):
         fmt = self._check_target()
         entries = self._surviving_entries()
+        _validate_entries(entries)
         fmt.dump(entries, self.output, self._logger_)
 
 
@@ -373,6 +455,7 @@ __all__ = [
     "DumpError",
     "DumpFormat",
     "Entries",
+    "InvalidEntryError",
     "MultiArtifactFormat",
     "PerEntryFormat",
     "RpmSpecFiles",

@@ -12,29 +12,9 @@ from . import (
     DumpError,
     Entries,
     MultiArtifactFormat,
-    _WHITESPACE_RE,
     _has_control,
-    _has_whitespace,
     _reject_control,
 )
-
-
-def _debian_reject(path: str, mode: str, owner: str, group: str) -> None:
-    """Raise :class:`DumpError` if this entry cannot be represented in the
-    debian artifacts: a control character in ``path``, then whitespace in
-    ``mode``, ``owner``, or ``group`` in that order -- today's exact
-    messages, used as the per-entry fallback once a batch check
-    (:func:`~pkgforge.dbdump._has_control`/:func:`~pkgforge.dbdump._has_whitespace`)
-    finds something wrong somewhere in the batch.
-    """
-    _reject_control(path, "debian")
-    for field, value in (("mode", mode), ("owner", owner), ("group", group)):
-        if _WHITESPACE_RE.search(value):
-            raise DumpError(
-                f"debian: a DB entry's {field} contains whitespace, "
-                "which the permissions format cannot represent"
-            )
-
 
 #: Characters dh_install/dh_installdirs read as shell-glob syntax in a
 #: SOURCE line, plus the backslash that escapes them; ``{``/``}`` are
@@ -214,14 +194,8 @@ class Debian(MultiArtifactFormat):
     ALIASES = ("deb",)
 
     def render(self, entries: Entries) -> typing.Dict[str, bytes]:
-        # Resolve mode/owner/group once per entry (needed for both the batch
-        # check below and the per-entry build), then validate the whole
-        # batch in two regex searches instead of one control-character
-        # search plus three whitespace searches per entry: a clean batch
-        # (the common case) never runs a per-entry check at all. On a hit,
-        # `_debian_reject` re-runs today's exact per-entry checks in entry
-        # order, so the first offending entry
-        # raises exactly the error it would raise rendered alone.
+        # A control character in a path is the one rule debian adds to the
+        # shared entry validation: one batch search, a per-entry pass on a hit.
         resolved = [
             (
                 path,
@@ -232,13 +206,9 @@ class Debian(MultiArtifactFormat):
             )
             for path, entry in entries
         ]
-        if _has_control(path for path, _e, _m, _o, _g in resolved) or _has_whitespace(
-            value
-            for _p, _e, mode, owner, group in resolved
-            for value in (mode, owner, group)
-        ):
-            for path, _entry, mode, owner, group in resolved:
-                _debian_reject(path, mode, owner, group)
+        if _has_control(path for path, _e, _m, _o, _g in resolved):
+            for path, _entry, _mode, _owner, _group in resolved:
+                _reject_control(path, "debian")
 
         # Two passes: gather every SOURCE/DESTINATION that needs debhelper
         # escaping first, then escape each kind in one batched call

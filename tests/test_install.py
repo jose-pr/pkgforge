@@ -1877,3 +1877,44 @@ def test_install_file_source_chflags_denied(tmp_path, monkeypatch):
     staged = root / "etc" / "f.conf"
     assert staged.read_text() == "data"
     assert (staged.stat().st_mode & 0o777) == 0o640
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["-o", "root,root) %(id)"],
+        ["-g", "adm\nroot"],
+        ["-o", "1000"],
+        ["-O", "rpmprefix=%ghost\nx"],
+    ],
+    ids=["owner_macro", "group_newline", "owner_numeric", "rpmprefix_control"],
+)
+def test_install_refuses_unsafe_record_values(tmp_path, cli, args):
+    # Refused before anything is staged or recorded.
+    src = tmp_path / "x"
+    src.write_text("x")
+    root = tmp_path / "root"
+    root.mkdir()
+    db = tmp_path / "files.jsonl"
+
+    result = cli(
+        "--db", str(db), "-r", str(root), "install", "-p", *args, str(src), "/opt"
+    )
+    assert result.rc == 2
+    assert not db.exists()
+    assert list(root.iterdir()) == []
+
+
+@pytest.mark.parametrize("field", ["owner", "group"])
+def test_install_preflight_validates_python_api_names(tmp_path, field):
+    inst = Install(source=[tmp_path / "x"], dest=Path("/opt"), **{field: "a b"})
+    with pytest.raises(UsageError, match=field):
+        inst._preflight()
+
+
+def test_install_preflight_validates_rpmprefix(tmp_path):
+    inst = Install(
+        source=[tmp_path / "x"], dest=Path("/opt"), meta={"rpmprefix": "a\x00"}
+    )
+    with pytest.raises(UsageError, match="rpmprefix"):
+        inst._preflight()

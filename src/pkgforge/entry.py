@@ -40,6 +40,17 @@ from .errors import UsageError
 AUTO = "--"
 #: Sentinel meaning "leave this field at the system/OS default (do not set it)".
 DEFAULT = "-"
+#: A portable account name, or one of the :data:`DEFAULT`/:data:`AUTO` sentinels.
+#: No ``%``, whitespace or control character can occur, so a recorded owner or
+#: group is safe in an rpm ``%attr`` and a shell word.
+NAME_PATTERN = r"--?|[A-Za-z_][A-Za-z0-9_.-]*\$?"
+#: 1-4 octal digits, or a sentinel.
+MODE_PATTERN = r"--?|[0-7]{1,4}"
+#: Every C0 control character plus DEL.
+CONTROL_PATTERN = "[\x00-\x1f\x7f]"
+
+_NAME_RE = re.compile(NAME_PATTERN)
+_CONTROL_RE = re.compile(CONTROL_PATTERN)
 
 
 class FileType(str, enum.Enum):
@@ -149,6 +160,43 @@ def normalize_mode(value: typing.Union[str, int, typing.List[str]]) -> str:
     )
 
 
+def normalize_name(value: typing.Union[str, typing.List[str]], field: str) -> str:
+    """Validate an ``owner``/``group`` value (``field`` names it in the error).
+
+    Applies :func:`_normalize_field`, then requires :data:`NAME_PATTERN`.
+    Raises :class:`UsageError` otherwise.
+    """
+    value = _normalize_field(value)
+    if not (isinstance(value, str) and _NAME_RE.fullmatch(value)):
+        raise UsageError(
+            f"invalid {field} {value!r}: expected an account name "
+            "([A-Za-z_][A-Za-z0-9_.-]*), '-' or '--'"
+        )
+    return value
+
+
+def check_meta(meta: typing.Mapping[str, str]) -> None:
+    """Raise :class:`UsageError` if ``meta["rpmprefix"]`` holds a control
+    character (it is written verbatim into an rpm ``%files`` line)."""
+    prefix = meta.get("rpmprefix")
+    if prefix and _CONTROL_RE.search(prefix):
+        raise UsageError(f"invalid meta rpmprefix {prefix!r}: control character")
+
+
+def _parse_name(field: str) -> typing.Callable[[str], str]:
+    """Build the CLI ``type=`` converter for ``--owner``/``--group``: wraps
+    :func:`normalize_name`, translating :class:`UsageError` to argparse's own
+    error type so a bad name exits 2 before anything is staged."""
+
+    def parse(text: str) -> str:
+        try:
+            return normalize_name(text, field)
+        except UsageError as exc:
+            raise argparse.ArgumentTypeError(str(exc)) from None
+
+    return parse
+
+
 def _parse_mode(text: str) -> str:
     """CLI ``type=`` converter for ``--mode``: an explicit empty value is
     rejected outright (unlike the Python API, where :func:`normalize_mode`
@@ -225,11 +273,11 @@ class FileEntryArgs(Cmd):
     mode: duho.Arg[str, duho.Meta(type=_parse_mode)] = DEFAULT
     "permission mode: 1-4 octal digits, '-' (leave default), '--' or 'auto' (resolve from the staged file)"
     ("--mode", "-m")
-    group: str = DEFAULT
-    "group to record (default '-', the OS default)"
+    group: duho.Arg[str, duho.Meta(type=_parse_name("group"))] = DEFAULT
+    "group to record: an account name, '-' (the OS default) or '--' (resolve from the staged file)"
     ("--group", "-g")
-    owner: str = DEFAULT
-    "owner to record (default '-', the OS default)"
+    owner: duho.Arg[str, duho.Meta(type=_parse_name("owner"))] = DEFAULT
+    "owner to record: an account name, '-' (the OS default) or '--' (resolve from the staged file)"
     ("--owner", "-o")
     type: duho.Arg[
         typing.Optional[FileType],
@@ -275,10 +323,11 @@ def entry_from_args(args: FileEntryArgs, **overwrite) -> FileEntry:
         type_ = overwrite.pop("type")
     else:
         type_ = FileType(args.type) if args.type else args.type
+    check_meta(args.meta)
     entry: FileEntry = {
         "mode": normalize_mode(args.mode),
-        "owner": _normalize_field(args.owner),
-        "group": _normalize_field(args.group),
+        "owner": normalize_name(args.owner, "owner"),
+        "group": normalize_name(args.group, "group"),
         "type": type_,
         "meta": dict(args.meta),
     }

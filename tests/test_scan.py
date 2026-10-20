@@ -801,3 +801,13 @@ def test_scan_missing_readds_removed_file(tmp_path, cli):
     )
     loaded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
     assert loaded["/usr/share/app/a"] is not None
+
+
+def test_scan_refuses_unsafe_owner(tmp_path, cli):
+    root = tmp_path / "root"
+    (root / "opt").mkdir(parents=True)
+    db = tmp_path / "files.jsonl"
+
+    result = cli("--db", str(db), "-r", str(root), "scan", "-o", "root) %(id)", "/opt")
+    assert result.rc == 2
+    assert not db.exists()

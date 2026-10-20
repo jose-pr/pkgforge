@@ -282,13 +282,14 @@ def test_dbdump_unrepresentable_exits_1_without_output(tmp_path, cli, row, ident
     # place that content could resurface.
     db = tmp_path / "files.jsonl"
     open_db(db, for_read=False).add(
-        row, {"mode": "-", "owner": "-", "group": "-", "type": "file", "meta": {}}
+        "/o/%(echo PWNED >&2)",
+        {"mode": "-", "owner": "-", "group": "-", "type": "file", "meta": {}},
     )
     out = tmp_path / "out.txt"
     result = cli("--db", str(db), "dbdump", "-f", "rpmspecfiles", str(out))
     assert result.rc == 1
     err = result.err.decode()
-    assert ident in err
+    assert "'%'" in err
     assert "Traceback" not in err
     assert "PWNED" not in err
     assert not out.exists()
