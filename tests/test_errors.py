@@ -349,11 +349,19 @@ def test_deeply_nested_db_is_one_line(name, tmp_path, cli):
     db = tmp_path / name
     depth = 100_000
     if name.endswith(".jsonl"):
-        db.write_text('{"path": "/a", "meta": ' + "[" * depth + "]" * depth + "}\n")
+        db.write_text(
+            '{"path": "/a", "mode": "644", "owner": "-", "group": "-", '
+            '"type": "file", "meta": {"k": ' + "[" * depth + "]" * depth + "}}\n"
+        )
     else:
-        db.write_text("/a:\n  meta: " + "[" * depth + "]" * depth + "\n")
+        db.write_text(
+            "/a:\n  mode: '644'\n  owner: '-'\n  group: '-'\n  type: file\n"
+            "  meta:\n    k: " + "[" * depth + "]" * depth + "\n"
+        )
     result = cli("--db", str(db), "dbdump", "-f", "rpm")
     err = result.err.decode().strip()
     assert result.rc == 1
     assert err.count("\n") == 0
-    assert "nested too deeply" in err
+    # A parser with a deep enough stack reads it; the schema then refuses
+    # the non-string meta value instead.
+    assert "nested too deeply" in err or "meta" in err

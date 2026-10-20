@@ -167,6 +167,7 @@ def _extract_bsdtar(src: typing.Union[Path, str], dst: Path) -> None:
             "-f",
             "-" if from_stdin else os.fspath(src),
         ],
+        what=f"cannot extract {'standard input' if from_stdin else src}",
         stdin=sys.stdin if from_stdin else None,
     )
     _reject_special_files(dst)

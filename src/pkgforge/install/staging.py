@@ -226,6 +226,10 @@ class _Staging(_Transfer):
                         # object (not a bare .fileno()) lets subprocess
                         # resolve it even when stdin has been replaced with
                         # a wrapped file object (as the tests do).
+                        what=(
+                            "cannot decompress "
+                            f"{'standard input' if from_stdin else src}"
+                        ),
                         stdin=sys.stdin if from_stdin else None,
                         stdout=f,
                     )

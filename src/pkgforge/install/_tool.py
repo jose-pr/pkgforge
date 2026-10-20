@@ -12,10 +12,12 @@ from ..errors import PkgForgeError
 def _run_tool(
     argv: typing.Sequence[str],
     *,
+    what: str,
     stdin: typing.Optional[typing.IO] = None,
     stdout: typing.Optional[typing.IO] = None,
 ) -> None:
-    """Run ``argv`` to completion, or raise :class:`PkgForgeError`.
+    """Run ``argv`` to completion, or raise :class:`PkgForgeError` starting
+    with ``what`` (e.g. ``cannot extract app.tgz``).
 
     ``stdin`` is ``None`` (the tool reads nothing) or the stream a ``-``
     source feeds it; ``stdout`` is ``None`` (discarded) or the file the tool's
@@ -37,4 +39,6 @@ def _run_tool(
         if len(lines) > 1 and "Error exit delayed" in lines[-1]:
             lines.pop()
         detail = f": {lines[-1]}" if lines else ""
-        raise PkgForgeError(f"{argv[0]} failed (exit {proc.returncode}){detail}")
+        raise PkgForgeError(
+            f"{what}: {argv[0]} failed (exit {proc.returncode}){detail}"
+        )
