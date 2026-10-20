@@ -7,6 +7,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
+- `dbdump` now refuses a DB entry that is not well formed, with one
+  `pkgforge: error:` line naming the entry and status 2, and writes nothing:
+  a key that is not an absolute path with no `.`/`..`/empty segment, a `type`
+  other than `file`, `directory` or `symlink`, a mode that is not 1-4 octal
+  digits, `-` or `--`, an owner or group that is not an account name, `-` or
+  `--`, or a control character in `meta.rpmprefix`. Fix the DB entry (or
+  re-record it) and run `dbdump` again.
+- `install` and `scan` refuse an `--owner`/`--group` that is not an account
+  name (`[A-Za-z_][A-Za-z0-9_.-]*`, `-` or `--`) and an `-O rpmprefix=` with a
+  control character, with status 2 and before anything is staged or
+  recorded. A numeric owner such as `1000` is refused; use the account name.
+- A file OUTPUT of `dbdump` is written whole or not at all: each file goes to
+  a sibling `.<name>.pkgforge-tmp` and is renamed into place once every write
+  has succeeded, so a failed dump no longer leaves a truncated or mixed
+  OUTPUT.
+- `rpmspecfiles` writes `-` as the `%attr` mode of a symlink, so rpmbuild no
+  longer warns `Explicit %attr() mode not applicable to symlink`.
 - Requires `duho>=0.7.7,<0.8` (was `>=0.6.0,<0.7`). The command line is
   unchanged: the same flags, exit statuses and `--help` text.
 - `pkgforge.main()` runs through `duho.run`, and `PkgForge` reports its errors
@@ -19,7 +36,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   where you set `DUHO_TRACEBACK=1`; `DUHO_TRACEBACK` no longer has an effect on
   pkgforge. A closed output pipe stays silent with status 1 either way.
 
+### Removed
+- The `debian` format no longer writes the `permissions` artifact (and
+  `dbdump -f debian -` no longer prints its section): nothing consumed it.
+  The `fixperms` script applies the same pins.
+- The `RpmSpecFiles._quote` and `RpmSpecFilesPre419._quote` class hooks, which
+  `render` never called. The `_escape`, `_reject` and `_batch_reject_needed`
+  hooks remain.
+
 ### Fixed
+- A `%(command)` or newline in a recorded owner, group or mode, or a newline
+  in `meta.rpmprefix`, no longer reaches rpmbuild's `%files` list, where it ran
+  a command or injected a line.
+- A DB key such as `/../../x` or a relative path no longer reaches the
+  `debian` `fixperms` script, where it chmod-ed or chown-ed a path outside the
+  package directory.
+- An entry with no `type` (or `-`, or an unknown value) no longer renders as a
+  plain `%files` path that makes rpm ship the whole subtree.
 - A corrupt or truncated `.tar`, `.tar.gz`, `.tar.xz` or `.tar.bz2` archive now
   ends with one `pkgforge: error: cannot extract ...` line and status 1
   instead of a traceback.

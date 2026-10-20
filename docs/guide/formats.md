@@ -9,6 +9,20 @@ manifest. `null` (removed) entries and `--exclude` matches are skipped.
 | `rpmspecfiles-pre419` | `rpm-pre419` | per-entry lines | a file or `-` (stdout) |
 | `debian` | `deb` | multiple artifacts | a **directory**, or `-` (stdout, sectioned) |
 
+Before any format renders, every surviving entry is checked: the key must
+be an absolute path with no empty, `.` or `..` segment; `type` must be
+`file`, `directory` or `symlink`; `mode` is 1-4 octal digits, `-` or `--`;
+`owner` and `group` are an account name (`[A-Za-z_][A-Za-z0-9_.-]*`,
+optionally ending in `$`), `-` or `--`. A bad entry stops `dbdump` with exit
+2 and one line naming the entry and the field, and writes nothing. `%`,
+whitespace and control characters cannot occur in mode, owner or group. An
+entry's `meta.rpmprefix` may not hold a control character; otherwise it is
+written verbatim.
+
+A file OUTPUT is written whole or not at all: `dbdump` writes each file to
+a sibling `.<name>.pkgforge-tmp` and renames them into place only when every
+write has succeeded.
+
 ## `rpmspecfiles`
 
 Emits one RPM `%files` line per entry:
@@ -19,7 +33,8 @@ Emits one RPM `%files` line per entry:
 %config(noreplace) %attr(640,root,adm) "/etc/tool/config"
 ```
 
-Directories get a `%dir` prefix; an entry's `meta.rpmprefix` (set with
+Directories get a `%dir` prefix, a symlink's mode is written as `-`
+(rpm ignores it and warns on an explicit one), an entry's `meta.rpmprefix` (set with
 [`-O rpmprefix=VALUE`](commands.md#install), e.g. `%config(noreplace)`) is
 prepended.
 
@@ -107,7 +122,7 @@ pkgforge dbdump -f rpmspecfiles-pre419 files.txt
 
 ## `debian`
 
-Writes four artifacts into an output directory (created if needed):
+Writes three artifacts into an output directory (created if needed):
 
 - **`install`** — `dh_install`-style `<src> <dest-dir>` lines (one per
   non-directory entry), where the source is the build-root-relative path and the
@@ -117,18 +132,6 @@ Writes four artifacts into an output directory (created if needed):
     usr/bin/tool usr/bin
     etc/tool/config etc/tool
     ```
-
-- **`permissions`** — a pkgforge-specific `<path> <mode> <owner> <group>`
-  manifest for every entry that pins a non-default mode, owner, or group:
-
-    ```
-    /usr/bin/tool 755 root root
-    /etc/tool/config 640 root adm
-    ```
-
-    The path is unescaped and may itself contain spaces, so parse a line
-    right-to-left (everything before the last three fields is the path),
-    not with a naive `read path mode owner group`.
 
 - **`dirs`** — `dh_installdirs`-style lines, one per directory entry
   (dest-escaped; always written, even when empty), so a directory recorded
@@ -155,8 +158,8 @@ Writes four artifacts into an output directory (created if needed):
     followed by, per pinned entry, an `if t=$(p "$d"/path); then ...; fi`
     that runs one `chown owner:group` (or `chown` / `chgrp` when only one is
     pinned) and then `chmod` (owner and group before mode, since `chown`
-    clears a regular file's setuid/setgid bit even to the same owner), for
-    every entry `permissions` also covers. `dh_compress` renames a man page
+    clears a regular file's setuid/setgid bit even to the same owner).
+    `dh_compress` renames a man page
     or a large doc to `<path>.gz` and `dh_usrlocal` removes directories under
     `/usr/local`; the pin follows the rename, and a path that is gone is
     named on stderr and skipped, so the script still exits 0.
@@ -171,13 +174,13 @@ so the name matches only itself, a leading `#` backslash-escaped (`dh_install`
 treats a line starting with `#` as a comment), and a space written as
 `${Space}`. Destinations are only ever `${Dollar}{`/`${Space}`-escaped, never
 glob-escaped (`dh_install` takes the destination literally). A path
-containing a control character, or a mode/owner/group containing whitespace,
-stops `dbdump` with an error naming the problem; a non-UTF-8 name is written
+containing a control character stops `dbdump` with an error naming the
+problem; a non-UTF-8 name is written
 as its original bytes.
 
 ```bash
-pkgforge dbdump -f debian debian/          # writes debian/{install,permissions,dirs,fixperms}
-pkgforge dbdump -f debian -                # all four to stdout under "# === <name> ===" headers
+pkgforge dbdump -f debian debian/          # writes debian/{install,dirs,fixperms}
+pkgforge dbdump -f debian -                # all three to stdout under "# === <name> ===" headers
 ```
 
 !!! note
@@ -193,15 +196,8 @@ pkgforge dbdump -f debian -                # all four to stdout under "# === <na
     `override_dh_install: dh_install --sourcedir=$(PKGFORGE_ROOT)` target to
     `debian/rules`.
 
-    `permissions` is **not** `dpkg-statoverride` input -- that tool takes
-    `user group mode path` (a different field order) and rejects `-`, while
-    `permissions` writes `path mode owner group` and uses `-` for an
-    unpinned field (e.g. `/usr/share/tool/share 755 - -` for a directory
-    that pins only its mode). Packages also aren't supposed to
-    `dpkg-statoverride` files they ship themselves -- that tool is for the
-    local admin, and parsing `permissions` by hand means reading each line
-    right-to-left (the path is everything before the last three fields, so
-    it may itself contain spaces) and skipping a `-` field yourself. Run the
+    Packages aren't supposed to `dpkg-statoverride` files they ship
+    themselves -- that tool is for the local admin. Run the
     generated `fixperms` script instead, from an `override_dh_fixperms`
     target in `debian/rules`, after `dh_fixperms` (which would otherwise
     strip the very bits being pinned, including a setuid/setgid mode):

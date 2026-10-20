@@ -10,7 +10,7 @@ Stage files into a *build root* and record their intended install metadata
 (mode, owner, group, type, and free-form key/value `meta`) in a *file DB*
 (JSON Lines, YAML, or SQLite),
 then dump that DB into packaging manifests — an RPM `%files` list or Debian
-`install` + `permissions` + `dirs` + `fixperms` files.
+`install` + `dirs` + `fixperms` files.
 
 `pkgforge` is a small, dependency-light helper for unattended build pipelines
 on Linux: install a source into place, remember how it should be owned and
@@ -111,7 +111,7 @@ reading an existing file auto-detects its actual format.
 | --- | --- | --- |
 | `rpmspecfiles` | `rpm`, `rpmspec` | RPM `%files` lines (`%attr(...)`, `%dir`, `meta.rpmprefix`) to a file or `-`; rpm 4.19+ |
 | `rpmspecfiles-pre419` | `rpm-pre419` | Same, for rpm older than 4.19 (measured on 4.14/4.16/4.18): refuses a space, a glob character, or `%` instead of packaging the wrong file |
-| `debian` | `deb` | `install` + `permissions` + `dirs` + `fixperms` files into an output directory (or `-`, sectioned) |
+| `debian` | `deb` | `install` + `dirs` + `fixperms` files into an output directory (or `-`, sectioned) |
 
 Output of the Quick start above:
 
@@ -129,11 +129,6 @@ $ pkgforge dbdump -f debian -
 etc/tool.conf etc
 usr/bin/tool usr/bin
 usr/share/tool/data.txt usr/share/tool
-# === permissions ===
-/etc/tool.conf 640 root adm
-/usr/bin/tool 755 root root
-/usr/share/tool 755 root root
-/usr/share/tool/data.txt 644 root root
 # === dirs ===
 usr/share/tool
 # === fixperms ===

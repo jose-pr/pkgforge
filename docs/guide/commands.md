@@ -207,8 +207,7 @@ pkgforge scan [-m MODE] [--dir-mode MODE] [-o OWNER] [-g GROUP] [-O KEY=VALUE]..
 `-t/--type` for symmetry with `install`, but the option is hidden from
 `--help` and has no effect. A symlink's mode is always recorded as `-`,
 whatever `-m`/`--dir-mode` say -- Linux ignores a symlink's mode, and rpm
-warns about (Debian's `permissions` manifest would misreport) an explicit
-one. `-m`/`--dir-mode`/`-o`/`-g` default to `-` (unset), not the on-disk
+warns about an explicit one. `-m`/`--dir-mode`/`-o`/`-g` default to `-` (unset), not the on-disk
 value -- pass `--mode=--`/`--dir-mode=--`/`--owner=--`/`--group=--` to read
 them from disk instead. **Never scan a directory the distro itself owns** (e.g.
 `/usr`, `/usr/bin`, `/usr/share`, `/etc`): every directory scan walks

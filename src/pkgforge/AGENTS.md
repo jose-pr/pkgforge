@@ -76,9 +76,13 @@ tool's last stderr line.
   - **`entry_from_args(args: FileEntryArgs, **overwrite) -> FileEntry`** —
     build from a parsed CLI mixin. `type` is converted via `FileType` only
     when `overwrite` does not itself supply `type`. `mode` is normalized via
-    `normalize_mode`; `owner`/`group` map Python 3.9's stripped `[]` (an
-    attached `--` argparse consumes before any converter runs) to `AUTO`,
-    and an explicit empty string to `DEFAULT`.
+    `normalize_mode`; `owner`/`group` go through `normalize_name(value,
+    field)`, which maps Python 3.9's stripped `[]` (an attached `--` argparse
+    consumes before any converter runs) to `AUTO`, an explicit empty string
+    to `DEFAULT`, and raises `UsageError` unless the value is an account
+    name (`[A-Za-z_][A-Za-z0-9_.-]*`, optionally ending in `$`) or the `-`/
+    `--` sentinels; `check_meta(args.meta)` raises `UsageError` for a
+    control character in `meta["rpmprefix"]`.
   - **`entry_from_path(path: Path, meta: Optional[dict[str, str]] = None) ->
     FileEntry`** — build by `lstat`-ing a real path; owner/group resolve via
     `pwd`/`grp` (fall back to `"-"` if those modules are unavailable, i.e.
@@ -115,7 +119,8 @@ tool's last stderr line.
 - **`FileEntryArgs(duho.Cmd)`** — CLI mixin supplying `--mode/-m` (validated
   at parse time: 1-4 octal digits, `-`, `--` or `auto`; an explicit empty
   value exits 2; normalized, so `0644` is stored as `644`), `--group/-g`,
-  `--owner/-o` (each default `"-"`, no octal validation), `--type/-t`
+  `--owner/-o` (each default `"-"`; validated at parse time like
+  `normalize_name`: an account name, `-` or `--`, else exit 2), `--type/-t`
   (`Optional[FileType]`, default `None`; validated at parse time: `file`,
   `directory` or `symlink` in any case, or `-`/`--` for the sentinels;
   anything else, including `auto`/`_AUTO`, exits 2), `-O/--meta KEY=VALUE`
@@ -400,8 +405,9 @@ tool's last stderr line.
   concrete `render(entries) -> bytes` (default: joins every `render_entry`
   call -- a format MAY override `render` itself to validate/render a whole
   batch at once, as `RpmSpecFiles` does below) and
-  `dump(entries, output, logger=None)` (checks OUTPUT, renders, opens
-  OUTPUT, writes). `check_output` refuses an existing directory.
+  `dump(entries, output, logger=None)` (checks OUTPUT, renders, writes
+  OUTPUT whole or not at all: a sibling `.<name>.pkgforge-tmp` is written
+  first and renamed over OUTPUT; `-` writes stdout directly). `check_output` refuses an existing directory.
   Built in: **`rpm.RpmSpecFiles`** (`NAME = "rpmspecfiles"`,
   `ALIASES = ("rpm", "rpmspec")`) — RPM `%files` lines:
   `%attr(mode,owner,group) "path"`, `%dir` prefix for directories,
@@ -418,15 +424,16 @@ tool's last stderr line.
   rejection at all -- a clean batch, the common case, never runs a
   rejection check per entry) before rendering every line; `render_entry`
   renders a one-entry batch (`self.render([(path, entry)])`), so the two
-  are always byte-identical. The quoting/rejection behavior itself is four
-  class-attribute hooks (`_quote`, `_escape`, `_reject`,
-  `_batch_reject_needed`), so a subclass changes only those, never
+  are always byte-identical. A symlink entry is written with mode `-`
+  (rpm ignores a symlink's mode and warns on an explicit one). The
+  escaping/rejection behavior itself is three class-attribute hooks
+  (`_escape`, `_reject`, `_batch_reject_needed`), so a subclass changes only those, never
   `render`/`render_entry` themselves. Targets rpm 4.19+; below that, a
   quoted name is macro-expanded twice and glob characters are matched
   unescaped, so this quoting is not safe there -- use
   **`rpm.RpmSpecFilesPre419`** (`NAME = "rpmspecfiles-pre419"`,
   `ALIASES = ("rpm-pre419",)`) instead. It subclasses `RpmSpecFiles`,
-  overriding only the four hooks above: the path is written completely
+  overriding only the three hooks above: the path is written completely
   unquoted (rpm's bare-token reader passes a literal `"`/`\` straight
   through, unescaped), and it raises `DumpError` for a path containing a
   space, a glob character (`* ? [ ] { }`), `%` (any form), or a non-UTF-8
@@ -439,21 +446,19 @@ tool's last stderr line.
   into a directory (or, for `-`, concatenates them to stdout under
   `# === <name> ===` section headers). Abstract
   `render(entries) -> dict[str, bytes]`; concrete `dump(...)` (checks,
-  renders, then writes). `check_output` refuses an existing non-directory.
+  renders, then writes every artifact to a sibling `.<name>.pkgforge-tmp`
+  and renames them all into place only once every write succeeded; a failure
+  removes the temp files and leaves earlier OUTPUT content as it was). `check_output` refuses an existing non-directory.
   Built in: **`debian.Debian`** (`NAME = "debian"`, `ALIASES = ("deb",)`) —
   `install` (`dh_install`-style `<src> <dest-dir>` lines, non-directory
-  entries only) + `permissions` (a pkgforge-specific `<path> <mode> <owner>
-  <group>` manifest -- **not** `dpkg-statoverride` input, which takes `user
-  group mode path` and rejects `-`; unescaped, `-` meaning "unpinned"; parse
-  right-to-left, since the path may itself contain spaces -- for only the
-  entries that pin a non-default mode/owner/group) + `dirs`
+  entries only) + `dirs`
   (`dh_installdirs`-style dest-escaped lines, one
   per directory entry, always written even when empty -- routed there and
   never through `install`, which would re-copy any children `--exclude`
   dropped -- so a directory recorded with no files under it, e.g. `install
   -d` for an empty state directory, still reaches the package) + `fixperms`
-  (a POSIX `sh` script, always written, that applies `permissions`' pins
-  directly: run it from an `override_dh_fixperms` target, after
+  (a POSIX `sh` script, always written, that applies every pinned
+  mode/owner/group directly: run it from an `override_dh_fixperms` target, after
   `dh_fixperms` -- e.g. `sh debian/fixperms debian/<pkg>`. Per pinned
   entry: one `chown owner:group` (or `chown`/`chgrp` when only one is
   pinned), then `chmod` (`chown`
@@ -476,22 +481,10 @@ tool's last stderr line.
   (`dh_installdirs` never globs, so there is nothing else to escape there).
   Every destination (`install`'s and `dirs`') is only ever
   `${Dollar}{`/`${Space}`-escaped, never glob-escaped -- `dh_install`/
-  `dh_installdirs` take it literally. Every entry is validated first: a
-  single batch check (a control character anywhere across every path
-  joined together, or whitespace anywhere across every mode/owner/group
-  joined together) decides whether ANY entry needs a per-entry rejection
-  check at all -- a clean batch, the common case, never runs a rejection
-  check per entry, and on a hit the per-entry fallback (`_debian_reject`)
-  raises today's exact message for the first offending entry, in entry
-  order. Once the batch is known clean, every SOURCE is debhelper-escaped
-  in one `str.translate` call over every `rel` newline-joined
-  (`_dh_src_batch`), and every DESTINATION in one pair of `str.replace`
-  calls the same way (`_dh_dest_batch`) -- safe only because the batch
-  validation already ruled out a literal newline (a control character)
-  anywhere in a path; the leading-`#` case stays per line (it depends on
-  each line's own first character), applied after the join/escape/split
-  round-trip. `_dh_src`/`_dh_dest` (single-string) stay defined and are
-  still what the batch helpers and the direct tests describe; every
+  `dh_installdirs` take it literally. A control character in a path raises
+  `DumpError` (one batch check over every path joined together; a clean
+  batch runs no per-entry check). Each `install`/`dirs` line is escaped per
+  entry by `_dh_src`/`_dh_dest`. Every
   artifact is written as UTF-8 with `surrogateescape` (a non-UTF-8 name
   round-trips its original bytes). The install destination is split with
   `posixpath`, not `os.path` -- DB paths are always POSIX-style
@@ -504,9 +497,20 @@ tool's last stderr line.
   `check_output`. Caught by `main()`'s error boundary as a `UsageError`
   (one stderr line, exit 2, same as before); also a `DumpError` (the format
   itself is refusing this OUTPUT) and, per its name, a `NotImplementedError`.
-- **`DumpError(PkgForgeError, ValueError)`** — a DB entry that a dump
+- **`InvalidEntryError(UsageError, DumpError)`** — a DB entry that no format
+  can render safely, found by `DbDump` before any format renders (exit 2,
+  naming the first offending entry in entry order and the field). The rules:
+  the key is an absolute path with no empty, `.` or `..` segment and no
+  control character; `type` is `file`, `directory` or `symlink`; `mode` is
+  1-4 octal digits, `-` or `--`; `owner`/`group` are an account name
+  (`[A-Za-z_][A-Za-z0-9_.-]*`, optionally ending in `$`), `-` or `--`; and
+  `meta["rpmprefix"]` has no control character. `%`, whitespace and
+  control characters therefore cannot occur in mode/owner/group.
+  `meta["rpmprefix"]` is otherwise written verbatim, as an rpm directive
+  prefix. A format's `dump()` called directly does not run this check.
+- **`DumpError(PkgForgeError, ValueError)`** — a DB path that a dump
   format's own tooling cannot represent (a `%` or a control character for
-  `rpmspecfiles`; see `MultiArtifactFormat.Debian` above for `debian`).
+  `rpmspecfiles`; a control character for `debian`).
   Caught by `main()`'s error boundary like any `PkgForgeError` (one stderr
   line, exit 1). Every entry is rendered before OUTPUT is opened, so
   raising this leaves no partial file.
@@ -608,9 +612,10 @@ above).
   regular-file source's content through a leftover destination symlink; a
   real destination directory is left alone (a source symlink colliding with
   one still raises).
-  `--mode`, `--chown`'s owner/group names (only when `--chown` is set; a
-  recorded-only name is never resolved) and the `--db` directory are
-  validated before anything is staged; without `-p`, a missing destination
+  `--mode`, the recorded `--owner`/`--group` names (account-name syntax
+  only), `-O rpmprefix=` (no control character), `--chown`'s owner/group
+  names (only when `--chown` is set; a recorded-only name is never resolved)
+  and the `--db` directory are validated before anything is staged; without `-p`, a missing destination
   parent directory raises `UsageError` the same way. `--remove-source`
   runs only after the entry is applied and recorded (never on a failure
   above it), is skipped with a warning (not removed) when the source IS the
