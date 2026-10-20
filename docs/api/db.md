@@ -1,8 +1,10 @@
 # DB backends (`db`)
 
 The file-DB provider registry and its built-in backends. A third-party
-backend subclasses `DbProvider` with its own `NAME` -- no registration call
-needed.
+backend subclasses `DbProvider` with its own `NAME` and advertises it in the
+`pkgforge.dbs` entry-point group; see [Adding a
+backend](../guide/file-db.md#adding-a-backend). The checks every backend must
+pass are in [Contract suite](testing.md).
 
 ::: pkgforge.exceptions.DbError
     options:

@@ -2,7 +2,9 @@
 
 The packaging-manifest format registry and its built-in formats. A
 third-party format subclasses `PerEntryFormat` or `MultiArtifactFormat` with
-its own `NAME` -- no registration call needed.
+its own `NAME` and advertises it in the `pkgforge.dump_formats` entry-point
+group; see [Adding a format](../guide/formats.md#adding-a-format). The checks
+every format must pass are in [Contract suite](testing.md).
 
 ::: pkgforge.exceptions.DumpError
     options:

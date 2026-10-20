@@ -84,6 +84,8 @@ REQUIRED_API_TARGETS = (
     "pkgforge.dbdump.RPMSpecFiles",
     "pkgforge.dbdump.RPMSpecFilesPre419",
     "pkgforge.dbdump.DebianFiles",
+    "pkgforge.testing.check_db_provider",
+    "pkgforge.testing.check_dump_format",
 )
 
 

@@ -119,7 +119,8 @@ class DbProvider(Registered, abc.ABC):
 
     @abc.abstractmethod
     def compact(self) -> None:
-        """Collapse redundant history (a no-op for backends without any)."""
+        """Collapse redundant history: keep every live entry and drop the
+        tombstones of removed paths, so ``load()`` holds no ``None`` after it."""
 
     @abc.abstractmethod
     def init(self) -> None:

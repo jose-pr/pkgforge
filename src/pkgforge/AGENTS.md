@@ -512,6 +512,35 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   separator, which split a path containing one (e.g. a source named
   `back\slash`) in the wrong place on Windows.
 
+## Contract suite (`testing.py`)
+
+- **`check_db_provider(cls: type[DbProvider], directory: StrPath) -> None`**
+  and **`check_dump_format(cls: type[DumpFormat], directory: StrPath) ->
+  None`** run every check against `cls` (a backend is built as `cls(path)` in
+  a file named `contract` plus its first `SUFFIXES` entry, else `.db`; a
+  format is built as `cls()`), each in its own subdirectory of `directory`.
+  A failure is an `AssertionError` naming the class and the check; pytest is
+  not imported. **`DB_PROVIDER_CHECKS`** and **`DUMP_FORMAT_CHECKS`** are
+  tuples of the individual checks, each `(cls, directory) -> None`, for a
+  runner that wants one test per check.
+- A backend must: load `{}` after `init()`; round-trip an entry of each type
+  with `meta` and a non-ASCII path exactly (`type` as its string value); let a
+  second `add` of a path win; load a removed path as `None`; after `compact()`
+  load every live entry and no `None`; and have every write made inside
+  `batch()` visible to a fresh instance after it exits.
+- A format must: render `bytes` (`PerEntryFormat`) or a `{name: bytes}` dict of
+  non-empty values (`MultiArtifactFormat`); render the same entries to the same
+  output twice; keep that type for no entries; refuse the wrong output shape
+  with `UnsupportedOutputError` and accept the right one in `check_output`;
+  and `write` returns the paths it wrote with bytes equal to `render`.
+
+```python
+from pkgforge.testing import check_db_provider
+
+def test_my_backend(tmp_path):
+    check_db_provider(MyDb, tmp_path)
+```
+
 ## Command line
 
 `pkgforge.cli` is not library API: it holds the root command, `main` and one

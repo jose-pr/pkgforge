@@ -41,6 +41,7 @@ nav:
       - DB backends: api/db.md
       - Exclude grammar: api/exclude.md
       - Dump formats: api/dbdump.md
+      - Contract suite: api/testing.md
   - Changelog: changelog.md
 
 plugins:

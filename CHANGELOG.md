@@ -13,6 +13,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and `dbdump -f NAME` to select it, with no import in the calling code.
   `DbProvider.names()` and `DumpFormat.names()` include advertised names
   without loading them.
+- `pkgforge.testing`: `check_db_provider(cls, directory)` and
+  `check_dump_format(cls, directory)` run the checks every DB backend and dump
+  format must pass, so a third-party class is tested against the same contract
+  as the built-in ones. `DB_PROVIDER_CHECKS` and `DUMP_FORMAT_CHECKS` hold the
+  individual checks.
 - `--debug` prints the traceback of an error before its one-line
   `pkgforge: error:` message, like `PKGFORGE_TRACEBACK`.
 - `pkgforge.Project`, a Python API for build scripts: `Project(buildroot, db=None,
@@ -28,6 +33,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stores.
 
 ### Changed
+- `DbProvider.compact()` is documented to drop the tombstones of removed
+  paths (the built-in backends already did): a third-party `compact` that kept
+  them fails the contract suite.
 - A DB backend or dump format whose `NAME`, alias or suffix another one already
   holds raises `ValueError` when the class is created, and is not registered.
   It used to replace the earlier class silently (for a suffix, the newer class
