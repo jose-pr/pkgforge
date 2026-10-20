@@ -77,6 +77,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   hooks remain.
 
 ### Fixed
+- `install --method move` of a directory onto another filesystem failed with
+  `Invalid cross-device link` (and a rollback could fail the same way). It now
+  moves the tree file by file, keeping modes, mtimes and symlinks, and removes
+  the source.
+- `install --remove-source --method link` kept a file source and removed a
+  directory source. Both are removed now; the staged hardlinks keep the data.
+  The source is kept only when it is the destination itself.
+- A failed `install -p` left the parent directories it had created. It now
+  removes them before exiting with status 1; directories that already existed
+  are never touched.
+- `Install(source=["/x"], destination="/usr/bin", ...)()` built from Python
+  with `str` paths raised `AttributeError`. `str` and path-like values are
+  accepted, and anything else raises `UsageError`.
 - `scan --drop-stale` into a `sqlite` DB holds one connection for all its
   removals instead of committing once per row.
 - A `%(command)` or newline in a recorded owner, group or mode, or a newline

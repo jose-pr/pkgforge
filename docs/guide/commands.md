@@ -71,7 +71,7 @@ pkgforge install [options] SOURCE... DESTINATION
 | `--method {copy,link,move}` (env `PKGFORGE_INSTALL_METHOD`) | how to stage a file or directory source; `copy` (default) is the only method that leaves the source completely untouched |
 | `--record-tree` (env `PKGFORGE_INSTALL_RECORD_TREE`) | after installing a directory or archive DESTINATION, also record every path below it not already in the DB: owner/group/meta from this install, mode and type from disk (symlinks `-`), honouring `-X`; ignored for a file/symlink source, and a no-op under `--noentry` |
 | `--chown` | apply the recorded owner/group (off by default); an unknown owner/group name exits 2 before anything is staged (a recorded-only name, without `--chown`, is never resolved) |
-| `--remove-source` | delete the source after staging (files or directories), only once the entry is applied and recorded -- never when the source IS the staged destination, and refused (exit 2) up front when a directory source contains the resolved destination or the `--db` file |
+| `--remove-source` | delete the source after staging (files or directories), only once the entry is applied and recorded -- never when the source IS the destination, and refused (exit 2) up front when a directory source contains the resolved destination or the `--db` file |
 | `--noentry` | stage but do not record a DB entry |
 | `-O, --meta KEY=VALUE` | record free-form metadata on the entry (repeatable); consumed by a dump format (e.g. `rpmspecfiles`' `meta.rpmprefix`) or by a symlink's `meta.target` |
 
