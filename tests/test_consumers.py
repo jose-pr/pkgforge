@@ -13,6 +13,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import tarfile
 import textwrap
 from pathlib import Path
@@ -797,3 +798,148 @@ def test_dh_install_fixperms_builds_deb(tmp_path, cli):
     assert emptydir.isdir()
     assert (emptydir.uname, emptydir.gname) == ("daemon", "adm")
     assert _mode("var/lib/tool/emptysrc") == 0o750
+
+
+# --------------------------------------------------------------------------
+# dh_install: the whole `dh` sequence, driven by the recipes in formats.md
+# --------------------------------------------------------------------------
+
+FORMATS_MD = Path(__file__).resolve().parents[1] / "docs" / "guide" / "formats.md"
+
+
+def _missing_dh_sequence_tool():
+    """The first tool the full-sequence deb builds need that is not on
+    PATH, or ``None``."""
+    for tool in ("dh", "dpkg-buildpackage", "dpkg-deb", "fakeroot"):
+        if shutil.which(tool) is None:
+            return tool
+    return None
+
+
+_MISSING_DH_TOOL = _missing_dh_sequence_tool()
+requires_dh_sequence = pytest.mark.skipif(
+    _MISSING_DH_TOOL is not None,
+    reason=f"{_MISSING_DH_TOOL} not installed",
+)
+
+
+def _doc_rules_recipe(marker: str) -> str:
+    """The ``debian/rules`` recipe in formats.md whose text holds ``marker``."""
+    text = FORMATS_MD.read_text(encoding="utf-8")
+    for body in re.findall(r"```make\n(.*?)```", text, re.DOTALL):
+        if marker in body:
+            return body
+    raise AssertionError(f"no make recipe containing {marker!r} in {FORMATS_MD}")
+
+
+#: What a user's stage.sh holds: one ``pkgforge install`` per artifact. A
+#: man page (renamed to .gz by dh_compress when pinned), a doc over 4 KiB
+#: (compressed too), a setuid helper, a root:adm config, a recorded empty
+#: state directory, and a directory under /usr/local (removed by
+#: dh_usrlocal).
+_STAGE_SH = """\
+set -eu
+pf() { pkgforge -q "$@"; }
+pf initdb
+E="$(mktemp -d)"
+pf install -D -d -m 750 -o root -g adm "$E" /var/lib/PKG
+pf install -D -d -m 755 -o root -g root "$E" /usr/local/lib/PKG
+rmdir "$E"
+pf install -p -m 664 -o root -g adm src/pf.1 /usr/share/man/man1
+pf install -p -m 640 -o root -g adm src/BIG.txt /usr/share/doc/PKG
+pf install -p -m 4755 -o root -g root src/helper /usr/bin
+pf install -p -m 640 -o root -g adm src/pf.conf /etc/PKG
+"""
+
+
+def _build_deb_with_recipe(tmp_path: Path, recipe: str, pkg: str):
+    """Build the package with ``dpkg-buildpackage`` from ``recipe`` (a
+    ``debian/rules`` copied out of formats.md). Returns the build result and
+    the built ``.deb``'s tar members keyed by path without the leading
+    ``./``."""
+    work = tmp_path / "work"
+    pkgroot = work / pkg
+    debian_dir = pkgroot / "debian"
+    (debian_dir / "source").mkdir(parents=True)
+    (pkgroot / "src").mkdir()
+    _write_debian_control_and_changelog(debian_dir, pkg, rules_requires_root=True)
+    (debian_dir / "source" / "format").write_text("3.0 (native)\n", encoding="utf-8")
+
+    (pkgroot / "src" / "pf.1").write_text(".TH PF 1\n", encoding="utf-8")
+    (pkgroot / "src" / "BIG.txt").write_text("x" * 5000, encoding="utf-8")
+    (pkgroot / "src" / "helper").write_text("#!/bin/sh\n", encoding="utf-8")
+    (pkgroot / "src" / "pf.conf").write_text("k = v\n", encoding="utf-8")
+    (pkgroot / "stage.sh").write_text(_STAGE_SH.replace("PKG", pkg), encoding="utf-8")
+
+    # dh_strip_nondeterminism is a separate package some hosts lack; the
+    # recipe has nothing to strip.
+    rules = recipe.replace("<pkg>", pkg) + "\noverride_dh_strip_nondeterminism:\n"
+    (debian_dir / "rules").write_text(rules, encoding="utf-8")
+    (debian_dir / "rules").chmod(0o755)
+
+    # The recipe calls `pkgforge` by name, as a user would.
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    wrapper = bindir / "pkgforge"
+    wrapper.write_text(
+        f'#!/bin/sh\nexec "{sys.executable}" -m pkgforge "$@"\n', encoding="utf-8"
+    )
+    wrapper.chmod(0o755)
+
+    result = subprocess.run(
+        ["dpkg-buildpackage", "-b", "-us", "-uc", "-d"],
+        cwd=pkgroot,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"},
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    debs = list(work.glob("*.deb"))
+    assert len(debs) == 1, debs
+    fsys_tarfile = subprocess.run(
+        ["dpkg-deb", "--fsys-tarfile", str(debs[0])], capture_output=True, check=True
+    ).stdout
+    with tarfile.open(fileobj=io.BytesIO(fsys_tarfile)) as tf:
+        members = {
+            (m.name[2:] if m.name.startswith("./") else m.name).rstrip("/"): m
+            for m in tf.getmembers()
+        }
+    return result, members
+
+
+def _assert_full_sequence_pins(result, members, pkg: str):
+    def pinned(name: str, mode: int, owner: str, group: str):
+        member = members[name]
+        assert stat.S_IMODE(member.mode) == mode, name
+        assert (member.uname, member.gname) == (owner, group), name
+
+    # dh_compress renamed these; the pins followed.
+    pinned("usr/share/man/man1/pf.1.gz", 0o664, "root", "adm")
+    pinned(f"usr/share/doc/{pkg}/BIG.txt.gz", 0o640, "root", "adm")
+    pinned("usr/bin/helper", 0o4755, "root", "root")
+    pinned(f"etc/{pkg}/pf.conf", 0o640, "root", "adm")
+    assert members[f"var/lib/{pkg}"].isdir()
+    pinned(f"var/lib/{pkg}", 0o750, "root", "adm")
+
+    # dh_usrlocal removed the directory; fixperms reported it and went on.
+    assert not [name for name in members if name.startswith("usr/local/lib/")]
+    assert "skipping missing" in result.stdout + result.stderr
+    assert f"/usr/local/lib/{pkg}" in result.stdout + result.stderr
+
+
+@requires_dh_sequence
+def test_dh_install_full_sequence_separate_root(tmp_path):
+    """The separate-stage-root recipe: stage in override_dh_auto_build and
+    install with ``dh_install --sourcedir``."""
+    recipe = _doc_rules_recipe("--sourcedir")
+    result, members = _build_deb_with_recipe(tmp_path, recipe, "pf-seq-root")
+    _assert_full_sequence_pins(result, members, "pf-seq-root")
+
+
+@requires_dh_sequence
+def test_dh_install_full_sequence_debian_tmp(tmp_path):
+    """The debian/tmp recipe: stage in override_dh_auto_install and call
+    ``dh_installdirs`` again once ``dirs`` exists."""
+    recipe = _doc_rules_recipe("\tdh_installdirs\n")
+    result, members = _build_deb_with_recipe(tmp_path, recipe, "pf-seq-tmp")
+    _assert_full_sequence_pins(result, members, "pf-seq-tmp")
