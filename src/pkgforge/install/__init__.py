@@ -38,7 +38,7 @@ from ..entry import (
     _filetype,
     _parse_filetype,
 )
-from ..command import PkgForgeCmd, parsepath
+from ..command import PkgForgeCmd, _as_path, parsepath
 from ..exclude import ExcludeArgs
 from .archive import _archive_dir_name
 from .decompress import _DECOMPRESSORS, _SUFFIX_TO_KIND, _looks_like_path, _resolve_kind
@@ -143,6 +143,12 @@ class Install(FileEntryArgs, ExcludeArgs, _RecordTree, PkgForgeCmd, _Staging):
         if decompress is None or decompress == "-":
             kwargs["decompress"] = True
         super().__init__(**kwargs)
+        if isinstance(self.source, list):
+            self.source = [_as_path(item, "source") for item in self.source]
+        else:
+            self.source = _as_path(self.source, "source")
+        if hasattr(self, "destination"):
+            self.destination = _as_path(self.destination, "destination")
 
     def _preflight(self) -> None:
         """Validate/normalize this clone's arguments, before resolution or
@@ -379,9 +385,29 @@ class Install(FileEntryArgs, ExcludeArgs, _RecordTree, PkgForgeCmd, _Staging):
         dest = self._rootpath(
             self.buildpath(dest), follow_final=(self.type == FileType.Directory)
         )
+        created: typing.List[Path] = []
         if self.parents:
+            ancestor = dest.parent
+            while not ancestor.exists() and ancestor != ancestor.parent:
+                created.append(ancestor)
+                ancestor = ancestor.parent
             dest.parent.mkdir(parents=True, exist_ok=True)
 
+        try:
+            self._stage_into(dest)
+        except BaseException:
+            # Deepest first; a directory something else has since written
+            # into is not empty and stays.
+            for parent in created:
+                try:
+                    os.rmdir(parent)
+                except OSError:
+                    break
+            raise
+
+    def _stage_into(self, dest: Path) -> None:
+        """Stage this clone's source at ``dest`` (whose parent exists), apply
+        and record its entry, then honour ``--remove-source``."""
         staged = self.install(self.source, dest)
         try:
             fileentry = entry_from_args(self)
@@ -426,21 +452,18 @@ class Install(FileEntryArgs, ExcludeArgs, _RecordTree, PkgForgeCmd, _Staging):
             # Runs LAST: after apply/replace/record succeed, so a failure
             # anywhere above (a bad --chown name past preflight, a disk-full
             # DB append) leaves the source in place and the command
-            # re-runnable. Skipped, not refused, when the source IS dest
-            # (an in-place build): the containment check in _resolve already
-            # refused the case where removing a directory source would
-            # delete dest or the DB out from under it.
+            # re-runnable. Skipped, not refused, only when the source IS
+            # dest (an in-place build): a --method link hardlink shares the
+            # data, so removing the source name leaves the staged copy intact.
             if not os.path.lexists(self.source):
                 # --method move already consumed it -- redundant with move,
                 # so this is a no-op rather than an error. A source
                 # --exclude left partially in place (the merge path) still
                 # reaches the branches below, same as without move.
                 pass
-            elif os.path.lexists(dest) and os.path.samestat(
-                os.lstat(self.source), os.lstat(dest)
-            ):
+            elif os.path.realpath(self.source) == os.path.realpath(dest):
                 self._logger_.warning(
-                    "--remove-source: %s is the staged file; not removing",
+                    "--remove-source: %s is the destination; not removing",
                     self.source,
                 )
             elif self.source.is_dir() and not self.source.is_symlink():

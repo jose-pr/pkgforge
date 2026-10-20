@@ -110,7 +110,18 @@ class _Transfer:
             return  # nothing left to move back
         try:
             if current.is_dir() and not current.is_symlink():
-                os.rename(current, self.source)
+                try:
+                    os.rename(current, self.source)
+                except OSError as exc:
+                    if exc.errno != errno.EXDEV:
+                        raise
+                    shutil.copytree(
+                        current,
+                        self.source,
+                        symlinks=True,
+                        copy_function=self._move_copy_function,
+                    )
+                    shutil.rmtree(current)
             else:
                 try:
                     os.replace(current, self.source)

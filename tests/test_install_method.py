@@ -442,3 +442,80 @@ def test_method_move_tree_rolls_back_on_failure(tmp_path, monkeypatch):
 
     assert (src / "f").read_text() == "f-content"
     assert not (root / "opt" / "app").exists()
+
+
+@pytest.mark.posix
+def test_method_move_directory_across_filesystems(tmp_path):
+    shm = Path("/dev/shm")
+    if not shm.is_dir():
+        pytest.skip("/dev/shm not available")
+    if os.stat(shm).st_dev == os.stat(tmp_path).st_dev:
+        pytest.skip("/dev/shm is on the same filesystem as tmp_path")
+
+    work = Path(tempfile.mkdtemp(dir=shm))
+    try:
+        src = work / "tree"
+        (src / "sub").mkdir(parents=True)
+        (src / "a").write_text("a")
+        (src / "sub" / "b").write_text("b")
+        (src / "sub" / "b").chmod(0o751)
+        os.utime(src / "sub" / "b", (1_000_000_000, 1_000_000_000))
+        os.symlink("a", src / "link")
+        root = tmp_path / "root"
+        root.mkdir()
+
+        Install._parser_().parse_args(
+            [
+                "--db",
+                str(tmp_path / "files.jsonl"),
+                "--buildroot",
+                str(root),
+                "-p",
+                "--method",
+                "move",
+                str(src),
+                "/opt",
+            ]
+        )()
+
+        staged = root / "opt" / "tree"
+        assert (staged / "a").read_text() == "a"
+        assert (staged / "sub" / "b").read_text() == "b"
+        assert (staged / "sub" / "b").stat().st_mode & 0o777 == 0o751
+        assert int((staged / "sub" / "b").stat().st_mtime) == 1_000_000_000
+        assert os.readlink(staged / "link") == "a"
+        assert not os.path.lexists(src)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+@pytest.mark.posix
+@pytest.mark.parametrize("method", ["copy", "link", "move"])
+def test_remove_source_with_link_removes_directory_and_file(tmp_path, method):
+    root = tmp_path / "root"
+    root.mkdir()
+    f = tmp_path / "f.txt"
+    f.write_text("file")
+    d = tmp_path / "d"
+    (d / "s").mkdir(parents=True)
+    (d / "s" / "one").write_text("1")
+    os.symlink("one", d / "s" / "l")
+    common = [
+        "--db",
+        str(tmp_path / "files.jsonl"),
+        "--buildroot",
+        str(root),
+        "-p",
+        "--method",
+        method,
+        "--remove-source",
+    ]
+
+    Install._parser_().parse_args([*common, str(f), "/c"])()
+    Install._parser_().parse_args([*common, str(d), "/c"])()
+
+    assert not os.path.lexists(f)
+    assert not os.path.lexists(d)
+    assert (root / "c" / "f.txt").read_text() == "file"
+    assert (root / "c" / "d" / "s" / "one").read_text() == "1"
+    assert os.readlink(root / "c" / "d" / "s" / "l") == "one"

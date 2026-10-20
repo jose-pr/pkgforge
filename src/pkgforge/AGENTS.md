@@ -604,10 +604,14 @@ above).
   and the `--db` directory are validated before anything is staged; without `-p`, a missing destination
   parent directory raises `UsageError` the same way. `--remove-source`
   runs only after the entry is applied and recorded (never on a failure
-  above it), is skipped with a warning (not removed) when the source IS the
-  staged destination, and is refused with `UsageError`, before any staging,
-  when a directory source contains the resolved destination or the `--db`
-  file.
+  above it), is skipped with a warning (not removed) only when the source IS
+  the destination (a `--method link` source is removed like any other), and
+  is refused with `UsageError`, before any staging, when a directory source
+  contains the resolved destination or the `--db` file. A failed install
+  removes the parent directories its own `-p` created (deepest first, exit
+  1); directories that already existed stay. `Install(...)` built from
+  Python accepts `str` or path-like `source`, `destination`, `db` and
+  `buildroot`; anything else raises `UsageError`.
   `--method {copy,link,move}` (env `PKGFORGE_INSTALL_METHOD`; default
   `copy`) controls how a filesystem file or directory source is staged; a
   `-` (stdin) source, `-x`/`--decompress`, an archive source and a symlink
@@ -635,7 +639,9 @@ above).
   the whole-tree rename) is moved back onto the source before the
   exception propagates -- best effort, logged rather than raising, so it
   never shadows the real failure; the merge case is not rolled back, same
-  as a partial copy merge. `--remove-source` is redundant with `move` (the
+  as a partial copy merge. A directory `move` onto another filesystem
+  falls back to that merge path (file by file, metadata kept, symlinks
+  moved, source removed). `--remove-source` is redundant with `move` (the
   source is already gone) and a no-op there, rather than an error.
   `-d` cannot be combined with `-t`/`--type` (a declared `conflicts=`
   group; exit 2, enforced by argparse itself before `Install` is

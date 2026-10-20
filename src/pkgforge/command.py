@@ -71,6 +71,20 @@ def parsepath(path: str) -> typing.Optional[typing.Union[str, Path]]:
         return Path(path)
 
 
+def _as_path(value: typing.Any, what: str) -> typing.Any:
+    """``value`` as a :class:`~pathlib.Path`; ``"-"`` (stdin/stdout) and a falsy
+    value (an unset field, left for the caller to refuse) pass through. Raises :class:`UsageError` for anything
+    that is not path-like."""
+    if not value or isinstance(value, Path) or value == "-":
+        return value
+    try:
+        return Path(os.fspath(value))
+    except TypeError:
+        raise UsageError(
+            f"{what} must be a str or path-like, not {type(value).__name__}"
+        ) from None
+
+
 def _env_path(value: str) -> typing.Optional[Path]:
     """Env-var/CLI value -> Path, or None if empty/unset (see PkgForgeCmd.db)."""
     return Path(value) if value else None
@@ -137,6 +151,8 @@ class PkgForgeCmd(LoggingArgs, Cmd):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        self.db = _as_path(self.db, "db")
+        self.buildroot = _as_path(self.buildroot, "buildroot")
         # Checked after construction (so env/CLI/default fill-in has already
         # happened) rather than as a `type=` converter: a converter only runs
         # for a value that actually goes through argparse, so a direct

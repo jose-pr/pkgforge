@@ -883,8 +883,8 @@ def test_install_failed_decompress_leaves_nothing(tmp_path):
     with pytest.raises(PkgForgeError, match="gzip failed"):
         inst()
 
-    # -p created the parent dir; the destination FILE itself must not exist.
-    assert not (root / "e" / "bad").exists()
+    # The parent -p created is removed with the failed install.
+    assert not (root / "e").exists()
     assert not list(root.glob("**/*.pkgforge-tmp"))
 
 
@@ -945,9 +945,8 @@ def test_install_bad_archive_leaves_nothing(tmp_path):
     with pytest.raises(PkgForgeError, match="cannot extract|bsdtar failed"):
         inst()
 
-    # -p created the parent dir; the extracted destination dir itself
-    # (the ".tar" suffix stripped from the archive's basename) must not.
-    assert not (root / "tr" / "trunc").exists()
+    # The parent -p created is removed with the failed install.
+    assert not (root / "tr").exists()
     assert not list(root.glob("**/*.pkgforge-tmp"))
 
 
@@ -1925,3 +1924,81 @@ def test_install_preflight_validates_rpmprefix(tmp_path):
     )
     with pytest.raises(UsageError, match="rpmprefix"):
         inst._preflight()
+
+
+@pytest.mark.posix
+def test_failed_install_removes_created_parents(tmp_path):
+    if shutil.which("gzip") is None:
+        pytest.skip("gzip not available")
+    root = tmp_path / "root"
+    (root / "keep").mkdir(parents=True)
+    bad = tmp_path / "bad.gz"
+    bad.write_bytes(b"not actually gzip data")
+    db = tmp_path / "files.jsonl"
+
+    inst = Install._parser_().parse_args(
+        [
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-x",
+            "gz",
+            str(bad),
+            "/keep/a/b/c",
+        ]
+    )
+    with pytest.raises(PkgForgeError):
+        inst()
+    # Only the directories this install created go; /keep existed already.
+    assert (root / "keep").is_dir()
+    assert not (root / "keep" / "a").exists()
+
+    # The same for a corrupt archive extracted with -d.
+    payload = tmp_path / "payload"
+    payload.mkdir()
+    (payload / "f").write_text("x")
+    tar_path = tmp_path / "trunc.tar"
+    with tarfile.open(tar_path, "w") as tf:
+        tf.add(payload / "f", arcname="f")
+    tar_path.write_bytes(tar_path.read_bytes()[:700])
+    inst = Install._parser_().parse_args(
+        [
+            "--db",
+            str(db),
+            "--buildroot",
+            str(root),
+            "-p",
+            "-d",
+            str(tar_path),
+            "/keep/x/y",
+        ]
+    )
+    with pytest.raises(PkgForgeError):
+        inst()
+    assert not (root / "keep" / "x").exists()
+
+
+def test_install_accepts_str_paths(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    src = tmp_path / "tool"
+    src.write_text("#!/bin/sh\n")
+    db = tmp_path / "files.jsonl"
+
+    inst = Install(
+        source=[str(src)],
+        destination="/usr/bin",
+        mode="755",
+        parents=True,
+        db=str(db),
+        buildroot=str(root),
+    )
+    inst()
+
+    assert (root / "usr" / "bin" / "tool").read_text() == "#!/bin/sh\n"
+    assert inst.loaddb()["/usr/bin/tool"]["mode"] == "755"
+
+    with pytest.raises(UsageError, match="destination"):
+        Install(source=[src], destination=42, db=db, buildroot=root)

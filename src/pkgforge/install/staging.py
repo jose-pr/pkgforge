@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import errno
 import os
 import shutil
 import stat
@@ -411,14 +412,23 @@ class _Staging(_Transfer):
                 shutil.rmtree(tmp, ignore_errors=True)
                 raise
 
+        crossed_filesystems = False
         if self.method == "move" and not dst.exists() and not self.exclude:
             # Fast path: the whole tree becomes the destination in one
             # rename -- nothing left to stage further, and (unlike the
             # merge path below) a single reversible unit a failure in
             # apply/replace/record can still move back onto self.source.
-            os.rename(src, dst)
-            self._move_atomic = True
-            return dst
+            try:
+                os.rename(src, dst)
+            except OSError as exc:
+                if exc.errno != errno.EXDEV:
+                    raise
+                # Another filesystem: move file by file through the merge
+                # path below, which keeps modes, mtimes and symlinks.
+                crossed_filesystems = True
+            else:
+                self._move_atomic = True
+                return dst
 
         # A directory source: copytree onto dst, merging if dst already
         # exists (also every move that isn't the fast path above -- an
@@ -460,6 +470,11 @@ class _Staging(_Transfer):
                 # else in them are removed, so an --exclude (or a symlink)
                 # leaves exactly its own path behind, as documented.
                 self._remove_empty_dirs(src)
+                if crossed_filesystems and os.path.lexists(src):
+                    # Nothing was excluded, so what is left are the symlinks
+                    # copytree recreated at dst; a same-filesystem move
+                    # carries them along, so the source goes entirely.
+                    shutil.rmtree(src)
         except BaseException:
             if created and self.method != "move":
                 shutil.rmtree(dst, ignore_errors=True)
