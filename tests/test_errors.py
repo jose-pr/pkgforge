@@ -10,17 +10,10 @@ import sys
 import pytest
 
 import pkgforge
-from pkgforge.command import PkgForge
 from pkgforge.errors import PkgForgeError, UsageError
 
 
-def test_root_command_not_runnable():
-    # Guard: PkgForgeCmd/PkgForge no longer override __call__ -- duho's
-    # own Cmd base already raises NotImplementedError naming the class, so a
-    # bare root command still fails loud if ever reached directly.
-    with pytest.raises(NotImplementedError):
-        PkgForge()()
-
+def test_no_subcommand_exits_2():
     with pytest.raises(SystemExit) as excinfo:
         pkgforge.main([])
     assert excinfo.value.code == 2
@@ -169,7 +162,7 @@ def test_broken_pipe_subprocess(tmp_path):
 
 
 def test_traceback_opt_in(tmp_path, cli, monkeypatch):
-    monkeypatch.setenv("DUHO_TRACEBACK", "1")
+    monkeypatch.setenv("PKGFORGE_TRACEBACK", "1")
     result = cli("install", str(tmp_path / "missing.txt"), str(tmp_path / "dest_f"))
     err = result.err.decode()
     assert result.rc == 2
@@ -191,20 +184,176 @@ def test_unexpected_exception_propagates(monkeypatch):
         pkgforge.main(["dbdump", "-f", "rpmspecfiles"])
 
 
-def test_broken_pipe_with_traceback_prints_it_without_an_error_line(
-    monkeypatch, capsys
-):
-    # Under DUHO_TRACEBACK duho prints the traceback of every error it
-    # catches, a closed pipe included; the status stays 1 and no
-    # `pkgforge: error:` line follows.
-    def _raise(*_a, **_kw):
-        raise BrokenPipeError()
+@pytest.mark.parametrize("value", ["0", "no", "off", "", "bogus"])
+def test_traceback_off_values_print_one_line(value, tmp_path, cli, monkeypatch):
+    monkeypatch.setenv("PKGFORGE_TRACEBACK", value)
+    result = cli("install", str(tmp_path / "missing.txt"), str(tmp_path / "dest_f"))
+    err = result.err.decode()
+    assert result.rc == 2
+    assert err.count("\n") == 1
+    assert "Traceback" not in err
 
+
+def test_duho_traceback_variable_is_not_pkgforges_switch(tmp_path, cli, monkeypatch):
     monkeypatch.setenv("DUHO_TRACEBACK", "1")
-    monkeypatch.setattr(pkgforge.dbdump.DbDump, "__call__", _raise)
+    result = cli("install", str(tmp_path / "missing.txt"), str(tmp_path / "dest_f"))
+    err = result.err.decode()
+    assert result.rc == 2
+    assert err.count("\n") == 1
+    assert "Traceback" not in err
+
+
+@pytest.mark.posix
+def test_ctrl_c_exits_130_silently(monkeypatch, capsys):
+    import os
+    import signal
+
+    def _interrupt(*_a, **_kw):
+        os.kill(os.getpid(), signal.SIGINT)
+        raise AssertionError("SIGINT was not delivered")
+
+    monkeypatch.setattr(pkgforge.dbdump.DbDump, "__call__", _interrupt)
     rc = pkgforge.main(["dbdump", "-f", "rpmspecfiles"])
-    assert rc == 1
+    assert rc == 130
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "BrokenPipeError" in captured.err
-    assert "pkgforge: error:" not in captured.err
+    assert captured.err == ""
+
+
+def _truncated_archive(tmp_path, suffix):
+    import io
+    import tarfile
+
+    payload = bytes(range(256)) * 2000
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as tf:
+        for name in ("f1", "f2"):
+            info = tarfile.TarInfo(name)
+            info.size = len(payload)
+            tf.addfile(info, io.BytesIO(payload))
+    data = buf.getvalue()
+    if suffix == ".tar.gz":
+        import gzip
+
+        data = gzip.compress(data)
+    path = tmp_path / ("trunc" + suffix)
+    path.write_bytes(data[: len(data) // 2])
+    return path
+
+
+@pytest.mark.parametrize("suffix", [".tar", ".tar.gz"])
+def test_truncated_tar_is_one_line(suffix, tmp_path, cli):
+    archive = _truncated_archive(tmp_path, suffix)
+    result = cli(
+        "--db",
+        str(tmp_path / "db.jsonl"),
+        "--buildroot",
+        str(tmp_path / "root"),
+        "install",
+        "-p",
+        "-d",
+        str(archive),
+        "/t",
+    )
+    err = result.err.decode().strip()
+    assert result.rc == 1
+    assert err.count("\n") == 0
+    assert err.startswith("pkgforge: error: ")
+    assert str(archive) in err
+    assert "Traceback" not in err
+
+
+def test_corrupt_tgz_is_one_line(tmp_path, cli):
+    archive = tmp_path / "garbage.tgz"
+    archive.write_bytes(b"garbage")
+    result = cli(
+        "--db",
+        str(tmp_path / "db.jsonl"),
+        "--buildroot",
+        str(tmp_path / "root"),
+        "install",
+        "-p",
+        "-d",
+        str(archive),
+        "/t",
+    )
+    err = result.err.decode().strip()
+    assert result.rc == 1
+    assert err.count("\n") == 0
+    assert err.startswith("pkgforge: error: ")
+
+
+def test_sqlite_db_in_unwritable_directory_is_one_line(tmp_path, cli):
+    import os
+
+    locked = tmp_path / "ro"
+    locked.mkdir()
+    locked.chmod(0o555)
+    try:
+        if os.access(locked, os.W_OK):
+            pytest.skip("directory permissions are not enforced (root or Windows)")
+        src = tmp_path / "src"
+        src.write_text("x")
+        result = cli(
+            "--db",
+            str(locked / "x.db"),
+            "--buildroot",
+            str(tmp_path / "root"),
+            "install",
+            "-p",
+            str(src),
+            "/y",
+        )
+    finally:
+        locked.chmod(0o755)
+    err = result.err.decode().strip().splitlines()
+    assert result.rc == 1
+    assert err[-1].startswith("pkgforge: error: ")
+    assert "Traceback" not in "".join(err)
+
+
+def test_sqlite_garbage_file_is_one_line(tmp_path, cli):
+    db = tmp_path / "text.db"
+    db.write_text("this is not a database\n")
+    result = cli("--db-format", "sqlite", "--db", str(db), "dbdump", "-f", "rpm")
+    err = result.err.decode().strip()
+    assert result.rc == 1
+    assert err.count("\n") == 0
+    assert err.startswith("pkgforge: error: ")
+    assert str(db) in err
+
+
+def test_sqlite_bad_meta_json_is_one_line(tmp_path, cli):
+    import sqlite3
+
+    db = tmp_path / "meta.db"
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "CREATE TABLE entries (path TEXT PRIMARY KEY, mode TEXT, owner TEXT, "
+        '"group" TEXT, type TEXT, meta_json TEXT, removed INTEGER DEFAULT 0)'
+    )
+    conn.execute("INSERT INTO entries VALUES ('/a','644','-','-','file','{bad',0)")
+    conn.commit()
+    conn.close()
+    result = cli("--db", str(db), "dbdump", "-f", "rpm")
+    err = result.err.decode().strip()
+    assert result.rc == 1
+    assert err.count("\n") == 0
+    assert "invalid meta_json" in err
+
+
+@pytest.mark.parametrize("name", ["deep.jsonl", "deep.yaml"])
+def test_deeply_nested_db_is_one_line(name, tmp_path, cli):
+    if name.endswith(".yaml") and sys.version_info < (3, 10):
+        pytest.skip("libyaml overflows the C stack on this nesting before Python 3.10")
+    db = tmp_path / name
+    depth = 100_000
+    if name.endswith(".jsonl"):
+        db.write_text('{"path": "/a", "meta": ' + "[" * depth + "]" * depth + "}\n")
+    else:
+        db.write_text("/a:\n  meta: " + "[" * depth + "]" * depth + "\n")
+    result = cli("--db", str(db), "dbdump", "-f", "rpm")
+    err = result.err.decode().strip()
+    assert result.rc == 1
+    assert err.count("\n") == 0
+    assert "nested too deeply" in err

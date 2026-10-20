@@ -7,15 +7,16 @@ from __future__ import annotations
 import os
 import shutil
 import stat
-import subprocess
 import sys
 import tempfile
 import typing
 from pathlib import Path
 
 from . import archive
+from ._tool import _run_tool
 from .decompress import _DECOMPRESSORS
 from .transfer import _Transfer, _try_link
+from ..command import _refuse_mcp_stdin
 from ..entry import DEFAULT, FileType
 from ..errors import PkgForgeError, UsageError
 from ..exclude import PathMatch, log_unreachable
@@ -27,6 +28,7 @@ def _require_stdin() -> typing.BinaryIO:
     or a closed fd. Never closes stdin: the caller reads from the returned
     buffer without wrapping fd 0 in a new file object.
     """
+    _refuse_mcp_stdin("a '-' source")
     if sys.stdin is None:
         raise UsageError("'-' reads stdin, but stdin is closed")
     if sys.stdin.isatty():
@@ -218,22 +220,22 @@ class _Staging(_Transfer):
             elif self.decompress:
                 os.chmod(tmp, 0o666 & ~_umask())
                 argv, _ = _DECOMPRESSORS[self.decompress]
+                if from_stdin:
+                    _refuse_mcp_stdin("a '-' source")
                 with tmp.open("wb") as f:
-                    subprocess.run(
+                    _run_tool(
                         [
                             *argv,
                             # An absolute path so a source starting with "-"
                             # (e.g. "-v.gz") is never read as an option.
                             "-" if from_stdin else os.fspath(src.absolute()),
                         ],
-                        # Only a "-" source reads stdin; for a real file the
-                        # child inherits ours. Passing the file object (not
-                        # a bare .fileno()) lets subprocess resolve it even
-                        # when stdin has been replaced with a wrapped file
-                        # object (as the tests do).
+                        # Only a "-" source reads stdin. Passing the file
+                        # object (not a bare .fileno()) lets subprocess
+                        # resolve it even when stdin has been replaced with
+                        # a wrapped file object (as the tests do).
                         stdin=sys.stdin if from_stdin else None,
                         stdout=f,
-                        check=True,
                     )
             elif not from_stdin:
                 if stat.S_ISREG(os.stat(src).st_mode):

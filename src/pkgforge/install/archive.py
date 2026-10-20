@@ -9,15 +9,22 @@ import logging
 import os
 import shutil
 import stat
-import subprocess
 import sys
 import tarfile
 import typing
+import zlib
 from pathlib import Path
 
+from ..command import _refuse_mcp_stdin
 from ..entry import DEFAULT
 from ..errors import PkgForgeError
 from ..exclude import PathMatch
+from ._tool import _run_tool
+
+try:
+    import lzma
+except ImportError:  # an interpreter built without liblzma
+    lzma = None  # type: ignore[assignment]
 
 #: Archive suffixes handled by stdlib :mod:`tarfile` (tar family + compression).
 #: Anything else (e.g. ``.iso``) falls back to ``bsdtar``.
@@ -152,7 +159,9 @@ def _extract_bsdtar(src: typing.Union[Path, str], dst: Path) -> None:
     if shutil.which("bsdtar") is None:
         raise PkgForgeError(f"cannot extract {src}: bsdtar not found on PATH")
     from_stdin = src == DEFAULT
-    subprocess.run(
+    if from_stdin:
+        _refuse_mcp_stdin("an archive")
+    _run_tool(
         [
             "bsdtar",
             "-x",
@@ -163,7 +172,6 @@ def _extract_bsdtar(src: typing.Union[Path, str], dst: Path) -> None:
             "-" if from_stdin else os.fspath(src),
         ],
         stdin=sys.stdin if from_stdin else None,
-        check=True,
     )
     _reject_special_files(dst)
 
@@ -254,6 +262,17 @@ def _staging_filter(member: tarfile.TarInfo, dest_path: str) -> tarfile.TarInfo:
     return filtered.replace(uid=None, gid=None, uname=None, gname=None, deep=False)
 
 
+#: What tarfile raises for a truncated or corrupt archive: its own errors
+#: plus the codecs' (gzip, bzip2 and xz surface as EOFError, zlib.error and
+#: lzma.LZMAError).
+_CORRUPT_ARCHIVE: typing.Tuple[typing.Type[BaseException], ...] = (
+    tarfile.TarError,
+    EOFError,
+    zlib.error,
+    *((lzma.LZMAError,) if lzma is not None else ()),
+)
+
+
 def _extract_tar(path: typing.Union[str, os.PathLike], dst: Path) -> None:
     """Extract the tar-family archive at ``path`` into ``dst`` using stdlib
     :mod:`tarfile` and :func:`_staging_filter`.
@@ -282,6 +301,11 @@ def _extract_tar(path: typing.Union[str, os.PathLike], dst: Path) -> None:
             tar.extractall(os.fspath(dst), filter=_staging_filter)
     except (tarfile.FilterError, KeyError) as exc:
         raise PkgForgeError(f"refusing to extract {path}: {exc}") from exc
+    except _CORRUPT_ARCHIVE as exc:
+        # tarfile's open error lists every codec it tried, one per line.
+        raise PkgForgeError(
+            f"cannot extract {path}: {' '.join(str(exc).split())}"
+        ) from exc
 
 
 def extract(src: typing.Union[Path, str], dst: Path, logger: logging.Logger) -> None:

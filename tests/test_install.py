@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from pkgforge.errors import UsageError
+from pkgforge.errors import PkgForgeError, UsageError
 from pkgforge.install import Install
 
 
@@ -880,7 +880,7 @@ def test_install_failed_decompress_leaves_nothing(tmp_path):
             "/e",
         ]
     )
-    with pytest.raises(subprocess.CalledProcessError):
+    with pytest.raises(PkgForgeError, match="gzip failed"):
         inst()
 
     # -p created the parent dir; the destination FILE itself must not exist.
@@ -905,7 +905,7 @@ def test_install_failed_reinstall_keeps_previous_file(tmp_path):
 
     good_src.write_bytes(b"now junk, not gzip")
     inst = Install._parser_().parse_args(common + [str(good_src), "/e"])
-    with pytest.raises(subprocess.CalledProcessError):
+    with pytest.raises(PkgForgeError, match="gzip failed"):
         inst()
 
     assert staged.read_bytes() == b"hello\n"
@@ -940,9 +940,9 @@ def test_install_bad_archive_leaves_nothing(tmp_path):
             "/tr",
         ]
     )
-    # tarfile reports ReadError; without PEP 706 the archive goes to bsdtar,
-    # which exits non-zero. Either way nothing may be left behind.
-    with pytest.raises((tarfile.ReadError, subprocess.CalledProcessError)):
+    # tarfile reports the truncation; without PEP 706 the archive goes to
+    # bsdtar, which exits non-zero. Either way nothing may be left behind.
+    with pytest.raises(PkgForgeError, match="cannot extract|bsdtar failed"):
         inst()
 
     # -p created the parent dir; the extracted destination dir itself

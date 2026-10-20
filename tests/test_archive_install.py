@@ -378,7 +378,7 @@ def test_bsdtar_rejects_dotdot_member(tmp_path):
             "/opt/app",
         ]
     )
-    with pytest.raises(subprocess.CalledProcessError):
+    with pytest.raises(PkgForgeError, match="bsdtar failed"):
         inst()
 
     assert not outside.exists()
@@ -455,7 +455,7 @@ def test_bsdtar_refuses_write_through_symlink_escape(tmp_path):
             "/opt/app",
         ]
     )
-    with pytest.raises(subprocess.CalledProcessError):
+    with pytest.raises(PkgForgeError, match="bsdtar failed"):
         inst()
 
     assert list(outside.iterdir()) == []

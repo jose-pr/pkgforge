@@ -57,6 +57,10 @@ def _parse_jsonl(text: str, source: typing.Union["Path", str]) -> Db:
             rec, end = _DECODER.raw_decode(line)
         except json.JSONDecodeError:
             ok = False
+        except RecursionError as exc:
+            raise DbError(
+                f"{source}:{lineno}: invalid JSON Lines record: nested too deeply"
+            ) from exc
         if not ok or end != len(line):
             try:
                 rec = json.loads(line)
@@ -64,6 +68,10 @@ def _parse_jsonl(text: str, source: typing.Union["Path", str]) -> Db:
                 raise DbError(
                     f"{source}:{lineno}: invalid JSON Lines record: "
                     f"{exc.msg} (column {exc.colno})"
+                ) from exc
+            except RecursionError as exc:
+                raise DbError(
+                    f"{source}:{lineno}: invalid JSON Lines record: nested too deeply"
                 ) from exc
         if not isinstance(rec, dict):
             raise DbError(

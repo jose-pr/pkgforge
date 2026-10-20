@@ -48,6 +48,29 @@ def _ensure_utf8(path: str, rec: dict) -> None:
             ) from exc
 
 
+def _sqlite3():
+    """Import :mod:`sqlite3` on first use, so ``import pkgforge``, ``--help``
+    and the ``jsonl``/``yaml`` backends work on an interpreter built without
+    ``_sqlite3`` (some pyenv or source builds)."""
+    try:
+        import sqlite3
+    except ImportError as exc:
+        raise PkgForgeError(
+            "the sqlite DB backend needs Python's sqlite3 module "
+            "(_sqlite3), which this interpreter lacks; use "
+            "--db-format jsonl or yaml"
+        ) from exc
+    return sqlite3
+
+
+def _db_error(path: typing.Any, exc: Exception) -> DbError:
+    """Wrap a :class:`sqlite3.Error` as a :class:`~pkgforge.db.DbError`
+    naming the DB file."""
+    if "locked" in str(exc):
+        return DbError(f"{path}: database is locked; another process holds it")
+    return DbError(f"{path}: {exc}")
+
+
 class SqliteDb(DbProvider):
     """SQLite store: one row per path, upserted in place (no append log)."""
 
@@ -82,26 +105,26 @@ class SqliteDb(DbProvider):
         connection and row counter, which is harmless but pointless);
         callers only ever open one at a time (see ``PkgForgeCmd._db_batch``).
         """
+        sqlite3 = _sqlite3()
         try:
-            import sqlite3
-        except ImportError as exc:
-            raise PkgForgeError(
-                "the sqlite DB backend needs Python's sqlite3 module "
-                "(_sqlite3), which this interpreter lacks; use "
-                "--db-format jsonl or yaml"
-            ) from exc
-        conn = sqlite3.connect(os.fspath(self.path))
-        conn.execute(self._SCHEMA)
-        self._batch_conn = conn
-        self._batch_count = 0
-        try:
-            yield self
-        finally:
+            conn = sqlite3.connect(os.fspath(self.path))
             try:
-                conn.commit()
-            finally:
-                self._batch_conn = None
+                conn.execute(self._SCHEMA)
+            except BaseException:
                 conn.close()
+                raise
+            self._batch_conn = conn
+            self._batch_count = 0
+            try:
+                yield self
+            finally:
+                try:
+                    conn.commit()
+                finally:
+                    self._batch_conn = None
+                    conn.close()
+        except sqlite3.Error as exc:
+            raise _db_error(self.path, exc) from exc
 
     @contextlib.contextmanager
     def _connect(self, *, ensure_schema: bool = True):
@@ -109,31 +132,21 @@ class SqliteDb(DbProvider):
 
         ``sqlite3``'s own context manager commits/rolls back but does NOT close
         the connection -- leaving the file handle open, which blocks deletion on
-        Windows. This wrapper guarantees ``close()``.
-
-        ``sqlite3`` is imported here, not at module top, so ``import pkgforge``,
-        ``--help`` and the ``jsonl``/``yaml`` backends all work on an
-        interpreter built without it (``_sqlite3`` missing, e.g. some pyenv or
-        source builds) -- only actually connecting pays for the import, and a
-        missing module raises one clear error instead of an ``ImportError``
-        deep in the stdlib's own ``sqlite3`` package.
+        Windows. This wrapper guarantees ``close()``, and turns a
+        :class:`sqlite3.Error` into a :class:`~pkgforge.db.DbError`.
         """
+        sqlite3 = _sqlite3()
         try:
-            import sqlite3
-        except ImportError as exc:
-            raise PkgForgeError(
-                "the sqlite DB backend needs Python's sqlite3 module "
-                "(_sqlite3), which this interpreter lacks; use "
-                "--db-format jsonl or yaml"
-            ) from exc
-        conn = sqlite3.connect(os.fspath(self.path))
-        try:
-            if ensure_schema:
-                conn.execute(self._SCHEMA)
-            yield conn
-            conn.commit()
-        finally:
-            conn.close()
+            conn = sqlite3.connect(os.fspath(self.path))
+            try:
+                if ensure_schema:
+                    conn.execute(self._SCHEMA)
+                yield conn
+                conn.commit()
+            finally:
+                conn.close()
+        except sqlite3.Error as exc:
+            raise _db_error(self.path, exc) from exc
 
     def _has_entries_table(self, conn) -> bool:
         """Return ``True`` if ``conn``'s database already has the
@@ -177,7 +190,12 @@ class SqliteDb(DbProvider):
                     # empty value) and hand each row its own fresh dict,
                     # never one shared object across rows.
                     if meta_json and meta_json != "{}":
-                        meta = json.loads(meta_json)
+                        try:
+                            meta = json.loads(meta_json)
+                        except (ValueError, RecursionError) as exc:
+                            raise DbError(
+                                f"{self.path}: {path}: invalid meta_json: {exc}"
+                            ) from exc
                     else:
                         meta = {}
                     db[path] = {

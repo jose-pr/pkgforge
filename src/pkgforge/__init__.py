@@ -23,7 +23,7 @@ from .entry import (
     normalize_mode,
     resolve_entry,
 )
-from .command import PkgForgeCmd, PkgForge, silence_broken_pipe
+from .command import PkgForgeCmd, PkgForge, _silence_broken_pipe
 from .db import DbError, DbProvider, open_db
 from . import compact, dbdump, initdb, install, scan
 
@@ -67,9 +67,11 @@ def main(argv=None) -> int:
     :class:`~pkgforge.errors.UsageError` (an argument-shaped mistake), 1 for
     any other :class:`~pkgforge.errors.PkgForgeError`, ``OSError`` or
     ``subprocess.CalledProcessError``, and 1 silently for a closed output
-    pipe (``BrokenPipeError``). Anything else propagates with its traceback,
-    so a real bug stays visible. Set ``DUHO_TRACEBACK`` to a true value (duho's boolean tokens, e.g. ``1``;
-    ``0``/``n``/``f`` mean off) to also print the traceback before that one line.
+    pipe (``BrokenPipeError``). 130 is Ctrl-C, silently. Anything else
+    propagates with its traceback, so a real bug stays visible. Set
+    ``PKGFORGE_TRACEBACK`` to a true value (``1``, ``true``, ``yes``, ``on``;
+    ``0``/``n``/``f`` mean off) to also print the traceback before that one
+    line.
 
     ``--help``, ``--version`` and a usage error from the parser raise
     ``SystemExit``; every other outcome is returned.
@@ -87,5 +89,5 @@ def main(argv=None) -> int:
         sys.stdout.flush()
         return rc
     except BrokenPipeError:
-        silence_broken_pipe()
+        _silence_broken_pipe()
         return 1

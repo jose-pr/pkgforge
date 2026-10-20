@@ -30,7 +30,7 @@ from ..db import Db, DbError
 from ..db.jsonl import _parse_jsonl
 from ..entry import DEFAULT, FileEntry
 from ..errors import PkgForgeError, UsageError
-from ..command import PkgForgeCmd
+from ..command import PkgForgeCmd, _refuse_mcp_stdin
 from ..exclude import ExcludeArgs, PathMatch
 
 #: An entry that survived filtering: (db-path, FileEntry).
@@ -304,6 +304,7 @@ class DbDump(ExcludeArgs, PkgForgeCmd):
         ``--db``/``--db-format`` are ignored here (only noted at DEBUG),
         never consulted.
         """
+        _refuse_mcp_stdin("the file DB")
         if self.db is not None:
             self._logger_.debug("--stdin: ignoring --db %s", self.db)
         if sys.stdin is None:

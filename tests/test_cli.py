@@ -996,7 +996,7 @@ def test_unknown_db_format_after_subcommand_is_usage_error(cli):
 
 
 def test_unknown_db_format_after_subcommand_with_traceback(cli, monkeypatch):
-    monkeypatch.setenv("DUHO_TRACEBACK", "1")
+    monkeypatch.setenv("PKGFORGE_TRACEBACK", "1")
     result = cli("initdb", "--db-format", "toml")
     assert result.rc == 2
     lines = [line for line in result.err.decode().splitlines() if line]

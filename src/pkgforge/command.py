@@ -21,19 +21,20 @@ from __future__ import annotations
 import contextlib
 import os
 import posixpath
-import subprocess
 import sys
+import traceback
 import typing
 from pathlib import Path, PurePath, PurePosixPath
 
 import duho
 from duho import Cli, Cmd, LoggingArgs
+from duho.text import BOOL_TRUE
 
 from .entry import FileEntry
 from .errors import PkgForgeError, UsageError
 
 
-def silence_broken_pipe() -> None:
+def _silence_broken_pipe() -> None:
     """Redirect stdout to ``os.devnull`` so a later implicit flush/close does
     not raise a second time (the recipe from the Python signal-handling docs).
 
@@ -48,6 +49,15 @@ def silence_broken_pipe() -> None:
             os.close(devnull)
     except (OSError, ValueError, AttributeError):
         pass
+
+
+def _refuse_mcp_stdin(what: str) -> None:
+    """Raise :class:`UsageError` when ``what`` would be read from standard
+    input inside an MCP tool call, where stdin is the protocol channel."""
+    if duho.running_mode() == "mcp":
+        raise UsageError(
+            f"reading {what} from standard input is not available in an MCP tool call"
+        )
 
 
 def parsepath(path: str) -> typing.Optional[typing.Union[str, Path]]:
@@ -346,20 +356,18 @@ class PkgForge(PkgForgeCmd, Cli):
     # "PkgForge" instead of the invoked command, and shell completion (which
     # binds by exact, case-sensitive name) would never fire on bash/zsh/fish.
     _parsername_ = "pkgforge"
-    # First match wins, so a closed pipe (an OSError) and a usage mistake
-    # (a PkgForgeError) are listed before the classes they belong to.
+    # First match wins: a usage mistake (a PkgForgeError) is listed before
+    # the class it belongs to.
     _errors_ = {
-        BrokenPipeError: 1,
         UsageError: 2,
         PkgForgeError: 1,
         OSError: 1,
-        subprocess.CalledProcessError: 1,
     }
 
     @staticmethod
     def _report_error_(message: str, code: int, error: BaseException) -> None:
-        """Print one ``pkgforge: error:`` line; a closed pipe prints nothing."""
-        if isinstance(error, BrokenPipeError):
-            silence_broken_pipe()
-        else:
-            print(f"pkgforge: error: {message}", file=sys.stderr)
+        """Print one ``pkgforge: error:`` line, after the traceback when
+        ``PKGFORGE_TRACEBACK`` is set to a true value."""
+        if os.environ.get("PKGFORGE_TRACEBACK", "").strip().lower() in BOOL_TRUE:
+            traceback.print_exception(type(error), error, error.__traceback__)
+        print(f"pkgforge: error: {message}", file=sys.stderr)

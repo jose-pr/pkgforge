@@ -118,6 +118,8 @@ class YamlDb(AppendLogDb):
             raise DbError(f"{self.path}: {exc}") from exc
         except yaml.YAMLError as exc:
             raise DbError(f"{self.path}: {exc}") from exc
+        except RecursionError as exc:
+            raise DbError(f"{self.path}: nested too deeply") from exc
         if data is None:
             return {}
         if not isinstance(data, dict):
