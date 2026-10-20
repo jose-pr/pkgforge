@@ -1,5 +1,5 @@
 """Tests for pkgforge's error model: ``PkgForgeError``/``UsageError`` and the
-``pkgforge.main()`` error boundary.
+``pkgforge.cli.main()`` error boundary.
 """
 
 from __future__ import annotations
@@ -9,13 +9,14 @@ import sys
 
 import pytest
 
-import pkgforge
+from pkgforge.cli import main
+from pkgforge.cli.dbdump import DbDump
 from pkgforge.exceptions import PkgForgeError, UsageError
 
 
 def test_no_subcommand_exits_2():
     with pytest.raises(SystemExit) as excinfo:
-        pkgforge.main([])
+        main([])
     assert excinfo.value.code == 2
 
 
@@ -107,8 +108,8 @@ def test_main_broken_pipe_is_silent(monkeypatch, capsys):
     def _raise(*_a, **_kw):
         raise BrokenPipeError()
 
-    monkeypatch.setattr(pkgforge.dbdump.DbDump, "__call__", _raise)
-    rc = pkgforge.main(["dbdump", "-f", "rpmspecfiles"])
+    monkeypatch.setattr(DbDump, "__call__", _raise)
+    rc = main(["dbdump", "-f", "rpmspecfiles"])
     assert rc == 1
     captured = capsys.readouterr()
     assert captured.out == ""
@@ -173,15 +174,26 @@ def test_traceback_opt_in(tmp_path, cli, monkeypatch):
     assert traceback_lines[0] < len(lines) - 1
 
 
+def test_debug_flag_prints_traceback_before_the_error_line(tmp_path, cli):
+    result = cli(
+        "--debug", "--db", str(tmp_path / "MISSING.jsonl"), "dbdump", "-f", "rpm"
+    )
+    lines = [line for line in result.err.decode().splitlines() if line]
+    assert result.rc == 2
+    assert any("Traceback" in line for line in lines)
+    assert lines[-1].startswith("pkgforge: error:")
+    assert sum(line.startswith("pkgforge: error:") for line in lines) == 1
+
+
 def test_unexpected_exception_propagates(monkeypatch):
     # Guard: an exception outside the boundary's own classes must still
     # escape main() as a real traceback, not get swallowed.
     def _raise(*_a, **_kw):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(pkgforge.dbdump.DbDump, "__call__", _raise)
+    monkeypatch.setattr(DbDump, "__call__", _raise)
     with pytest.raises(RuntimeError, match="boom"):
-        pkgforge.main(["dbdump", "-f", "rpmspecfiles"])
+        main(["dbdump", "-f", "rpmspecfiles"])
 
 
 @pytest.mark.parametrize("value", ["0", "no", "off", "", "bogus"])
@@ -212,8 +224,8 @@ def test_ctrl_c_exits_130_silently(monkeypatch, capsys):
         os.kill(os.getpid(), signal.SIGINT)
         raise AssertionError("SIGINT was not delivered")
 
-    monkeypatch.setattr(pkgforge.dbdump.DbDump, "__call__", _interrupt)
-    rc = pkgforge.main(["dbdump", "-f", "rpmspecfiles"])
+    monkeypatch.setattr(DbDump, "__call__", _interrupt)
+    rc = main(["dbdump", "-f", "rpmspecfiles"])
     assert rc == 130
     captured = capsys.readouterr()
     assert captured.out == ""

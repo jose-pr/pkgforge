@@ -36,7 +36,7 @@ docs = [
 ]
 
 [project.scripts]
-pkgforge = "pkgforge:main"
+pkgforge = "pkgforge.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/jose-pr/pkgforge/"

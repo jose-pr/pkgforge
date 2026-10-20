@@ -1,8 +1,8 @@
-"""``python -m pkgforge`` entry point."""
+"""``python -m pkgforge``."""
 
-import sys
+from __future__ import annotations
 
-from . import main
+from .cli import main
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

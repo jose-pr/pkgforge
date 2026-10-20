@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-import pkgforge
+from pkgforge.cli import main
 from pkgforge.entry import FileEntry
 from pkgforge.command import PkgForgeCmd
 
@@ -199,7 +199,7 @@ class CliResult(typing.NamedTuple):
 
 @pytest.fixture
 def cli(capfdbinary):
-    """Factory driving ``pkgforge.main(argv)`` like a real invocation.
+    """Factory driving ``pkgforge.cli.main(argv)`` like a real invocation.
 
     ``rc``: ``None`` -> 0, an int stays, any other ``SystemExit`` code -> 1
     with ``str(code)`` appended to ``err`` (as CPython's own top-level
@@ -210,7 +210,7 @@ def cli(capfdbinary):
         capfdbinary.readouterr()  # drain any earlier capture
         code = None
         try:
-            rc = pkgforge.main(list(argv))
+            rc = main(list(argv))
         except SystemExit as exc:
             code = exc.code
             if code is None:
