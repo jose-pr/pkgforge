@@ -1,4 +1,4 @@
-"""Tests driving pkgforge through ``pkgforge.main(argv)``, as a user would.
+"""Tests driving pkgforge through ``pkgforge.cli.main(argv)``, as a user would.
 
 Cross-platform tests use the ``cli`` fixture directly. POSIX-only tests (real
 staging: chmod, chown, hardlinks, "/"-rooted destinations) are marked
@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 
 import pkgforge
+from pkgforge.cli import main
 from pkgforge.db import open_db
 
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
@@ -39,7 +40,7 @@ def _write(path: Path, content: str = "x") -> Path:
 
 
 def test_env_is_isolated():
-    from pkgforge.initdb import InitDb
+    from pkgforge.cli.initdb import InitDb
 
     inst = InitDb._parser_().parse_args([])
     assert inst.db is None
@@ -133,7 +134,7 @@ def test_dbdump_stdout_honours_redirect(tmp_path, fmt):
     _seed_tool_entry(db)
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        rc = pkgforge.main(["--db", str(db), "dbdump", "-f", fmt, "-"])
+        rc = main(["--db", str(db), "dbdump", "-f", fmt, "-"])
     assert rc in (0, None)
     assert "/usr/bin/tool" in buf.getvalue()
 
@@ -146,8 +147,8 @@ def test_dbdump_stdout_keeps_print_order(tmp_path):
     db = tmp_path / "files.jsonl"
     _seed_tool_entry(db)
     script = (
-        f"print('%files'); import pkgforge; "
-        f"pkgforge.main(['--db', {str(db)!r}, 'dbdump', '-f', 'rpmspecfiles', '-'])"
+        f"print('%files'); import pkgforge.cli; "
+        f"pkgforge.cli.main(['--db', {str(db)!r}, 'dbdump', '-f', 'rpmspecfiles', '-'])"
     )
     env = {**os.environ, "PYTHONPATH": str(SRC_DIR)}
     result = subprocess.run(
@@ -239,7 +240,7 @@ def test_dump_format_alias_matches_canonical_output(tmp_path, cli, alias, canoni
 
 
 def test_dbdump_help_lists_aliases():
-    from pkgforge.dbdump import DbDump
+    from pkgforge.cli.dbdump import DbDump
 
     help_text = DbDump._parser_().format_help()
     assert re.search(r"\brpm\b", help_text)
@@ -810,7 +811,7 @@ def test_install_source_is_destination_keeps_file(tmp_path, cli):
 
 
 def test_help_lists_every_subcommand(cli):
-    from pkgforge.command import PkgForge
+    from pkgforge.cli import PkgForge
 
     result = cli("--help")
     assert result.rc == 0
@@ -840,7 +841,7 @@ def test_print_completion_bash(cli):
 
 
 def test_prog_name_is_pkgforge():
-    from pkgforge.command import PkgForge
+    from pkgforge.cli import PkgForge
 
     parser = PkgForge._parser_()
     assert parser.prog == "pkgforge"
@@ -881,7 +882,7 @@ def test_verbose_flag_reaches_command_logger(tmp_path, cli):
 
 
 def test_every_option_has_help():
-    from pkgforge.command import PkgForge
+    from pkgforge.cli import PkgForge
 
     def _check(parser):
         for action in parser._actions:
@@ -901,8 +902,8 @@ def test_every_option_has_help():
 
 
 def test_install_help_shows_decompress_order():
-    from pkgforge.install import Install
-    from pkgforge.dbdump import DbDump
+    from pkgforge.cli.install import Install
+    from pkgforge.cli.dbdump import DbDump
 
     install_text = " ".join(Install._parser_().format_help().split())
     assert "-x KIND SRC DST" in install_text

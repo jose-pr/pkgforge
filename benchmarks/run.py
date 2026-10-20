@@ -28,14 +28,14 @@ import sys
 import tempfile
 import time
 import timeit
+import typing
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pkgforge
+from pkgforge import Project
 from pkgforge.db import open_db
 from pkgforge.dbdump import DebianFiles, RPMSpecFiles
-from pkgforge.install import Install
-from pkgforge.scan import ScanCmd
 
 # Per-metric inner iteration counts, sized so each metric runs in ~1s regardless
 # of how expensive one call is (YAML load of a 1000-entry DB is ~100x a render).
@@ -119,7 +119,7 @@ def _assert_scanned(db: Path, fmt: str, expected: int) -> None:
     """Raise unless `db` holds at least `expected` entries.
 
     Guards every scan.cmd_* metric against silently timing a no-op: without
-    this, a broken ScanCmd construction would still report a (meaningless)
+    this, a broken scan would still report a (meaningless)
     fast time instead of failing loudly.
     """
     count = len(open_db(db, fmt).load())
@@ -174,27 +174,21 @@ def measure():
 
         metrics["fs.walk_baseline"] = sample(_walk, SCAN_INNER)
 
-        def _run_scan(cmd: ScanCmd) -> None:
-            cmd()
+        def _run(call: typing.Callable[[], object]) -> None:
+            call()
 
         def _scan_setup(fmt: str, db_path: Path, **overrides):
-            def _setup() -> ScanCmd:
+            def _setup() -> typing.Callable[[], object]:
                 open_db(db_path, fmt).init()
-                kwargs = {
-                    "db": db_path,
-                    "db_format": fmt,
-                    "buildroot": root,
-                    "path": "/",
-                }
-                kwargs.update(overrides)
-                return ScanCmd(**kwargs)
+                project = Project(root, db_path, db_format=fmt)
+                return lambda: project.scan("/", **overrides)
 
             return _setup
 
         for fmt, ext in (("jsonl", "jsonl"), ("yaml", "yaml"), ("sqlite", "db")):
             db_path = Path(td) / f"scan.{ext}"
             metrics[f"scan.cmd_{fmt}"] = sample(
-                _run_scan, SCAN_CMD_INNER, setup=_scan_setup(fmt, db_path)
+                _run, SCAN_CMD_INNER, setup=_scan_setup(fmt, db_path)
             )
             _assert_scanned(db_path, fmt, SCAN_TREE_SIZE)
 
@@ -203,7 +197,7 @@ def measure():
         # scan already does -- the lookup cost this metric isolates.
         auto_owner_db = Path(td) / "scan.auto_owner.jsonl"
         metrics["scan.cmd_auto_owner"] = sample(
-            _run_scan,
+            _run,
             SCAN_CMD_INNER,
             setup=_scan_setup("jsonl", auto_owner_db, owner="--", group="--"),
         )
@@ -220,33 +214,22 @@ def measure():
         for i in range(INSTALL_TREE_SIZE):
             (template / f"file{i:04d}.dat").write_bytes(b"x" * 64)
 
-        def _run_install(inst: Install) -> None:
-            inst()
-
         def _install_setup(method: str, db_path: Path, **extra):
-            def _setup() -> Install:
+            def _setup() -> typing.Callable[[], object]:
                 src = Path(tempfile.mkdtemp(dir=td))
                 shutil.copytree(template, src, dirs_exist_ok=True)
                 buildroot = Path(tempfile.mkdtemp(dir=td))
-                kwargs = dict(
-                    source=[src],
-                    destination=Path("/tree"),
-                    buildroot=buildroot,
-                    db=db_path,
-                    db_format="jsonl",
-                    no_target_directory=True,
-                    parents=True,
-                    method=method,
+                project = Project(buildroot, db_path, db_format="jsonl")
+                return lambda: project.install(
+                    [src], "/tree", into=False, parents=True, method=method, **extra
                 )
-                kwargs.update(extra)
-                return Install(**kwargs)
 
             return _setup
 
         for method in ("copy", "link", "move"):
             db_path = Path(td) / f"install.{method}.jsonl"
             metrics[f"install.tree_{method}"] = sample(
-                _run_install,
+                _run,
                 INSTALL_TREE_INNER,
                 setup=_install_setup(method, db_path),
             )
@@ -257,7 +240,7 @@ def measure():
         # walk's own added cost.
         record_db_path = Path(td) / "install.record.jsonl"
         metrics["install.tree_record"] = sample(
-            _run_install,
+            _run,
             INSTALL_TREE_INNER,
             setup=_install_setup("copy", record_db_path, record_tree=True),
         )

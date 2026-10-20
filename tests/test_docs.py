@@ -52,22 +52,15 @@ API_DIR = ROOT / "docs" / "api"
 # documents by name but ``pkgforge.__all__`` only exposes as submodules.
 REQUIRED_API_TARGETS = (
     "pkgforge.project.Project",
-    "pkgforge.main",
-    "pkgforge.command.PkgForge",
     "pkgforge.exceptions.PkgForgeError",
     "pkgforge.exceptions.UsageError",
     "pkgforge.entry.FileType",
     "pkgforge.entry.FileEntry",
-    "pkgforge.entry.FileEntryBaseArgs",
-    "pkgforge.entry.FileEntryArgs",
-    "pkgforge.entry.entry_from_args",
     "pkgforge.entry.entry_from_path",
     "pkgforge.entry.resolve_entry",
     "pkgforge.entry.apply_entry",
     "pkgforge.entry.normalize_mode",
     "pkgforge.entry.mode_to_octal",
-    "pkgforge.command.parsepath",
-    "pkgforge.command.PkgForgeCmd",
     "pkgforge.exceptions.DbError",
     "pkgforge.db.DbProvider",
     "pkgforge.db.open_db",
@@ -80,7 +73,6 @@ REQUIRED_API_TARGETS = (
     "pkgforge.exclude.PathMatchStmt",
     "pkgforge.exclude.PathMatch",
     "pkgforge.exclude.PathTest",
-    "pkgforge.exclude.ExcludeArgs",
     "pkgforge.exceptions.ExcludeSyntaxError",
     "pkgforge.exceptions.DumpError",
     "pkgforge.exceptions.InvalidEntryError",
@@ -92,11 +84,6 @@ REQUIRED_API_TARGETS = (
     "pkgforge.dbdump.RPMSpecFiles",
     "pkgforge.dbdump.RPMSpecFilesPre419",
     "pkgforge.dbdump.DebianFiles",
-    "pkgforge.install.Install",
-    "pkgforge.scan.ScanCmd",
-    "pkgforge.initdb.InitDb",
-    "pkgforge.compact.Compact",
-    "pkgforge.dbdump.DbDump",
 )
 
 
@@ -161,7 +148,7 @@ def test_quickstart_blocks_identical_and_private():
 
 
 def test_doc_examples_parse():
-    from pkgforge.command import PkgForge
+    from pkgforge.cli import PkgForge
 
     parser = PkgForge._parser_()
     checked = 0

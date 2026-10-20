@@ -1,4 +1,4 @@
-"""Link/move staging machinery shared by :class:`~pkgforge.install._Staging`."""
+"""Link/move staging machinery shared by :class:`~pkgforge._install.staging._Staging`."""
 
 from __future__ import annotations
 
@@ -6,17 +6,6 @@ import errno
 import os
 import shutil
 from pathlib import Path
-
-
-def _env_method(value: str) -> str:
-    """Env-var/CLI value -> an install method (one of :data:`_INSTALL_METHODS`).
-
-    Empty means unset: a non-``str`` ``type=`` converter is what makes duho's
-    "empty env value means unset" rule apply, where a bare ``str`` field would
-    keep an empty ``PKGFORGE_INSTALL_METHOD=`` as a value to check.
-    """
-    return value if value else "copy"
-
 
 #: errnos `os.link` can raise for a source it just can't hardlink (a
 #: different filesystem, ``fs.protected_hardlinks``, the per-inode link

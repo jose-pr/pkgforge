@@ -108,7 +108,7 @@ class SQLiteDb(DbProvider):
 
         Not reentrant (a nested ``with provider.batch():`` reuses the same
         connection and row counter, which is harmless but pointless);
-        callers only ever open one at a time (see ``PkgForgeCmd._db_batch``).
+        callers only ever open one at a time (see ``Project._batch``).
         """
         sqlite3 = _sqlite3()
         try:

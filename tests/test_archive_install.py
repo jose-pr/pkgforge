@@ -23,7 +23,7 @@ from pathlib import Path
 import pytest
 
 from pkgforge.exceptions import PkgForgeError
-from pkgforge.install import Install
+from pkgforge.cli.install import Install
 from pkgforge._install.archive import BSDTAR_EXTRACT_FLAGS, _extract_bsdtar
 
 #: The tarfile route needs PEP 706's extraction filter (3.9.17+, 3.10.12+,
@@ -329,7 +329,7 @@ def test_bsdtar_as_root_rejects_char_device(tmp_path):
         inst()
 
     assert not (root / "opt" / "app").exists()
-    assert inst.loaddb() == {}
+    assert inst._project().load() == {}
 
 
 # --------------------------------------------------------------------------
@@ -832,7 +832,7 @@ def test_install_archive_strips_suffix(tmp_path, suffix):
     inst()
 
     assert (root / "opt" / "foo-1.0" / "x").read_bytes() == b"data"
-    assert "/opt/foo-1.0" in inst.loaddb()
+    assert "/opt/foo-1.0" in inst._project().load()
 
 
 @pytest.mark.posix
@@ -922,7 +922,7 @@ def test_install_zip_via_bsdtar(tmp_path):
     inst()
 
     assert (root / "opt" / "bundle" / "a").read_text() == "data"
-    assert "/opt/bundle" in inst.loaddb()
+    assert "/opt/bundle" in inst._project().load()
 
 
 @pytest.mark.posix
@@ -980,7 +980,7 @@ def test_install_dir_containing_buildroot_skips_it(tmp_path, monkeypatch):
     (proj / "build" / "root" / "usr" / "bin" / "tool").write_text("tool")
     monkeypatch.chdir(proj)
 
-    from pkgforge.initdb import InitDb
+    from pkgforge.cli.initdb import InitDb
 
     InitDb._parser_().parse_args(["--db", "files.jsonl"])()
     assert Path("files.jsonl").exists()
@@ -1005,7 +1005,7 @@ def test_install_dir_containing_buildroot_skips_it(tmp_path, monkeypatch):
     assert (staged / "build").is_dir()
     assert list((staged / "build").iterdir()) == []
     assert not (staged / "files.jsonl").exists()
-    assert "/opt/app" in inst.loaddb()
+    assert "/opt/app" in inst._project().load()
 
 
 @pytest.mark.posix
@@ -1140,7 +1140,7 @@ def test_install_directory_records_one_entry_guard(tmp_path):
 
     assert (root / "usr" / "share" / "tool" / "data.txt").exists()
     assert (root / "usr" / "share" / "tool" / "sub" / "nested.txt").exists()
-    assert list(inst.loaddb().keys()) == ["/usr/share/tool"]
+    assert list(inst._project().load().keys()) == ["/usr/share/tool"]
 
 
 @pytest.mark.posix

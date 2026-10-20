@@ -28,12 +28,10 @@ import re
 import typing
 from pathlib import Path, PurePath
 
-import duho
-
 from .entry import FileEntry, FileType, entry_from_path
 from .exceptions import ExcludeSyntaxError
 
-__all__ = ["ExcludeArgs", "PathMatch", "PathMatchStmt", "PathTest"]
+__all__ = ["PathMatch", "PathMatchStmt", "PathTest"]
 
 _FILTER_TEST_RE = re.compile(r"^\(\?([^:()]+):([^()]+)\)")
 
@@ -379,38 +377,3 @@ def _statements(
         stmt if isinstance(stmt, PathMatchStmt) else PathMatchStmt.parse(stmt)
         for stmt in exclude
     ]
-
-
-def _exclude_stmt(text: str) -> PathMatchStmt:
-    """``PathMatchStmt.parse`` for argparse: a bad statement is a usage error
-    (argparse reports only ``ArgumentTypeError`` that way)."""
-    try:
-        return PathMatchStmt.parse(text)
-    except ExcludeSyntaxError as exc:
-        raise argparse.ArgumentTypeError(str(exc)) from None
-
-
-class ExcludeArgs(duho.Cmd):
-    """Mixin supplying ``--exclude``/``-X`` -- shared by every command that
-    filters paths against a :class:`PathMatch` (``install``, ``scan``,
-    ``dbdump``), so the load-bearing ``duho.Append`` shape below is
-    declared exactly once.
-    """
-
-    # A collection field must use `duho.Append`, not a bare `List[...]`
-    # collection: duho would otherwise gather one *occurrence* worth of
-    # tokens per `-X`, rather than one statement per occurrence. `metavar`
-    # goes through `duho.Append`'s own `**kw` (its raw add_argument
-    # escape-hatch), and `duho.Meta(help=...)` is a separate metadata entry
-    # because passing `help=` to `duho.Append` itself fails at parser build.
-    exclude: duho.Arg[
-        typing.List[PathMatchStmt],
-        duho.Append(_exclude_stmt, metavar="STMT"),
-        duho.Meta(
-            help="exclude paths matching STMT (repeatable); "
-            "STMT is [!][(?[!]test:arg)...]GLOB; an absolute GLOB is "
-            "relative to the source (install), PATH (scan) or the DB path "
-            "(dbdump); see the exclude-pattern guide for the grammar"
-        ),
-    ] = []
-    ("--exclude", "-X")

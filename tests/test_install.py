@@ -25,8 +25,9 @@ from pathlib import Path
 
 import pytest
 
+from pkgforge import Project
 from pkgforge.exceptions import PkgForgeError, UsageError
-from pkgforge.install import Install
+from pkgforge.cli.install import Install
 
 
 @pytest.mark.posix
@@ -62,7 +63,7 @@ def test_install_file_copies_and_records(tmp_path):
     # -m never touches the source.
     assert (src.stat().st_mode & 0o777) == 0o644
     assert (staged.stat().st_mode & 0o777) == 0o640
-    recorded = inst.loaddb()
+    recorded = inst._project().load()
     assert recorded["/etc/app.conf"]["mode"] == "640"
 
 
@@ -635,7 +636,7 @@ def test_install_fifo_source_staged_as_file(tmp_path):
 
     staged = root / "opt" / "pipe"
     assert staged.read_bytes() == data
-    assert inst.loaddb()["/opt/pipe"]["type"] == "file"
+    assert inst._project().load()["/opt/pipe"]["type"] == "file"
 
 
 @pytest.mark.posix
@@ -736,7 +737,7 @@ def test_install_symlink_meta_does_not_leak(tmp_path):
         ]
     )
     inst()
-    recorded = inst.loaddb()
+    recorded = inst._project().load()
     assert recorded["/opt/app.link"]["meta"]["target"] == "/usr/bin/app"
     assert "target" not in recorded["/opt/regular.conf"]["meta"]
 
@@ -755,12 +756,12 @@ def test_install_symlink_meta_does_not_leak(tmp_path):
     # Nor the shared class-level default a bare construction with no meta=
     # would otherwise poison for every later Install/parser built in the
     # same process.
-    from pkgforge.entry import FileEntryArgs
+    from pkgforge.cli._common import EntryArgs
 
     Install(
         source=[link], destination=Path("/opt3"), buildroot=root, parents=True, db=None
     )()
-    assert FileEntryArgs.meta == {}
+    assert EntryArgs.meta == {}
 
 
 @pytest.mark.parametrize("mode", ["-D", "basename"])
@@ -1144,7 +1145,7 @@ def test_install_symlink_inplace_records_target(tmp_path):
     inst()
 
     assert os.readlink(link) == "libfoo.so.1"
-    recorded = inst.loaddb()["/usr/lib/libfoo.so"]
+    recorded = inst._project().load()["/usr/lib/libfoo.so"]
     assert recorded["meta"]["target"] == "libfoo.so.1"
 
 
@@ -1169,7 +1170,7 @@ def test_install_file_replaces_stale_host_symlink(tmp_path):
 
     assert not stale.is_symlink()
     assert stale.read_text() == "payload"
-    recorded = inst.loaddb()["/etc/f.conf"]
+    recorded = inst._project().load()["/etc/f.conf"]
     assert recorded["type"] == "file"
 
 
@@ -1242,7 +1243,7 @@ def test_install_owner_without_chown_recorded(tmp_path):
         ]
     )
     inst()
-    assert inst.loaddb()["/etc/f.conf"]["owner"] == "nosuchuser_pkgforge_xyz"
+    assert inst._project().load()["/etc/f.conf"]["owner"] == "nosuchuser_pkgforge_xyz"
 
 
 @pytest.mark.posix
@@ -1273,7 +1274,7 @@ def test_install_chown_attached_auto_owner(tmp_path, attached):
     inst()  # must not raise: py3.9 strips the attached "--" to []
 
     staged = root / "etc" / "f.conf"
-    recorded = inst.loaddb()["/etc/f.conf"]
+    recorded = inst._project().load()["/etc/f.conf"]
     st = staged.stat()
     if attached == "--owner=--":
         assert recorded["owner"] == pwd.getpwuid(st.st_uid).pw_name
@@ -1310,7 +1311,7 @@ def test_install_remove_source_same_as_dest_keeps_file(tmp_path):
 
     assert f.exists()
     assert (f.stat().st_mode & 0o777) == 0o640
-    assert inst.loaddb()["/etc/a.conf"]["mode"] == "640"
+    assert inst._project().load()["/etc/a.conf"]["mode"] == "640"
 
 
 @pytest.mark.posix
@@ -1518,7 +1519,7 @@ def test_install_inner_dotdot_normalized(tmp_path):
 
     staged = root / "usr" / "lib" / "x"
     assert staged.read_text() == "x"
-    assert "/usr/lib/x" in inst.loaddb()
+    assert "/usr/lib/x" in inst._project().load()
 
 
 @pytest.mark.posix
@@ -1704,28 +1705,6 @@ def test_install_explicit_root_slash_allowed(tmp_path, monkeypatch, cli):
     )
     assert result.rc == 0
     assert dest.read_text() == "data"
-
-
-@pytest.mark.parametrize("buildroot", ["", None])
-def test_install_falsy_buildroot_refused(tmp_path, monkeypatch, buildroot):
-    # x-plat: a falsy build root is only reachable from the Python API (the
-    # CLI always parses --buildroot/PKGFORGE_ROOT to a real Path); it must
-    # be refused explicitly, not fall through to a deep TypeError/ValueError
-    # inside buildpath().
-    monkeypatch.chdir(tmp_path)
-    src = tmp_path / "f"
-    src.write_text("data")
-
-    with pytest.raises(UsageError):
-        Install(
-            source=[src],
-            destination=Path("/etc/f"),
-            buildroot=buildroot,
-            parents=True,
-            db=None,
-        )()
-
-    assert list(tmp_path.iterdir()) == [src]
 
 
 # --------------------------------------------------------------------------
@@ -1986,25 +1965,15 @@ def test_failed_install_removes_created_parents(tmp_path):
     assert not (root / "keep" / "x").exists()
 
 
-def test_install_accepts_str_paths(tmp_path):
+def test_project_install_accepts_str_paths(tmp_path):
     root = tmp_path / "root"
     root.mkdir()
     src = tmp_path / "tool"
     src.write_text("#!/bin/sh\n")
     db = tmp_path / "files.jsonl"
 
-    inst = Install(
-        source=[str(src)],
-        destination="/usr/bin",
-        mode="755",
-        parents=True,
-        db=str(db),
-        buildroot=str(root),
-    )
-    inst()
+    project = Project(str(root), str(db))
+    project.install([str(src)], "/usr/bin", mode="755", parents=True)
 
     assert (root / "usr" / "bin" / "tool").read_text() == "#!/bin/sh\n"
-    assert inst.loaddb()["/usr/bin/tool"]["mode"] == "755"
-
-    with pytest.raises(UsageError, match="destination"):
-        Install(source=[src], destination=42, db=db, buildroot=root)
+    assert project.load()["/usr/bin/tool"]["mode"] == "755"

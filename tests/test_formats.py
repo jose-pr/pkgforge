@@ -19,9 +19,9 @@ from pkgforge.exceptions import (
     UnsupportedOutputError,
     UsageError,
 )
+from pkgforge.cli.dbdump import DbDump
 from pkgforge.dbdump import (
     DebianFiles,
-    DbDump,
     DumpFormat,
     RPMSpecFiles,
     RPMSpecFilesPre419,

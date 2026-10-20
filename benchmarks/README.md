@@ -27,11 +27,11 @@ measure against a real, on-disk build-root tree.
 | `dump.rpmspecfiles` | Rendering an RPM `%files` spec fragment for the DB entries (`RPMSpecFiles.render(entries)`, the same batch call `PerEntryFormat.dump` runs) |
 | `dump.debian` | Rendering the Debian `install`/`dirs`/`fixperms` artifacts for the DB entries |
 | `fs.walk_baseline` | A bare `os.walk` over the scan tree -- the filesystem floor `scan.cmd_*` is read against |
-| `scan.cmd_jsonl` | `ScanCmd.__call__` end to end against a jsonl DB: walk the tree, resolve each entry, append it |
+| `scan.cmd_jsonl` | `Project.scan` end to end against a jsonl DB: walk the tree, resolve each entry, append it |
 | `scan.cmd_yaml` | The same scan against the yaml DB backend |
 | `scan.cmd_sqlite` | The same scan against the sqlite DB backend (one fsync-backed commit per row today) |
 | `scan.cmd_auto_owner` | The same jsonl scan with `--owner=-- --group=--`, so every entry also resolves owner/group from disk (`pwd`/`grp` lookups) |
-| `install.tree_copy` | `Install.__call__` staging a synthetic directory tree with `--method copy` (the default) |
+| `install.tree_copy` | `Project.install` staging a synthetic directory tree with `--method copy` (the default) |
 | `install.tree_link` | The same tree staged with `--method link` (hardlink, falling back to a copy per file it can't span) |
 | `install.tree_move` | The same tree staged with `--method move` (whole-tree rename fast path) |
 | `install.tree_record` | The same tree staged with the plain `copy` method and `--record-tree` set, so every child is also walked and recorded -- compare against `install.tree_copy` (same run) for the walk's own added cost |

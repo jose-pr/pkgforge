@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-import pkgforge
+from pkgforge.cli import main
 
 README = Path(__file__).resolve().parents[1] / "README.md"
 
@@ -62,12 +62,12 @@ def test_quickstart_output_matches_readme(tmp_path, monkeypatch, capfdbinary):
     monkeypatch.chdir(tmp_path)
     for line in lines:
         argv = shlex.split(line)[1:]  # drop the leading "pkgforge"
-        rc = pkgforge.main([*globalopts, *argv])
+        rc = main([*globalopts, *argv])
         assert rc in (0, None), line
 
     def _dump(fmt: str) -> bytes:
         capfdbinary.readouterr()
-        rc = pkgforge.main([*globalopts, "dbdump", "-f", fmt, "-"])
+        rc = main([*globalopts, "dbdump", "-f", fmt, "-"])
         assert rc in (0, None)
         return capfdbinary.readouterr().out
 

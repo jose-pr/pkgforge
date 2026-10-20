@@ -1,5 +1,4 @@
-"""Render a file DB into packaging manifests (:func:`dump`), and the ``dbdump``
-subcommand.
+"""Render a file DB into packaging manifests (:func:`dump`).
 
 Two shapes of format are supported, each a :class:`DumpFormat` subclass:
 
@@ -22,17 +21,13 @@ import contextlib
 import logging
 import os
 import re
-import stat
-import sys
 import typing
 from pathlib import Path
 
 from .._registry import Registered
-from ..db import Db, parse_jsonl
 from ..entry import (
     _CONTROL_PATTERN,
     _RPM_EXPANSION_PATTERN,
-    DEFAULT,
     _MODE_PATTERN,
     _NAME_PATTERN,
     FileEntries,
@@ -40,16 +35,8 @@ from ..entry import (
     FileType,
     StrPath,
 )
-from ..exceptions import (
-    DbError,
-    DumpError,
-    InvalidEntryError,
-    PkgForgeError,
-    UnsupportedOutputError,
-    UsageError,
-)
-from ..command import PkgForgeCmd, _refuse_mcp_stdin
-from ..exclude import ExcludeArgs, PathMatch, _statements
+from ..exceptions import DumpError, InvalidEntryError, UnsupportedOutputError
+from ..exclude import PathMatch, _statements
 
 #: Every C0 control character (0x00-0x1f) plus DEL (0x7f): rpm and debhelper
 #: both choke on these one way or another (a bare newline splits a line, a
@@ -171,35 +158,6 @@ def _write_files(files: typing.Dict[Path, bytes]) -> None:
         for temp in temps.values():
             with contextlib.suppress(FileNotFoundError):
                 temp.unlink()
-
-
-@contextlib.contextmanager
-def _open_stdout():
-    """A binary stream onto the process's actual stdout.
-
-    Never wraps ``sys.stdout``'s raw file descriptor directly: that bypasses
-    Python's own stdout buffer entirely, so it (a) raises
-    ``io.UnsupportedOperation`` whenever ``sys.stdout`` isn't backed by a
-    real file descriptor (``redirect_stdout``, embedding, pytest capture)
-    and (b) writes out of order with text the caller already ``print()``-ed
-    but hasn't flushed. Flushing ``sys.stdout`` first, then writing through
-    its own ``.buffer`` (or, lacking one, decoding back to text with
-    ``surrogateescape`` and writing through ``sys.stdout`` itself), keeps
-    both cases correct. Never closes ``sys.stdout``.
-    """
-    sys.stdout.flush()
-    buf = getattr(sys.stdout, "buffer", None)
-    if buf is None:
-
-        class _TextAdapter:
-            def write(self, data: bytes) -> None:
-                sys.stdout.write(data.decode("utf-8", "surrogateescape"))
-
-        buf = _TextAdapter()
-    try:
-        yield buf
-    finally:
-        sys.stdout.flush()
 
 
 #: What a format renders: one file's bytes, or ``{filename: bytes}``.
@@ -343,89 +301,6 @@ def dump(
     return rendered
 
 
-class DbDump(ExcludeArgs, PkgForgeCmd):
-    """Dump the file DB into a packaging manifest (rpmspecfiles or debian)."""
-
-    _parsername_ = "dbdump"
-    _logger_name_ = "pkgforge.dbdump"
-
-    format: str
-    (
-        "output format: rpmspecfiles (aliases rpm, rpmspec; rpm 4.19+), "
-        "rpmspecfiles-pre419 (alias rpm-pre419; rpm older than 4.19), "
-        "debian (alias deb), or a registered DumpFormat subclass's NAME"
-    )
-    ("--format", "-f")
-    output: Path = Path("-")
-    (
-        "OUTPUT: a file for a per-entry format (e.g. rpmspecfiles), or a "
-        "directory for a multi-artifact format (e.g. debian, created if "
-        "missing); '-' for stdout (concatenated, sectioned, for a "
-        "multi-artifact format)"
-    )
-    ("output",)
-
-    def _stdin_db(self) -> Db:
-        """Read the DB as JSON Lines from stdin (``--db -``).
-
-        Runs only after ``--format``/OUTPUT were validated, so a bad one
-        exits 2 without touching stdin. Stdin must be a pipe,
-        a socket or a regular file: a terminal, a closed stdin or a
-        character device such as ``/dev/null`` raises :class:`UsageError`,
-        so an inherited ``PKGFORGE_DB=-`` never dumps an empty manifest.
-        A pipe that is never closed blocks, as any ``-`` source does.
-        ``--db-format`` is not consulted: the input is always JSON Lines.
-        """
-        _refuse_mcp_stdin("the file DB")
-        if sys.stdin is None:
-            raise UsageError("--db - reads the file DB from stdin, but stdin is closed")
-        try:
-            mode = os.fstat(sys.stdin.fileno()).st_mode
-        except (OSError, ValueError, AttributeError):
-            mode = None  # an in-memory stream: neither a terminal nor a device
-        if mode is not None and not (
-            stat.S_ISFIFO(mode) or stat.S_ISSOCK(mode) or stat.S_ISREG(mode)
-        ):
-            raise UsageError(
-                "--db - reads the file DB from stdin, but stdin is a terminal "
-                "or a device; pipe or redirect JSON Lines records"
-            )
-        buffer = getattr(sys.stdin, "buffer", None)
-        if buffer is not None:
-            try:
-                text = buffer.read().decode("utf-8-sig")
-            except UnicodeDecodeError as exc:
-                raise DbError(f"<stdin>: {exc}") from exc
-        else:
-            text = sys.stdin.read().removeprefix("\ufeff")
-        db = parse_jsonl(text, "<stdin>")
-        if not db:
-            self._logger_.warning("stdin held no DB records; dumping an empty manifest")
-        return db
-
-    def __call__(self):
-        # Checked before any DB read (and so before stdin is touched): an
-        # unknown format or an OUTPUT of the wrong shape exits 2 first.
-        fmt = DumpFormat.lookup(self.format)
-        self.format = fmt.NAME
-        to_stdout = str(self.output) == DEFAULT
-        if not to_stdout:
-            fmt().check_output(self.output)
-        output = None if to_stdout else self.output
-        if str(self.db) == "-":
-            rendered = dump(self._stdin_db(), self.format, output, exclude=self.exclude)
-        else:
-            rendered = self._project().dump(self.format, output, exclude=self.exclude)
-        if to_stdout:
-            with _open_stdout() as out:
-                if isinstance(rendered, bytes):
-                    out.write(rendered)
-                else:
-                    for name, data in rendered.items():
-                        out.write(f"# === {name} ===\n".encode())
-                        out.write(data)
-
-
 # --------------------------------------------------------------------------
 # Built-in formats: importing each module registers its format class.
 # --------------------------------------------------------------------------
@@ -433,10 +308,7 @@ class DbDump(ExcludeArgs, PkgForgeCmd):
 from ._rpm import RPMSpecFiles, RPMSpecFilesPre419  # noqa: E402
 from ._debian import DebianFiles  # noqa: E402
 
-DbDump._register()
-
 __all__ = [
-    "DbDump",
     "DebianFiles",
     "DumpFormat",
     "MultiArtifactFormat",

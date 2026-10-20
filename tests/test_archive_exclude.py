@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from pkgforge.command import PkgForgeCmd
+from pkgforge import Project
 from pkgforge.exclude import PathMatch, PathMatchStmt
 from pkgforge._install.archive import _prune_excluded
 
@@ -129,7 +129,7 @@ def test_archive_exclude_prunes_members(tmp_path, cli, route):
     assert not (staged / "drop.la").exists()
     assert not (staged / "tmp").exists()
 
-    recorded = set(PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb())
+    recorded = set(Project(root, db, db_format=None).load())
     assert "/opt/app" in recorded
 
 

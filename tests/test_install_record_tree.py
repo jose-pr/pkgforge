@@ -22,8 +22,8 @@ from pathlib import Path
 
 import pytest
 
-import pkgforge
-from pkgforge.command import PkgForgeCmd
+from pkgforge.cli import main
+from pkgforge import Project
 
 requires_tar_filter = pytest.mark.skipif(
     not hasattr(tarfile, "data_filter"),
@@ -100,7 +100,7 @@ def test_record_tree_records_children(tmp_path, cli):
     )
     assert result.rc == 0, result.err.decode()
 
-    loaded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    loaded = Project(root, db, db_format=None).load()
     assert set(loaded) == {
         "/opt/app",
         "/opt/app/a.txt",
@@ -192,7 +192,7 @@ def test_record_tree_fills_gaps_only(tmp_path, cli):
     )
     assert result.rc == 0, result.err.decode()
 
-    loaded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    loaded = Project(root, db, db_format=None).load()
     assert loaded["/opt/app/bin/tool"]["mode"] == "4755"
 
 
@@ -229,7 +229,7 @@ def test_record_tree_honors_exclude(tmp_path, cli):
     )
     assert result.rc == 0, result.err.decode()
 
-    loaded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    loaded = Project(root, db, db_format=None).load()
     assert "/opt/app/keep.txt" in loaded
     assert "/opt/app/skip.pyc" not in loaded
     assert "/opt/app/tmp" not in loaded
@@ -262,7 +262,7 @@ def test_record_tree_absolute_exclude(tmp_path, cli):
     )
     assert result.rc == 0, result.err.decode()
 
-    loaded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    loaded = Project(root, db, db_format=None).load()
     assert "/opt/app/keep.txt" in loaded
     assert "/opt/app/cache" not in loaded
     assert "/opt/app/cache/c.bin" not in loaded
@@ -298,7 +298,7 @@ def test_record_tree_archive(tmp_path, cli, route):
     )
     assert result.rc == 0, result.err.decode()
 
-    loaded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    loaded = Project(root, db, db_format=None).load()
     assert "/opt/app/keep.txt" in loaded
     assert "/opt/app/drop.la" not in loaded
 
@@ -330,7 +330,7 @@ def test_record_tree_method(tmp_path, cli, method):
     )
     assert result.rc == 0, result.err.decode()
 
-    loaded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    loaded = Project(root, db, db_format=None).load()
     assert loaded["/opt/app/f"]["mode"] == "644"
     assert loaded["/opt/app/f"]["type"] == "file"
 
@@ -384,7 +384,7 @@ def test_record_tree_ignored_for_file_source(tmp_path, cli, caplog):
         )
     assert result.rc == 0, result.err.decode()
 
-    loaded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    loaded = Project(root, db, db_format=None).load()
     assert set(loaded) == {"/opt/bin/a.txt"}
     assert [r for r in caplog.records if r.levelno == logging.WARNING] == []
 
@@ -457,7 +457,7 @@ def test_record_tree_skips_file_db(tmp_path, cli, caplog):
         )
     assert result.rc == 0, result.err.decode()
 
-    loaded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    loaded = Project(root, db, db_format=None).load()
     assert "/opt/app/files.jsonl" not in loaded
     assert "/opt/app/f" in loaded
     assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 1
@@ -502,7 +502,7 @@ def test_record_tree_env_var(tmp_path, monkeypatch):
     monkeypatch.setenv("PKGFORGE_INSTALL_RECORD_TREE", "1")
 
     db = tmp_path / "files.jsonl"
-    rc = pkgforge.main(
+    rc = main(
         [
             "--db",
             str(db),
@@ -517,7 +517,7 @@ def test_record_tree_env_var(tmp_path, monkeypatch):
         ]
     )
     assert rc == 0
-    loaded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    loaded = Project(root, db, db_format=None).load()
     assert "/opt/app/f" in loaded
 
 
@@ -530,7 +530,7 @@ def test_record_tree_no_flag_beats_env(tmp_path, monkeypatch):
     monkeypatch.setenv("PKGFORGE_INSTALL_RECORD_TREE", "1")
 
     db = tmp_path / "files.jsonl"
-    rc = pkgforge.main(
+    rc = main(
         [
             "--db",
             str(db),
@@ -546,7 +546,7 @@ def test_record_tree_no_flag_beats_env(tmp_path, monkeypatch):
         ]
     )
     assert rc == 0
-    loaded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    loaded = Project(root, db, db_format=None).load()
     assert set(loaded) == {"/opt/app"}
 
 
@@ -595,5 +595,5 @@ def test_record_tree_default_off_records_one_entry(tmp_path, cli):
         "/opt/app",
     )
     assert result.rc == 0, result.err.decode()
-    loaded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    loaded = Project(root, db, db_format=None).load()
     assert set(loaded) == {"/opt/app"}

@@ -135,6 +135,7 @@ def test_import_without_sqlite3_or_yaml(tmp_path):
         "sys.modules['yaml'] = None\n"
         "import pathlib\n"
         "import pkgforge\n"
+        "from pkgforge.cli import main\n"
         "from pkgforge.db import JSONLinesDb\n"
         f"p = JSONLinesDb(pathlib.Path({str(db_path)!r}))\n"
         "p.init()\n"
@@ -142,7 +143,7 @@ def test_import_without_sqlite3_or_yaml(tmp_path):
         "loaded = JSONLinesDb(p.path).load()\n"
         "assert loaded['/a']['mode'] == '644'\n"
         "try:\n"
-        "    rc = pkgforge.main(['--help'])\n"
+        "    rc = main(['--help'])\n"
         "except SystemExit as exc:\n"
         "    rc = exc.code or 0\n"
         "assert rc == 0\n"
@@ -268,19 +269,23 @@ def test_open_db_unknown_format_has_no_context(tmp_path):
     assert excinfo.value.__suppress_context__ is True
 
 
-def test_stdout_record_matches_jsonl_line(cmd, make_entry, capsys):
-    # _write_entry's stdout fallback (no --db) must emit exactly the same
-    # bytes JSONLinesDb.add/remove would append to a real file.
+def test_stdout_records_are_the_jsonl_lines(tmp_path, cli):
+    # With no --db the command prints exactly the lines JSONLinesDb would
+    # append to a real file for the records the operation returned.
+    from pkgforge import Project
     from pkgforge.db import jsonl_line
 
-    inst = cmd(db=None)
-    entry = make_entry(mode="755")
+    root = tmp_path / "root"
+    (root / "usr" / "bin").mkdir(parents=True)
+    (root / "usr" / "bin" / "x").write_text("x")
+    records = Project(root).scan("/usr/bin", mode="755")
+    assert records
 
-    inst.add_entry("/usr/bin/x", entry)
-    assert capsys.readouterr().out == jsonl_line("/usr/bin/x", entry)
-
-    inst.remove_entry("/usr/bin/y")
-    assert capsys.readouterr().out == jsonl_line("/usr/bin/y", None)
+    result = cli("--buildroot", str(root), "scan", "-m", "755", "/usr/bin")
+    assert result.rc == 0
+    assert result.out.decode() == "".join(
+        jsonl_line(path, entry) for path, entry in records
+    )
 
 
 # --------------------------------------------------------------------------
@@ -333,28 +338,28 @@ def test_yaml_content_under_a_jsonl_suffix_fails_to_load(tmp_path, make_entry):
 
 
 # --------------------------------------------------------------------------
-# PkgForgeCmd delegation
+# Project delegation
 # --------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("ext", ["jsonl", "yaml", "db"])
-def test_cmd_delegates_to_provider(cmd, make_entry, ext):
-    inst = cmd(name=f"files.{ext}")
-    inst.initdb()
-    inst.add_entry("/usr/bin/x", make_entry(mode="755"))
-    inst.add_entry("/usr/bin/x", make_entry(mode="700"))
-    inst.remove_entry("/tmp/y")
-    db = inst.loaddb()
+def test_project_delegates_to_provider(project, make_entry, ext):
+    proj = project(name=f"files.{ext}")
+    proj.init()
+    proj.db.add("/usr/bin/x", make_entry(mode="755"))
+    proj.db.add("/usr/bin/x", make_entry(mode="700"))
+    proj.db.remove("/tmp/y")
+    db = proj.load()
     assert db["/usr/bin/x"]["mode"] == "700"
     assert db["/tmp/y"] is None
 
 
-def test_cmd_db_format_override(cmd, make_entry):
-    # Suffix says yaml, --db-format forces sqlite.
-    inst = cmd(name="files.yaml", db_format="sqlite")
-    inst.initdb()
-    inst.add_entry("/a", make_entry())
-    assert inst.db.read_bytes().startswith(b"SQLite format 3\x00")
+def test_project_db_format_override(project, make_entry):
+    # Suffix says yaml, db_format forces sqlite.
+    proj = project(name="files.yaml", db_format="sqlite")
+    proj.init()
+    proj.db.add("/a", make_entry())
+    assert proj.db.path.read_bytes().startswith(b"SQLite format 3\x00")
 
 
 # --------------------------------------------------------------------------
@@ -431,16 +436,16 @@ def test_db_provider_subclass_selectable_by_suffix(restore_registries, tmp_path)
 
 
 def test_db_provider_subclass_accepted_as_db_format(restore_registries, tmp_path):
+    from pkgforge import Project
     from pkgforge.exceptions import UsageError
-    from pkgforge.initdb import InitDb
 
     with pytest.raises(UsageError) as excinfo:
-        InitDb(db=tmp_path / "x.jsonl", db_format="toml")
+        Project(tmp_path, tmp_path / "x.jsonl", db_format="toml")
     assert isinstance(excinfo.value, ValueError)
 
     type("TsvDb", (_TsvDb,), {"NAME": "custom"})
-    inst = InitDb(db=tmp_path / "x.jsonl", db_format="custom")
-    assert inst.db_format == "custom"
+    proj = Project(tmp_path, tmp_path / "x.jsonl", db_format="custom")
+    assert proj.db.NAME == "custom"
 
 
 def test_db_provider_subclass_adds_leading_dot(restore_registries, tmp_path):

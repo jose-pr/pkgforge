@@ -18,8 +18,8 @@ from pathlib import Path
 
 import pytest
 
-import pkgforge
-from pkgforge.install import Install
+from pkgforge.cli import main
+from pkgforge.cli.install import Install
 
 # --------------------------------------------------------------------------
 # link
@@ -168,7 +168,7 @@ def test_method_env_var(tmp_path, monkeypatch):
     src.write_text("hello")
     monkeypatch.setenv("PKGFORGE_INSTALL_METHOD", "move")
 
-    rc = pkgforge.main(
+    rc = main(
         [
             "--db",
             str(tmp_path / "files.jsonl"),
@@ -193,7 +193,7 @@ def test_method_cli_beats_env(tmp_path, monkeypatch):
     src.write_text("hello")
     monkeypatch.setenv("PKGFORGE_INSTALL_METHOD", "move")
 
-    rc = pkgforge.main(
+    rc = main(
         [
             "--db",
             str(tmp_path / "files.jsonl"),

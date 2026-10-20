@@ -1,8 +1,8 @@
 """Tests for the typed ``FileEntry`` module functions (``entry.py``).
 
 ``FileEntry`` is a ``TypedDict``: its values are plain dicts, so
-the entry functions are module functions (``entry_from_args``,
-``entry_from_path``, ``resolve_entry``, ``apply_entry``). These tests pin
+the entry functions are module functions (``entry_from_path``,
+``resolve_entry``, ``apply_entry``, ``normalize_mode``). These tests pin
 that they exist and are exported.
 """
 
@@ -14,15 +14,15 @@ from pathlib import Path
 import pytest
 
 import pkgforge
+from pkgforge import Project
+from pkgforge.cli._common import EntryArgs
 from pkgforge.entry import (
     AUTO,
     DEFAULT,
     FileEntry,
-    FileEntryArgs,
     FileType,
     UsageError,
     apply_entry,
-    entry_from_args,
     entry_from_path,
     mode_to_octal,
     normalize_mode,
@@ -34,10 +34,10 @@ from pkgforge.entry import (
 
 
 def test_entry_functions_exported():
-    for name in ("entry_from_args", "entry_from_path", "resolve_entry", "apply_entry"):
-        assert name in pkgforge.__all__
-        assert getattr(pkgforge, name) is getattr(pkgforge.entry, name)
-    assert apply_entry is pkgforge.apply_entry
+    for name in ("entry_from_path", "resolve_entry", "apply_entry", "normalize_mode"):
+        assert name in pkgforge.entry.__all__
+        assert callable(getattr(pkgforge.entry, name))
+    assert apply_entry is pkgforge.entry.apply_entry
 
 
 # --------------------------------------------------------------------------
@@ -95,7 +95,7 @@ def test_apply_entry_chmod_without_nofollow_support(tmp_path, monkeypatch):
 
 @pytest.mark.posix
 def test_install_symlink_with_mode_records_entry(tmp_path):
-    from pkgforge.install import Install
+    from pkgforge.cli.install import Install
 
     root = tmp_path / "root"
     root.mkdir()
@@ -124,7 +124,7 @@ def test_install_symlink_with_mode_records_entry(tmp_path):
 
     staged = root / "usr" / "bin" / "app.link"
     assert staged.is_symlink()
-    recorded = inst.loaddb()["/usr/bin/app.link"]
+    recorded = inst._project().load()["/usr/bin/app.link"]
     assert recorded["mode"] == "777"
     assert (target.stat().st_mode & 0o777) == 0o600
 
@@ -299,21 +299,17 @@ def test_mode_rejected_at_parse(command, value, tmp_path, cli):
 )
 def test_mode_attached_auto_sentinel(field, argv):
     # On Python 3.9, argparse strips an attached "--" to [] BEFORE any
-    # converter runs, so this goes through entry_from_args -- the one place
-    # both the 3.9 [] artifact and the 3.14 literal "--" normalize the same
-    # way -- rather than asserting on the raw parsed attribute. Uses the
-    # FileEntryArgs mixin directly (type defaults to None, unlike Install's
-    # DEFAULT sentinel), since resolving `type` itself is unrelated here.
-    parser = FileEntryArgs._parser_()
+    # converter runs; EntryArgs maps it, so the 3.9 [] artifact and the
+    # 3.14 literal "--" both arrive as AUTO.
+    parser = EntryArgs._parser_()
     ns = parser.parse_args(argv)
-    entry = entry_from_args(ns)
-    assert entry[field] == AUTO
+    assert getattr(ns, field) == AUTO
 
 
 def test_detached_mode_sentinel_exits_2():
     # Guard: a detached "-m --" is argparse's own end-of-options marker and
     # already exited 2 before this change; it must keep doing so.
-    from pkgforge.install import Install
+    from pkgforge.cli.install import Install
 
     parser = Install._parser_()
     with pytest.raises(SystemExit) as excinfo:
@@ -322,7 +318,7 @@ def test_detached_mode_sentinel_exits_2():
 
 
 def test_api_bad_mode_stages_nothing(tmp_path):
-    from pkgforge.install import Install
+    from pkgforge.cli.install import Install
 
     root = tmp_path / "root"
     root.mkdir()
@@ -346,7 +342,7 @@ def test_api_bad_mode_stages_nothing(tmp_path):
 
 @pytest.mark.posix
 def test_install_mode_normalized_and_resolved(tmp_path):
-    from pkgforge.install import Install
+    from pkgforge.cli.install import Install
 
     root = tmp_path / "root"
     root.mkdir()
@@ -385,7 +381,7 @@ def test_install_mode_normalized_and_resolved(tmp_path):
         ]
     )()
 
-    loaded = pkgforge.PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    loaded = Project(root, db, db_format=None).load()
     assert loaded["/a/src_a"]["mode"] == "644"
     assert loaded["/b/src_b"]["mode"] == "750"
     assert loaded["/b/src_b"]["mode"] != []
@@ -406,7 +402,7 @@ def test_install_mode_normalized_and_resolved(tmp_path):
 def test_scan_help_lists_no_type_option():
     import re
 
-    from pkgforge.scan import ScanCmd
+    from pkgforge.cli.scan import ScanCmd
 
     scan_help = ScanCmd._parser_().format_help()
     # "options:" on 3.10+, "optional arguments:" on 3.9.
@@ -424,13 +420,6 @@ def test_normalize_mode_rejects_int():
         normalize_mode(0o644)
 
 
-def test_install_rejects_non_list_source(tmp_path):
-    from pkgforge.install import Install
-
-    with pytest.raises(UsageError, match="list"):
-        Install(source=tmp_path / "x", destination=Path("/a"))
-
-
 @pytest.mark.parametrize(
     "value,expected",
     [
@@ -440,7 +429,7 @@ def test_install_rejects_non_list_source(tmp_path):
     ],
 )
 def test_install_type_parses_any_case(value, expected):
-    from pkgforge.install import Install
+    from pkgforge.cli.install import Install
 
     parser = Install._parser_()
     inst = parser.parse_args(["-t", value, "src", "/dst"])
@@ -459,7 +448,7 @@ def test_type_rejects_unknown(value, tmp_path, cli):
 
 @pytest.mark.posix
 def test_install_type_auto_sentinel_detects(tmp_path):
-    from pkgforge.install import Install
+    from pkgforge.cli.install import Install
 
     root = tmp_path / "root"
     root.mkdir()
@@ -491,7 +480,7 @@ def test_install_type_auto_sentinel_detects(tmp_path):
     )
     inst()  # must not raise (the regression: NotImplementedError on the API)
 
-    loaded = pkgforge.PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    loaded = Project(root, db, db_format=None).load()
     assert loaded["/a/src"]["type"] == "file"
     assert loaded["/b/src"]["type"] == "file"
 

@@ -257,7 +257,7 @@ class _Installer(_RecordTree, _Staging):
 
         if self.decompress is True:
             # Bare -x means "infer the compression from the source suffix",
-            # which stdin does not have (parsepath keeps "-" as a plain str).
+            # which stdin does not have (a "-" source stays a plain str).
             if not self.source or str(self.source) == DEFAULT:
                 raise UsageError("cannot infer compression from stdin; pass -x TYPE")
             suffix = self.source.suffix.lower()

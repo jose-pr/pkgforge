@@ -18,7 +18,7 @@ import pytest
 
 from pkgforge.cli import main
 from pkgforge.entry import FileEntry
-from pkgforge.command import PkgForgeCmd
+from pkgforge import Project
 
 #: Env vars that change what an in-process ``main()`` does: pkgforge's own
 #: configuration, plus duho's triggers that would serve MCP or print agent help
@@ -98,7 +98,7 @@ def _clear_name_caches():
 def restore_pkgforge_log_levels():
     """Snapshot/restore every ``pkgforge``/``pkgforge.*`` logger's level.
 
-    ``pkgforge.main()`` sets the dispatched command's own logger level (e.g.
+    ``pkgforge.cli.main()`` sets the dispatched command's own logger level (e.g.
     from ``-v``/``--loglevel``), and that level persists in-process on the
     module-level ``logging.Logger`` object -- there is no per-``main()``
     reset. Without this, one test's ``-v``/``--loglevel`` leaks into the next
@@ -149,17 +149,13 @@ def make_entry():
 
 
 @pytest.fixture
-def cmd(tmp_path: Path):
-    """Factory for a :class:`~pkgforge.command.PkgForgeCmd` bound to ``tmp_path``.
+def project(tmp_path: Path):
+    """Factory for a :class:`~pkgforge.project.Project` bound to ``tmp_path``."""
 
-    The constructor accepts ``db``/``db_format``/``buildroot`` directly, so no
-    ``__new__`` + setattr bypass is needed.
-    """
-
-    def _make(name: str = "files.yaml", **over) -> PkgForgeCmd:
-        kwargs = {"db": tmp_path / name, "db_format": None, "buildroot": tmp_path}
+    def _make(name: str = "files.yaml", **over) -> Project:
+        kwargs = {"buildroot": tmp_path, "db": tmp_path / name, "db_format": None}
         kwargs.update(over)
-        return PkgForgeCmd(**kwargs)
+        return Project(kwargs.pop("buildroot"), kwargs.pop("db"), **kwargs)
 
     return _make
 

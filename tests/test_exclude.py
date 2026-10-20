@@ -36,10 +36,10 @@ def test_exclude_option_shape(clsname, rest):
     # Pins the shared ExcludeArgs field: --exclude/-X is an append action,
     # metavar STMT, no nargs override, and an empty-list default -- the same
     # shape on every command that takes it.
-    from pkgforge.dbdump import DbDump
-    from pkgforge.exclude import ExcludeArgs
-    from pkgforge.install import Install
-    from pkgforge.scan import ScanCmd
+    from pkgforge.cli.dbdump import DbDump
+    from pkgforge.cli._common import ExcludeArgs
+    from pkgforge.cli.install import Install
+    from pkgforge.cli.scan import ScanCmd
 
     classes = {"Install": Install, "ScanCmd": ScanCmd, "DbDump": DbDump}
     cls = classes[clsname]
@@ -271,7 +271,7 @@ def test_dbdump_trailing_doublestar(tmp_path, cli):
 
 
 @pytest.mark.posix
-def test_scan_default_buildroot_anchor(tmp_path, monkeypatch, cli, cmd):
+def test_scan_default_buildroot_anchor(tmp_path, monkeypatch, cli, project):
     # Guards: the default (relative ".") buildroot must not make an absolute
     # -X pattern float and match at every depth.
     monkeypatch.chdir(tmp_path)
@@ -281,7 +281,7 @@ def test_scan_default_buildroot_anchor(tmp_path, monkeypatch, cli, cmd):
     result = cli("--db", "files.jsonl", "scan", "-X", "/tmp", "/")
     assert result.rc == 0
 
-    recorded = {k.replace("\\", "/") for k in cmd(name="files.jsonl").loaddb()}
+    recorded = {k.replace("\\", "/") for k in project(name="files.jsonl").load()}
     assert "/a/tmp" in recorded
     assert "/tmp" not in recorded
 
@@ -346,11 +346,10 @@ def test_exclude_skips_fifo(tmp_path, cli, command):
             "--db", str(db), "--buildroot", str(src), "scan", "-X", "*.fifo", "/"
         )
         assert result.rc == 0
-        from pkgforge.command import PkgForgeCmd
+        from pkgforge import Project
 
         recorded = {
-            k.replace("\\", "/")
-            for k in PkgForgeCmd(db=db, db_format=None, buildroot=src).loaddb()
+            k.replace("\\", "/") for k in Project(src, db, db_format=None).load()
         }
         assert "/keep.txt" in recorded
         assert "/p.fifo" not in recorded
@@ -423,9 +422,9 @@ def test_meta_test_sees_O(tmp_path, cli, command):
             ).rc
             == 0
         )
-        from pkgforge.command import PkgForgeCmd
+        from pkgforge import Project
 
-        dropped = set(PkgForgeCmd(db=db_drop, db_format=None, buildroot=src).loaddb())
+        dropped = set(Project(src, db_drop, db_format=None).load())
         assert "/a.conf" not in dropped
 
         db_keep = tmp_path / "keep.jsonl"
@@ -444,7 +443,7 @@ def test_meta_test_sees_O(tmp_path, cli, command):
             ).rc
             == 0
         )
-        kept = set(PkgForgeCmd(db=db_keep, db_format=None, buildroot=src).loaddb())
+        kept = set(Project(src, db_keep, db_format=None).load())
         assert "/a.conf" in kept
     else:
         db = tmp_path / "files.jsonl"
@@ -513,12 +512,9 @@ def test_scan_prunes_excluded_dir(tmp_path, cli, pattern):
     )
     assert result.rc == 0
 
-    from pkgforge.command import PkgForgeCmd
+    from pkgforge import Project
 
-    recorded = {
-        k.replace("\\", "/")
-        for k in PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
-    }
+    recorded = {k.replace("\\", "/") for k in Project(root, db, db_format=None).load()}
     assert recorded == {"/opt/src/keep", "/opt/src/keep/k"}
 
 
@@ -531,7 +527,7 @@ def test_scan_install_prune_parity(tmp_path, cli):
     (src / "keep").mkdir()
     (src / "keep" / "k").write_text("x")
 
-    from pkgforge.command import PkgForgeCmd
+    from pkgforge import Project
 
     # A: install prunes tmp/ at copy time; an unfiltered scan then only
     # records what actually landed on disk.
@@ -588,8 +584,8 @@ def test_scan_install_prune_parity(tmp_path, cli):
         == 0
     )
 
-    keys_a = set(PkgForgeCmd(db=db_a, db_format=None, buildroot=root_a).loaddb())
-    keys_b = set(PkgForgeCmd(db=db_b, db_format=None, buildroot=root_b).loaddb())
+    keys_a = set(Project(root_a, db_a, db_format=None).load())
+    keys_b = set(Project(root_b, db_b, db_format=None).load())
     assert keys_a == keys_b
 
 
@@ -647,11 +643,10 @@ def test_absolute_pattern_is_source_relative(tmp_path, cli, command):
             "/opt/app/build",
         )
         assert result.rc == 0
-        from pkgforge.command import PkgForgeCmd
+        from pkgforge import Project
 
         recorded = {
-            k.replace("\\", "/")
-            for k in PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+            k.replace("\\", "/") for k in Project(root, db, db_format=None).load()
         }
         assert "/opt/app/build/tmp" not in recorded
         assert "/opt/app/build/tmp/x" not in recorded
@@ -703,11 +698,10 @@ def test_install_path_pattern_matches_nothing(tmp_path, cli, caplog, command):
                 "/opt/app/build",
             )
         assert result.rc == 0
-        from pkgforge.command import PkgForgeCmd
+        from pkgforge import Project
 
         recorded = {
-            k.replace("\\", "/")
-            for k in PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+            k.replace("\\", "/") for k in Project(root, db, db_format=None).load()
         }
         assert "/opt/app/build/tmp/x" in recorded
 
@@ -761,11 +755,10 @@ def test_relative_pattern_ignores_destination(tmp_path, cli, command):
             "/srv/app",
         )
         assert result.rc == 0
-        from pkgforge.command import PkgForgeCmd
+        from pkgforge import Project
 
         recorded = {
-            k.replace("\\", "/")
-            for k in PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+            k.replace("\\", "/") for k in Project(root, db, db_format=None).load()
         }
         assert "/srv/app/main.conf" in recorded
         assert "/srv/app/app/y.conf" not in recorded
@@ -965,7 +958,7 @@ def test_dbdump_exclude_is_per_entry(tmp_path, cli):
 
 
 @pytest.mark.posix
-def test_scan_missing_descends_into_recorded_dir(tmp_path, cli, cmd, make_entry):
+def test_scan_missing_descends_into_recorded_dir(tmp_path, cli, project, make_entry):
     # Guards: --missing's "already in the DB" skip must still return True,
     # not be mistaken for an exclusion that would prune the walk.
     root = tmp_path / "root"
@@ -973,17 +966,17 @@ def test_scan_missing_descends_into_recorded_dir(tmp_path, cli, cmd, make_entry)
     (root / "opt" / "src" / "keep" / "k").write_text("x")
     db = tmp_path / "files.jsonl"
 
-    seed = cmd(name="files.jsonl", buildroot=root)
-    seed.add_entry("/opt/src/keep", make_entry(type="directory"))
+    seed = project(name="files.jsonl", buildroot=root)
+    seed.db.add("/opt/src/keep", make_entry(type="directory"))
 
     result = cli(
         "--db", str(db), "--buildroot", str(root), "scan", "--missing", "/opt/src"
     )
     assert result.rc == 0
 
-    from pkgforge.command import PkgForgeCmd
+    from pkgforge import Project
 
-    recorded = set(PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb())
+    recorded = set(Project(root, db, db_format=None).load())
     assert "/opt/src/keep/k" in recorded
 
 
@@ -1065,9 +1058,9 @@ def test_meta_option_needs_equals(tmp_path, cli):
 
 @pytest.mark.parametrize("command", ["install", "scan", "dbdump"])
 def test_exclude_help_shows_grammar(command):
-    from pkgforge.dbdump import DbDump
-    from pkgforge.install import Install
-    from pkgforge.scan import ScanCmd
+    from pkgforge.cli.dbdump import DbDump
+    from pkgforge.cli.install import Install
+    from pkgforge.cli.scan import ScanCmd
 
     classes = {"install": Install, "scan": ScanCmd, "dbdump": DbDump}
     text = classes[command]._parser_().format_help()

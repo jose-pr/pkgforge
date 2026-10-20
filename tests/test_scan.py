@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from pkgforge.command import PkgForgeCmd
+from pkgforge import Project
 from pkgforge.dbdump import RPMSpecFiles
 
 # --------------------------------------------------------------------------
@@ -35,7 +35,7 @@ def test_scan_records_below_path_not_path_itself(tmp_path, cli):
         == 0
     )
 
-    keys = set(PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb())
+    keys = set(Project(root, db, db_format=None).load())
     assert keys == {"/usr/share/tool/a", "/usr/share/tool/a/s.txt"}
     assert "/usr/share/tool" not in keys
     assert "/usr/share" not in keys
@@ -54,7 +54,7 @@ def test_scan_fields_default_to_dash_and_auto_reads_disk(tmp_path, cli):
         cli("--db", str(db), "--buildroot", str(root), "scan", "/usr/share/tool").rc
         == 0
     )
-    plain = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    plain = Project(root, db, db_format=None).load()
     entry = plain["/usr/share/tool/s.txt"]
     assert entry["mode"] == "-"
     assert entry["owner"] == "-"
@@ -75,7 +75,7 @@ def test_scan_fields_default_to_dash_and_auto_reads_disk(tmp_path, cli):
         ).rc
         == 0
     )
-    resolved = PkgForgeCmd(db=db2, db_format=None, buildroot=root).loaddb()
+    resolved = Project(root, db2, db_format=None).load()
     entry = resolved["/usr/share/tool/s.txt"]
     assert entry["mode"] == "644"
     assert entry["owner"] not in ("-", "--")
@@ -108,11 +108,11 @@ def test_scan_without_missing_replaces_install_entry(tmp_path, cli):
         ).rc
         == 0
     )
-    before = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    before = Project(root, db, db_format=None).load()
     assert before["/usr/bin/tool"]["mode"] == "755"
 
     assert cli("--db", str(db), "--buildroot", str(root), "scan", "/usr/bin").rc == 0
-    after = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    after = Project(root, db, db_format=None).load()
     assert after["/usr/bin/tool"]["mode"] == "-"
 
     # --missing leaves an existing (install-recorded) entry untouched.
@@ -142,7 +142,7 @@ def test_scan_without_missing_replaces_install_entry(tmp_path, cli):
         ).rc
         == 0
     )
-    kept = PkgForgeCmd(db=db2, db_format=None, buildroot=root).loaddb()
+    kept = Project(root, db2, db_format=None).load()
     assert kept["/usr/bin/tool"]["mode"] == "755"
 
 
@@ -195,7 +195,7 @@ def test_scan_documented_recipe_owns_no_shared_dirs(tmp_path, cli):
         == 0
     )
 
-    db_entries = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    db_entries = Project(root, db, db_format=None).load()
     lines = {
         path: RPMSpecFiles().render_entry(path, entry).decode()
         for path, entry in db_entries.items()
@@ -231,7 +231,7 @@ def test_scan_missing_path_is_usage_error(tmp_path, cli):
 @pytest.mark.posix
 @pytest.mark.parametrize("kind", ["relative", "absolute"])
 def test_scan_symlinked_path_recorded_as_link(tmp_path, kind):
-    from pkgforge.scan import ScanCmd
+    from pkgforge.cli.scan import ScanCmd
 
     root = tmp_path / "root"
     if kind == "relative":
@@ -255,7 +255,7 @@ def test_scan_symlinked_path_recorded_as_link(tmp_path, kind):
     inst = parser.parse_args(["--db", str(db), "--buildroot", str(root), path])
     inst()
 
-    recorded = inst.loaddb()
+    recorded = inst._project().load()
     assert set(recorded) == {path}
     assert recorded[path]["type"] == "symlink"
 
@@ -270,7 +270,7 @@ def test_scan_dangling_symlink_path_recorded(tmp_path, cli):
     db = tmp_path / "files.jsonl"
 
     assert cli("--db", str(db), "--buildroot", str(root), "scan", "/dangling").rc == 0
-    recorded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    recorded = Project(root, db, db_format=None).load()
     assert recorded["/dangling"]["type"] == "symlink"
 
 
@@ -301,7 +301,7 @@ def test_scan_symlinked_buildroot_still_walked(tmp_path, cli):
     db = tmp_path / "files.jsonl"
 
     assert cli("--db", str(db), "--buildroot", str(root), "scan", "/").rc == 0
-    recorded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    recorded = Project(root, db, db_format=None).load()
     assert "/usr/a" in {k.replace("\\", "/") for k in recorded}
 
 
@@ -318,16 +318,16 @@ def test_scan_skips_file_db_inside_buildroot(tmp_path, monkeypatch, caplog, fmt,
     (tmp_path / "usr" / "bin" / "tool").write_text("x")
     db_name = f"files.{ext}"
 
-    from pkgforge.scan import ScanCmd
+    from pkgforge.cli.scan import ScanCmd
 
-    PkgForgeCmd(db=Path(db_name), db_format=fmt, buildroot=Path(".")).initdb()
+    Project(Path("."), Path(db_name), db_format=fmt).init()
 
     caplog.set_level(logging.WARNING, logger="pkgforge")
     parser = ScanCmd._parser_()
     inst = parser.parse_args(["--db", db_name, "--db-format", fmt, "--missing", "/"])
     inst()
 
-    recorded = {k.replace("\\", "/") for k in inst.loaddb()}
+    recorded = {k.replace("\\", "/") for k in inst._project().load()}
     assert f"/{db_name}" not in recorded
     assert "/usr/bin/tool" in recorded
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
@@ -340,9 +340,9 @@ def test_scan_skips_sqlite_sidecars(tmp_path, monkeypatch, caplog):
     (tmp_path / "usr" / "a").write_text("x")
     db_name = "files.db"
 
-    from pkgforge.scan import ScanCmd
+    from pkgforge.cli.scan import ScanCmd
 
-    PkgForgeCmd(db=Path(db_name), db_format="sqlite", buildroot=Path(".")).initdb()
+    Project(Path("."), Path(db_name), db_format="sqlite").init()
     # A stale sidecar (e.g. left behind by a crashed run) must be skipped too.
     (tmp_path / (db_name + "-journal")).write_text("stale")
 
@@ -351,7 +351,7 @@ def test_scan_skips_sqlite_sidecars(tmp_path, monkeypatch, caplog):
     inst = parser.parse_args(["--db", db_name, "--db-format", "sqlite", "/"])
     inst()
 
-    recorded = {k.replace("\\", "/") for k in inst.loaddb()}
+    recorded = {k.replace("\\", "/") for k in inst._project().load()}
     assert f"/{db_name}" not in recorded
     assert f"/{db_name}-journal" not in recorded
     assert "/usr/a" in recorded
@@ -364,13 +364,13 @@ def test_scan_db_outside_root_changes_nothing(tmp_path):
     (root / "usr" / "a").write_text("x")
     db = tmp_path / "db.jsonl"
 
-    from pkgforge.scan import ScanCmd
+    from pkgforge.cli.scan import ScanCmd
 
     parser = ScanCmd._parser_()
     inst = parser.parse_args(["--db", str(db), "--buildroot", str(root), "/"])
     inst()
 
-    recorded = {k.replace("\\", "/") for k in inst.loaddb()}
+    recorded = {k.replace("\\", "/") for k in inst._project().load()}
     assert recorded == {"/usr", "/usr/a"}
 
 
@@ -462,7 +462,7 @@ def test_scan_auto_owner_looks_up_each_id_once(tmp_path, monkeypatch, cli):
     assert fake_pwd.calls <= 1
     assert fake_grp.calls <= 1
 
-    recorded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    recorded = Project(root, db, db_format=None).load()
     assert recorded
     for entry in recorded.values():
         assert entry["owner"] not in ("-", "--")
@@ -509,7 +509,7 @@ def test_scan_exclude_does_not_repeat_lookups(tmp_path, monkeypatch, cli):
     assert fake_pwd.calls <= 1
     assert fake_grp.calls <= 1
 
-    recorded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    recorded = Project(root, db, db_format=None).load()
     assert len(recorded) == 20
 
 
@@ -545,7 +545,7 @@ def test_scan_mode_applies_to_files_only(tmp_path, cli):
         ).rc
         == 0
     )
-    recorded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    recorded = Project(root, db, db_format=None).load()
     assert recorded["/usr/share/app/sub"]["mode"] == "-"
     assert recorded["/usr/share/app/sub"]["type"] == "directory"
     assert recorded["/usr/share/app/link"]["mode"] == "-"
@@ -579,7 +579,7 @@ def test_scan_dir_mode_sets_directories(tmp_path, cli):
         ).rc
         == 0
     )
-    recorded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    recorded = Project(root, db, db_format=None).load()
     assert recorded["/usr/share/app/sub"]["mode"] == "755"
     assert recorded["/usr/share/app/sub/f"]["mode"] == "644"
 
@@ -606,7 +606,7 @@ def test_scan_auto_mode_reads_dirs_skips_links(tmp_path, cli):
         ).rc
         == 0
     )
-    recorded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    recorded = Project(root, db, db_format=None).load()
     assert recorded["/usr/share/app/sub"]["mode"] == "750"
     assert recorded["/usr/share/app/link"]["mode"] == "-"
 
@@ -633,7 +633,7 @@ def test_scan_dir_mode_auto_sentinel(tmp_path, cli):
         ).rc
         == 0
     )
-    recorded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    recorded = Project(root, db, db_format=None).load()
     assert recorded["/usr/share/app/sub"]["mode"] == "750"
 
 
@@ -685,7 +685,7 @@ def test_scan_drop_stale_tombstones_deleted(tmp_path, cli, fmt, ext):
     )
 
     a_key, b_key = "/usr/share/app/a", "/usr/share/app/b"
-    loaded = PkgForgeCmd(db=db, db_format=fmt, buildroot=root).loaddb()
+    loaded = Project(root, db, db_format=fmt).load()
     assert loaded[b_key] is None
     assert loaded[a_key] is not None
 
@@ -731,7 +731,7 @@ def test_scan_drop_stale_sqlite_uses_one_connection(tmp_path, cli, monkeypatch):
     # One load, then one batch holding a single connection for all 30 removals
     # (the walk itself batches too, but records nothing here).
     assert opened.count("connect") == 1
-    loaded = PkgForgeCmd(db=db, db_format=None, buildroot=tmp_path).loaddb()
+    loaded = Project(tmp_path, db, db_format=None).load()
     assert len(loaded) == 30 and all(entry is None for entry in loaded.values())
 
 
@@ -760,7 +760,7 @@ def test_scan_drop_stale_bounded_to_path(tmp_path, cli):
         == 0
     )
 
-    loaded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    loaded = Project(root, db, db_format=None).load()
     # /usr/bin/tool's file is gone too, but it's outside the drop-stale
     # PATH, so its entry is left alone.
     assert loaded["/usr/bin/tool"] is not None
@@ -795,7 +795,7 @@ def test_scan_drop_stale_keeps_excluded(tmp_path, cli):
         == 0
     )
 
-    loaded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    loaded = Project(root, db, db_format=None).load()
     assert loaded["/usr/share/app/ghost"] is not None
     assert loaded["/usr/share/app/a"] is not None
 
@@ -830,7 +830,7 @@ def test_scan_drop_stale_exclude_is_path_relative(tmp_path, cli):
         == 0
     )
 
-    loaded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    loaded = Project(root, db, db_format=None).load()
     assert loaded["/usr/share/app/ghost"] is not None
     assert loaded["/usr/share/app/a"] is not None
     assert loaded["/usr/share/app/gone"] is None
@@ -848,7 +848,7 @@ def test_scan_exclude_absolute_is_path_relative(tmp_path, cli):
     argv = ("--db", str(db), "--buildroot", str(root))
     assert cli(*argv, "scan", "-X", "/cache", "/usr/share/app").rc == 0
 
-    recorded = set(PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb())
+    recorded = set(Project(root, db, db_format=None).load())
     assert "/usr/share/app/cache" not in recorded
     assert "/usr/share/app/cache/c" not in recorded
     assert "/usr/share/app/sub/cache" in recorded
@@ -874,8 +874,8 @@ def test_scan_missing_readds_removed_file(tmp_path, cli):
     assert (
         cli("--db", str(db), "--buildroot", str(root), "scan", "/usr/share/app").rc == 0
     )
-    PkgForgeCmd(db=db, db_format=None, buildroot=root).remove_entry("/usr/share/app/a")
-    loaded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    Project(root, db, db_format=None).db.remove("/usr/share/app/a")
+    loaded = Project(root, db, db_format=None).load()
     assert loaded["/usr/share/app/a"] is None
 
     assert (
@@ -890,7 +890,7 @@ def test_scan_missing_readds_removed_file(tmp_path, cli):
         ).rc
         == 0
     )
-    loaded = PkgForgeCmd(db=db, db_format=None, buildroot=root).loaddb()
+    loaded = Project(root, db, db_format=None).load()
     assert loaded["/usr/share/app/a"] is not None
 
 

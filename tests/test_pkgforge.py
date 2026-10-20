@@ -26,7 +26,7 @@ from pkgforge.entry import (
     mode_to_octal,
     resolve_entry,
 )
-from pkgforge.command import PkgForge
+from pkgforge.cli import PkgForge
 from pkgforge.exclude import PathMatch, PathMatchStmt
 
 # --------------------------------------------------------------------------
@@ -52,7 +52,7 @@ def test_root_parser_builds_and_help_renders():
 
 
 def test_command_loggers_under_pkgforge(tmp_path, caplog):
-    from pkgforge.initdb import InitDb
+    from pkgforge.cli.initdb import InitDb
 
     for cls in PkgForge._subcommands_:
         assert cls._logger_name_ == "pkgforge." + cls._parsername_
@@ -72,7 +72,7 @@ def test_command_loggers_under_pkgforge(tmp_path, caplog):
 
 def test_install_shortcuts_translate():
     # -D -> -Tp (no-target-directory + parents); -d -> --type directory.
-    from pkgforge.install import Install
+    from pkgforge.cli.install import Install
 
     parser = Install._parser_()
     inst = parser.parse_args(["-D", "-d", "src", "/dst"])
@@ -173,7 +173,7 @@ def test_apply_sets_mode(tmp_path):
 
 
 def test_scan_logs_one_info_summary(tmp_path, caplog):
-    from pkgforge.scan import ScanCmd
+    from pkgforge.cli.scan import ScanCmd
 
     root = tmp_path / "root"
     usr = root / "usr"
@@ -206,7 +206,7 @@ def test_scan_logs_one_info_summary(tmp_path, caplog):
 def test_scan_default_buildroot_does_not_crash(tmp_path, monkeypatch):
     # Regression: buildroot default must be Path("."), not the str ".", or
     # scan.py's `self.buildroot / path` is str/str -> TypeError.
-    from pkgforge.scan import ScanCmd
+    from pkgforge.cli.scan import ScanCmd
 
     monkeypatch.chdir(tmp_path)
     (tmp_path / "sub").mkdir()
@@ -217,7 +217,7 @@ def test_scan_default_buildroot_does_not_crash(tmp_path, monkeypatch):
     parser = ScanCmd._parser_()
     inst = parser.parse_args(["--db", str(db), "sub"])
     inst()  # must not raise (the regression: str "." / str -> TypeError)
-    recorded = inst.loaddb()
+    recorded = inst._project().load()
     assert {k.replace("\\", "/") for k in recorded} == {"/sub/f"}
 
 
@@ -237,7 +237,7 @@ def test_scan_staged_absolute_link_ok(tmp_path):
     # PATH is the link itself: an absolute (likely out-of-root) target must
     # not be followed -- only the leaf's parent is checked for a link that
     # doesn't name an existing directory.
-    from pkgforge.scan import ScanCmd
+    from pkgforge.cli.scan import ScanCmd
 
     root = tmp_path / "root"
     (root / "usr" / "bin").mkdir(parents=True)
@@ -251,7 +251,7 @@ def test_scan_staged_absolute_link_ok(tmp_path):
     )
     inst()
 
-    recorded = inst.loaddb()
+    recorded = inst._project().load()
     assert recorded["/usr/bin/app.link"]["type"] == "symlink"
 
 
@@ -272,7 +272,7 @@ def test_scan_relative_root_at_slash_refused(tmp_path, monkeypatch, cli):
 
 def test_scan_root_path_ok(tmp_path):
     # PATH "/" means the build root itself.
-    from pkgforge.scan import ScanCmd
+    from pkgforge.cli.scan import ScanCmd
 
     root = tmp_path / "root"
     (root / "usr").mkdir(parents=True)
@@ -283,16 +283,15 @@ def test_scan_root_path_ok(tmp_path):
     inst = parser.parse_args(["--db", str(db), "--buildroot", str(root), "/"])
     inst()
 
-    # buildpath() is POSIX-only (see PkgForgeCmd's own header note): on
-    # Windows the recorded keys stringify with backslashes.
-    recorded = {k.replace("\\", "/") for k in inst.loaddb()}
+    # On Windows the recorded keys stringify with backslashes.
+    recorded = {k.replace("\\", "/") for k in inst._project().load()}
     assert "/usr/a" in recorded
 
 
 @pytest.mark.posix
 def test_install_remove_source_directory(tmp_path):
     # Regression: --remove-source on a directory must rmtree, not unlink.
-    from pkgforge.install import Install
+    from pkgforge.cli.install import Install
 
     root = tmp_path / "root"
     root.mkdir()
@@ -323,7 +322,7 @@ def test_install_remove_source_directory(tmp_path):
 def test_install_multi_source_absolute_exclude(tmp_path):
     # Guards: an absolute -X pattern is relative to each source, so ONE
     # pattern excludes "sub/skip" under every source that shares DESTINATION.
-    from pkgforge.install import Install
+    from pkgforge.cli.install import Install
 
     root = tmp_path / "root"
     root.mkdir()
@@ -358,7 +357,7 @@ def test_install_multi_source_absolute_exclude(tmp_path):
             "opt/out",
         ]
     )
-    assert [s.pattern for s in inst.exclude] == [pattern]
+    assert inst.exclude == [pattern]
     inst()
 
     for name in ("src1", "src2"):
@@ -370,7 +369,7 @@ def test_install_multi_source_absolute_exclude(tmp_path):
 def test_install_decompress_from_stdin_raises_clear_error():
     # Guards: bare -x with a stdin source must raise a clear ValueError, not
     # AttributeError: 'str' object has no attribute 'suffix'.
-    from pkgforge.install import Install
+    from pkgforge.cli.install import Install
 
     parser = Install._parser_()
     inst = parser.parse_args(["-x", "-T", "-", "/dest/f"])
@@ -381,7 +380,7 @@ def test_install_decompress_from_stdin_raises_clear_error():
 @pytest.mark.posix
 def test_install_symlink_source_records_target(tmp_path):
     # A symlink source is copied as a symlink and its target recorded in meta.
-    from pkgforge.install import Install
+    from pkgforge.cli.install import Install
 
     root = tmp_path / "root"
     root.mkdir()
@@ -398,7 +397,7 @@ def test_install_symlink_source_records_target(tmp_path):
     staged = root / "usr" / "bin" / "app.link"
     assert staged.is_symlink()
     assert os.readlink(staged) == "/usr/bin/app"
-    recorded = inst.loaddb()["/usr/bin/app.link"]
+    recorded = inst._project().load()["/usr/bin/app.link"]
     assert recorded["type"] == "symlink"
     assert recorded["meta"]["target"] == "/usr/bin/app"
 
@@ -406,7 +405,7 @@ def test_install_symlink_source_records_target(tmp_path):
 @pytest.mark.posix
 def test_install_symlink_type_with_meta_target(tmp_path):
     # --type symlink with no real source: the target comes from -O target=.
-    from pkgforge.install import Install
+    from pkgforge.cli.install import Install
 
     root = tmp_path / "root"
     root.mkdir()
@@ -445,7 +444,7 @@ def test_install_decompress_gz(tmp_path, form):
     import gzip
     import shutil as _shutil
 
-    from pkgforge.install import Install
+    from pkgforge.cli.install import Install
 
     if _shutil.which("gzip") is None:
         pytest.skip("gzip not available")
@@ -469,13 +468,13 @@ def test_install_decompress_gz(tmp_path, form):
 
     staged = root / "etc" / "app.conf"  # .gz stripped from the destination
     assert staged.read_bytes() == b"hello gz\n"
-    assert "/etc/app.conf" in inst.loaddb()
+    assert "/etc/app.conf" in inst._project().load()
 
 
 def test_install_decompress_kind_that_is_a_path_raises_clear_error():
     # Guards: `install -x SRC DST EXTRA` makes SRC the *kind* (argparse gives
     # -x the next token); it must raise, not run SRC as a decompressor command.
-    from pkgforge.install import Install
+    from pkgforge.cli.install import Install
 
     parser = Install._parser_()
     inst = parser.parse_args(["-x", "app.conf.gz", "src", "/etc", "/dest/f"])
@@ -489,46 +488,46 @@ def test_install_decompress_kind_that_is_a_path_raises_clear_error():
 # --------------------------------------------------------------------------
 
 
-def test_add_and_load_db_roundtrip(cmd, make_entry):
-    inst = cmd()
-    inst.add_entry("/usr/bin/x", make_entry(mode="644", meta={"k": "v"}))
-    db = inst.loaddb()
+def test_add_and_load_db_roundtrip(project, make_entry):
+    proj = project()
+    proj.db.add("/usr/bin/x", make_entry(mode="644", meta={"k": "v"}))
+    db = proj.load()
     assert "/usr/bin/x" in db
     assert db["/usr/bin/x"]["mode"] == "644"
     assert db["/usr/bin/x"]["type"] == "file"
 
 
-def test_remove_entry_marks_none(cmd, make_entry):
-    inst = cmd()
-    inst.add_entry("/a", make_entry(owner=DEFAULT, group=DEFAULT))
-    inst.remove_entry("/a")
-    db = inst.loaddb()
+def test_remove_entry_marks_none(project, make_entry):
+    proj = project()
+    proj.db.add("/a", make_entry(owner=DEFAULT, group=DEFAULT))
+    proj.db.remove("/a")
+    db = proj.load()
     # Last write for /a is the removal marker.
     assert db["/a"] is None
 
 
-def test_loaddb_missing_returns_empty(cmd):
-    assert cmd().loaddb() == {}
+def test_load_missing_returns_empty(project):
+    assert project().load() == {}
 
 
-def test_compact_command(tmp_path, cmd, make_entry):
-    from pkgforge.compact import Compact
+def test_compact_command(tmp_path, project, make_entry):
+    from pkgforge.cli.compact import Compact
 
     db = tmp_path / "files.jsonl"
     parser = Compact._parser_()
     # Populate an append log with a superseded entry and a removal.
-    seed = cmd(name="files.jsonl")
-    seed.add_entry("/x", make_entry(mode="644", owner=DEFAULT, group=DEFAULT))
-    seed.add_entry("/x", make_entry(mode="600", owner=DEFAULT, group=DEFAULT))
-    seed.add_entry("/y", make_entry(mode="644", owner=DEFAULT, group=DEFAULT))
-    seed.remove_entry("/y")
+    seed = project(name="files.jsonl")
+    seed.db.add("/x", make_entry(mode="644", owner=DEFAULT, group=DEFAULT))
+    seed.db.add("/x", make_entry(mode="600", owner=DEFAULT, group=DEFAULT))
+    seed.db.add("/y", make_entry(mode="644", owner=DEFAULT, group=DEFAULT))
+    seed.db.remove("/y")
     assert len([line for line in db.read_text().splitlines() if line.strip()]) == 4
 
     inst = parser.parse_args(["--db", str(db), "--buildroot", str(tmp_path)])
     inst()
     lines = [line for line in db.read_text().splitlines() if line.strip()]
     assert len(lines) == 1  # only live /x remains
-    assert inst.loaddb()["/x"]["mode"] == "600"
+    assert inst._project().load()["/x"]["mode"] == "600"
 
 
 # --------------------------------------------------------------------------
@@ -680,7 +679,7 @@ def test_rpmspecfile_rpmprefix_meta():
 
 
 def test_dbdump_writes_manifest(tmp_path):
-    from pkgforge.dbdump import DbDump
+    from pkgforge.cli.dbdump import DbDump
 
     db = tmp_path / "files.yaml"
     db.write_text(

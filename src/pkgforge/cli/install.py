@@ -8,7 +8,6 @@ from pathlib import Path
 
 import duho
 
-from .._install.transfer import _env_method
 from ..entry import (
     AUTO,
     DEFAULT,
@@ -21,6 +20,15 @@ from ..project import _INSTALL_METHODS
 from ._common import EntryArgs, ExcludeArgs, ProjectCmd, _refuse_mcp_stdin
 
 __all__ = ["Install"]
+
+
+def _env_method(value: str) -> str:
+    """Env-var or CLI value to an install method; empty means ``copy``.
+
+    A non-``str`` ``type=`` converter is what makes duho treat an empty env
+    value as unset, where a bare ``str`` field would keep it as a value.
+    """
+    return value if value else "copy"
 
 
 def _parse_filetype(text: str) -> typing.Union[FileType, str]:

@@ -1,10 +1,9 @@
 """File entry types: the on-disk *file DB* record and its metadata.
 
 Defines the record (:class:`FileEntry`: mode / owner / group / type /
-free-form ``meta``), the CLI argument mixin that supplies those fields
-(:class:`FileEntryArgs`), and the functions that build, resolve and apply an
-entry (:func:`entry_from_args`, :func:`entry_from_path`, :func:`resolve_entry`,
-:func:`apply_entry`). ``mode`` is always stored as an **octal permission
+free-form ``meta``) and the functions that normalize, build, resolve and
+apply one (:func:`normalize_mode`, :func:`entry_from_path`,
+:func:`resolve_entry`, :func:`apply_entry`). ``mode`` is always stored as an **octal permission
 string** (e.g. ``"644"``) so the DB round-trips cleanly and dumps (e.g.
 ``%attr(644,...)`` in an RPM spec) are correct.
 
@@ -14,7 +13,6 @@ file DB, and :mod:`pkgforge.db` for the pluggable storage backends.
 
 from __future__ import annotations
 
-import argparse
 import contextlib
 import enum
 import functools
@@ -31,9 +29,6 @@ try:  # Unix-only; pkgforge targets Linux, but keep parsing/--help importable el
 except ImportError:  # pragma: no cover - non-Unix
     grp = pwd = None
 
-import duho
-from duho import Cmd
-
 from .exceptions import UsageError
 
 __all__ = [
@@ -41,14 +36,11 @@ __all__ = [
     "DEFAULT",
     "FileEntries",
     "FileEntry",
-    "FileEntryArgs",
-    "FileEntryBaseArgs",
     "FileRecords",
     "FileType",
     "StrPath",
     "apply_entry",
     "check_meta",
-    "entry_from_args",
     "entry_from_path",
     "mode_to_octal",
     "normalize_mode",
@@ -141,29 +133,18 @@ def mode_to_octal(mode: int) -> str:
     return format(mode & 0o7777, "o")
 
 
-def _normalize_field(value: typing.Union[str, typing.List[str]]) -> str:
-    """Map argparse's Python 3.9 ``[]`` artifact to AUTO, and an explicit
-    empty string to DEFAULT.
-
-    On Python 3.9, argparse strips an attached ``--`` (``--mode=--``,
-    ``-m--``, ``--owner=--``) to ``[]`` *before* any ``type=`` converter
-    runs, so this has to be checked wherever such a value can land, not only
-    inside a converter. Anything else passes through unchanged.
-    """
-    if value == []:
-        return AUTO
-    if value == "":
-        return DEFAULT
-    return value
+def _normalize_field(value: str) -> str:
+    """An explicit empty string is DEFAULT; anything else passes through."""
+    return DEFAULT if value == "" else value
 
 
-def normalize_mode(value: typing.Union[str, typing.List[str]]) -> str:
+def normalize_mode(value: str) -> str:
     """Normalize a ``mode`` value to an octal permission string.
 
     ``-``/``""`` mean
-    :data:`DEFAULT`; ``--``, ``auto`` (mode only -- ``owner``/``group`` get no
-    such alias, since ``auto`` can be a real account name) or Python 3.9's
-    stripped ``[]`` mean :data:`AUTO`. A string of 1-4 octal digits is
+    :data:`DEFAULT`; ``--`` and ``auto`` (mode only -- ``owner``/``group`` get
+    no such alias, since ``auto`` can be a real account name) mean
+    :data:`AUTO`. A string of 1-4 octal digits is
     normalized (``"0644"`` -> ``"644"``). Anything else raises
     :class:`UsageError`.
     """
@@ -179,7 +160,7 @@ def normalize_mode(value: typing.Union[str, typing.List[str]]) -> str:
     )
 
 
-def normalize_name(value: typing.Union[str, typing.List[str]], field: str) -> str:
+def normalize_name(value: str, field: str) -> str:
     """Validate an ``owner``/``group`` value (``field`` names it in the error).
 
     Applies :func:`_normalize_field`, then requires the portable account-name pattern.
@@ -205,47 +186,14 @@ def check_meta(meta: typing.Mapping[str, str]) -> None:
         raise UsageError(f"invalid meta rpmprefix {prefix!r}: rpm expansion")
 
 
-def _parse_name(field: str) -> typing.Callable[[str], str]:
-    """Build the CLI ``type=`` converter for ``--owner``/``--group``: wraps
-    :func:`normalize_name`, translating :class:`UsageError` to argparse's own
-    error type so a bad name exits 2 before anything is staged."""
-
-    def parse(text: str) -> str:
-        try:
-            return normalize_name(text, field)
-        except UsageError as exc:
-            raise argparse.ArgumentTypeError(str(exc)) from None
-
-    return parse
-
-
-def _parse_mode(text: str) -> str:
-    """CLI ``type=`` converter for ``--mode``: an explicit empty value is
-    rejected outright (unlike the Python API, where :func:`normalize_mode`
-    treats ``""`` as :data:`DEFAULT`), and anything else is normalized via
-    :func:`normalize_mode`, with :class:`UsageError` translated to argparse's
-    own error type so a bad value exits 2 before anything is staged.
-    """
-    if text == "":
-        raise argparse.ArgumentTypeError(
-            "mode must not be empty; use '-' for the default, or '--'/'auto' "
-            "to resolve from the staged file"
-        )
-    try:
-        return normalize_mode(text)
-    except UsageError as exc:
-        raise argparse.ArgumentTypeError(str(exc)) from None
-
-
 def _or_default(value: str) -> str:
     """Treat a falsy field value (e.g. an empty string) as :data:`DEFAULT`."""
     return value if value else DEFAULT
 
 
 def _is_auto(value: typing.Any) -> bool:
-    """True for an unset ``--type``: :data:`DEFAULT`, :data:`AUTO`, or Python
-    3.9's stripped ``[]`` (an attached ``--``)."""
-    return value == DEFAULT or value == AUTO or value == []
+    """True for an unset type: :data:`DEFAULT` or :data:`AUTO`."""
+    return value == DEFAULT or value == AUTO
 
 
 def _filetype(value: typing.Union[str, FileType]) -> typing.Union[FileType, str]:
@@ -268,66 +216,6 @@ def _filetype(value: typing.Union[str, FileType]) -> typing.Union[FileType, str]
             if value.lower() in (member.value, member.name.lower()):
                 return member
     raise UsageError(f"invalid type {value!r} (choose from file, directory, symlink)")
-
-
-def _parse_filetype(text: str) -> typing.Union[FileType, str]:
-    """CLI ``type=`` converter for ``--type``: wraps :func:`_filetype`,
-    translating :class:`UsageError` to argparse's own error type."""
-    try:
-        return _filetype(text)
-    except UsageError as exc:
-        raise argparse.ArgumentTypeError(str(exc)) from None
-
-
-def _key_value(text: str) -> typing.Dict[str, str]:
-    """CLI ``type=`` converter for ``-O``/``--meta``: one ``KEY=VALUE`` pair
-    as a single-entry dict (merged by :class:`duho.UpdateAction`). A value
-    missing ``=`` raises argparse's own error type directly (naming what was
-    given), instead of the opaque ``invalid <lambda> value`` a bare lambda
-    converter reports.
-    """
-    if "=" not in text:
-        raise argparse.ArgumentTypeError(f"expected KEY=VALUE, got {text!r}")
-    key, value = text.split("=", maxsplit=1)
-    return {key: value}
-
-
-class FileEntryBaseArgs(Cmd):
-    """CLI mixin supplying ``--mode/-m``, ``--group/-g``, ``--owner/-o`` and
-    ``-O/--meta KEY=VALUE`` -- the fields every leaf command that records a
-    :class:`FileEntry` shares."""
-
-    mode: duho.Arg[str, duho.Meta(type=_parse_mode)] = DEFAULT
-    "permission mode: 1-4 octal digits, '-' (leave default), '--' or 'auto' (resolve from the staged file)"
-    ("--mode", "-m")
-    group: duho.Arg[str, duho.Meta(type=_parse_name("group"))] = DEFAULT
-    "group to record: an account name, '-' (the OS default) or '--' (resolve from the staged file)"
-    ("--group", "-g")
-    owner: duho.Arg[str, duho.Meta(type=_parse_name("owner"))] = DEFAULT
-    "owner to record: an account name, '-' (the OS default) or '--' (resolve from the staged file)"
-    ("--owner", "-o")
-    meta: duho.Arg[
-        typing.Dict[str, str],
-        duho.Meta(
-            action=duho.UpdateAction,
-            type=_key_value,
-            metavar="KEY=VALUE",
-        ),
-    ] = {}
-    "extra metadata KEY=VALUE (repeatable)"
-    ("-O", "--meta")
-
-
-class FileEntryArgs(FileEntryBaseArgs):
-    """:class:`FileEntryBaseArgs` plus ``--type/-t``, for a command that stages
-    a source and so chooses the entry's type."""
-
-    type: duho.Arg[
-        typing.Optional[FileType],
-        duho.Meta(type=_parse_filetype, metavar="{file,directory,symlink}"),
-    ] = None
-    "file, directory or symlink, in any case (auto-detected if unset, or given as '--')"
-    ("--type", "-t")
 
 
 class FileEntry(typing.TypedDict):
@@ -356,9 +244,9 @@ StrPath = typing.Union[str, "os.PathLike[str]"]
 
 def _new_entry(
     *,
-    mode: typing.Union[str, typing.List[str]],
-    owner: typing.Union[str, typing.List[str]],
-    group: typing.Union[str, typing.List[str]],
+    mode: str,
+    owner: str,
+    group: str,
     type: typing.Any,
     meta: typing.Mapping[str, str],
 ) -> FileEntry:
@@ -373,28 +261,6 @@ def _new_entry(
         "type": type,
         "meta": dict(meta),
     }
-
-
-def entry_from_args(args: FileEntryBaseArgs, **overwrite) -> FileEntry:
-    """Build a :class:`FileEntry` from a parsed :class:`FileEntryBaseArgs` mixin.
-
-    ``type`` is converted via :class:`FileType` only when ``overwrite`` does
-    not itself supply ``type`` -- a caller overwriting ``type`` (e.g. ``scan``
-    passing ``type="--"``) never pays for, or risks, converting ``args.type``.
-    """
-    if "type" in overwrite:
-        type_ = overwrite.pop("type")
-    else:
-        type_ = FileType(args.type) if args.type else args.type
-    entry = _new_entry(
-        mode=args.mode,
-        owner=args.owner,
-        group=args.group,
-        type=type_,
-        meta=args.meta,
-    )
-    entry.update(overwrite)
-    return entry
 
 
 def _resolve_stat(
