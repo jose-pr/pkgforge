@@ -30,15 +30,18 @@ tree).
 
 ## Exit status
 
-`main()` returns `0` on success; a `UsageError` prints one
-`pkgforge: error: ...` line to stderr and returns `2`; any other
-`PkgForgeError`, `OSError` or `subprocess.CalledProcessError` prints the same
-and returns `1`; a `BrokenPipeError` (a closed output pipe) returns `1`
-silently; anything else propagates with its traceback. Set `DUHO_TRACEBACK`
-to a true value (duho's boolean tokens: `1`/`true`/`yes`/`on`;
-`0`/`false`/`no`/`off`/`n`/`f` are off) to also print the traceback before
-that one line. Under it a closed pipe raised by a command also prints its
-traceback (and no error line); the status stays `1`.
+| Status | Meaning |
+| --- | --- |
+| `0` | success |
+| `1` | a runtime failure (`PkgForgeError`, `OSError`), reported as one `pkgforge: error: ...` line on stderr; a closed output pipe also returns `1`, silently |
+| `2` | a usage mistake (`UsageError`), reported as one `pkgforge: error: ...` line |
+| `130` | Ctrl-C, silently |
+
+Anything else propagates with its traceback. Set `PKGFORGE_TRACEBACK` to a true
+value (`1`/`true`/`yes`/`on`; `0`/`false`/`no`/`off`/`n`/`f` are off) to also
+print the traceback before the error line. External tools (`bsdtar`, the
+decompressors) and `sqlite3` failures are reported the same way, with the
+tool's last stderr line.
 
 ## Errors (`errors.py`)
 
@@ -801,6 +804,9 @@ value as of import. An empty value counts as unset for all three.
   (a boolean; truthy tokens `1 true yes on y t`, case-insensitive; anything
   else, including empty/unset, is off). CLI (`--record-tree`/
   `--no-record-tree`) wins over it the same way.
+- **`PKGFORGE_TRACEBACK`** — a true value (`1 true yes on y t`,
+  case-insensitive) prints the traceback before the `pkgforge: error:` line.
+  See [Exit status](#exit-status).
 - **`PKGFORGE_MCP`** — set to `stdio` to serve the command tree as MCP tools
   over stdio instead of running a command (duho's launch trigger; any other
   value exits 2). Unset, it does nothing. It is removed from the environment

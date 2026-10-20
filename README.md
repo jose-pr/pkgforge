@@ -77,6 +77,17 @@ Global flags work before or after the subcommand. With no `--buildroot` or
 `/` is refused (exit 2); pass `--buildroot /` to target the live filesystem
 on purpose.
 
+## Exit status
+
+| Status | Meaning |
+| --- | --- |
+| `0` | success |
+| `1` | a runtime failure; one `pkgforge: error: ...` line on stderr (a closed output pipe is silent) |
+| `2` | a usage mistake; one `pkgforge: error: ...` line on stderr |
+| `130` | Ctrl-C, silently |
+
+Set `PKGFORGE_TRACEBACK=1` to also print the traceback before the error line.
+
 ## Storage backends
 
 The file DB has three interchangeable backends — every command behaves the same

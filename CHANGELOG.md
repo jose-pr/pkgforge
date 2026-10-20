@@ -7,15 +7,36 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
-- Requires `duho>=0.7.5,<0.8` (was `>=0.6.0,<0.7`). The command line is
+- Requires `duho>=0.7.7,<0.8` (was `>=0.6.0,<0.7`). The command line is
   unchanged: the same flags, exit statuses and `--help` text.
 - `pkgforge.main()` runs through `duho.run`, and `PkgForge` reports its errors
   with duho's `_errors_` and `_report_error_`. The `pkgforge: error:` line, its
   stream and the statuses (2 for a usage mistake, 1 otherwise) are the same, and
   `--help`, `--version` and a parser usage error still raise `SystemExit`.
   Ctrl-C now ends with status 130 and no traceback.
-- With `DUHO_TRACEBACK` set, a closed output pipe now prints its traceback
-  (status 1, no error line); it used to stay silent.
+- `PKGFORGE_TRACEBACK` replaces `DUHO_TRACEBACK` as the switch that prints the
+  traceback before the `pkgforge: error:` line. Set `PKGFORGE_TRACEBACK=1`
+  where you set `DUHO_TRACEBACK=1`; `DUHO_TRACEBACK` no longer has an effect on
+  pkgforge. A closed output pipe stays silent with status 1 either way.
+
+### Fixed
+- A corrupt or truncated `.tar`, `.tar.gz`, `.tar.xz` or `.tar.bz2` archive now
+  ends with one `pkgforge: error: cannot extract ...` line and status 1
+  instead of a traceback.
+- A failing `bsdtar` or decompressor (`install -x`) now ends with one
+  `pkgforge: error: <tool> failed (exit N): <its last message>` line and
+  status 1 instead of a `CalledProcessError` traceback. The tool no longer
+  inherits standard input unless the source is `-`.
+- A SQLite file DB that cannot be opened, written or read (an unwritable
+  directory, a locked or non-SQLite file, a schema mismatch, a corrupt
+  `meta_json`) now ends with one `pkgforge: error: <path>: ...` line and
+  status 1 instead of a traceback.
+- A JSON Lines or YAML file DB nested too deeply to parse is now a one-line
+  error naming the file instead of a `RecursionError` traceback.
+- Under MCP, `dbdump --stdin` and `install -` now return an error result
+  instead of reading the protocol channel: `dbdump --stdin OUTPUT` used to
+  overwrite an existing OUTPUT with an empty manifest, and `install -` failed
+  with an `AttributeError`.
 
 ## [0.2.0] - 2026-09-29
 
