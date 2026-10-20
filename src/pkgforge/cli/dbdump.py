@@ -84,8 +84,8 @@ class DbDump(ExcludeArgs, ProjectCmd):
         stdin or a character device such as ``/dev/null`` raises
         :class:`UsageError`, so an inherited ``PKGFORGE_DB=-`` never dumps an
         empty manifest. A pipe that is never closed blocks, as any ``-``
-        source does. ``--db-format`` is not consulted: the input is always
-        JSON Lines.
+        source does. ``--db-format`` is validated but not used: the input is
+        always JSON Lines.
         """
         _refuse_mcp_stdin("the file DB")
         if sys.stdin is None:
@@ -116,10 +116,11 @@ class DbDump(ExcludeArgs, ProjectCmd):
 
     def __call__(self) -> int:
         fmt, output = self._check_target()
+        project = self._project()  # checks --db-format even with --db -
         if str(self.db) == "-":
             rendered = dump(self._stdin_db(), fmt, output, exclude=self.exclude)
         else:
-            rendered = self._project().dump(fmt, output, exclude=self.exclude)
+            rendered = project.dump(fmt, output, exclude=self.exclude)
         if output is None:
             with _open_stdout() as out:
                 if isinstance(rendered, bytes):

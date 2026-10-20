@@ -804,10 +804,10 @@ there with a `UsageError`. See [Environment variables](#environment-variables).
   manifests on any filesystem or DB backend.
 - **`dbdump --db -`** — read the DB as JSON Lines from standard input (the
   `--db -` that `install`/`scan` write to stdout, so
-  `install --db - ... | dbdump --db - -f rpm` works; `--db-format` is not
-  consulted). Runs after `--format`/OUTPUT are validated, so a bad one exits 2
-  without touching stdin. Stdin must be a pipe, socket or regular file
-  (`os.fstat` of its descriptor; a stream with no descriptor passes): a closed
+  `install --db - ... | dbdump --db - -f rpm` works; `--db-format` must name a
+  registered format but is not used). Runs after `--format`, OUTPUT and
+  `--db-format` are validated, so a bad one exits 2 without touching stdin.
+  Stdin must be a pipe, socket or regular file (`os.fstat` of its descriptor; a stream with no descriptor passes): a closed
   stdin (`sys.stdin is None`), a terminal or a character device such as
   `/dev/null` raises `UsageError` (exit 2), so an inherited `PKGFORGE_DB=-` never
   dumps an empty manifest. In an MCP tool call it is a `UsageError` too (stdin

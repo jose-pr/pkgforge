@@ -224,6 +224,14 @@ def test_db_dash_ignores_db_format(cli, make_entry, monkeypatch):
     assert b'"/usr/bin/tool"' in result.out
 
 
+def test_db_dash_refuses_an_unknown_db_format(cli, monkeypatch):
+    monkeypatch.setattr(sys, "stdin", _NeverRead())
+
+    result = cli("--db-format", "bogus", "dbdump", "--db", "-", "-f", "rpm", "-")
+    assert result.rc == 2
+    assert "unknown db format 'bogus'" in result.err.decode()
+
+
 def test_db_dash_checks_format_first(cli, monkeypatch):
     monkeypatch.setattr(sys, "stdin", _NeverRead())
 
