@@ -16,7 +16,8 @@ be an absolute path with no empty, `.` or `..` segment; `type` must be
 optionally ending in `$`), `-` or `--`. A bad entry stops `dbdump` with exit
 2 and one line naming the entry and the field, and writes nothing. `%`,
 whitespace and control characters cannot occur in mode, owner or group. An
-entry's `meta.rpmprefix` may not hold a control character; otherwise it is
+entry's `meta.rpmprefix` may not hold a control character or an rpm expansion
+(`%(`, `%{`, `%[`, which rpmbuild would run or expand); otherwise it is
 written verbatim.
 
 A file OUTPUT is written whole or not at all: `dbdump` writes each file to

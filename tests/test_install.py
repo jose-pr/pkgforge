@@ -1886,8 +1886,15 @@ def test_install_file_source_chflags_denied(tmp_path, monkeypatch):
         ["-g", "adm\nroot"],
         ["-o", "1000"],
         ["-O", "rpmprefix=%ghost\nx"],
+        ["-O", "rpmprefix=%(id)"],
     ],
-    ids=["owner_macro", "group_newline", "owner_numeric", "rpmprefix_control"],
+    ids=[
+        "owner_macro",
+        "group_newline",
+        "owner_numeric",
+        "rpmprefix_control",
+        "rpmprefix_shell",
+    ],
 )
 def test_install_refuses_unsafe_record_values(tmp_path, cli, args):
     # Refused before anything is staged or recorded.

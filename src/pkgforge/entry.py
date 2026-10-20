@@ -48,9 +48,13 @@ NAME_PATTERN = r"--?|[A-Za-z_][A-Za-z0-9_.-]*\$?"
 MODE_PATTERN = r"--?|[0-7]{1,4}"
 #: Every C0 control character plus DEL.
 CONTROL_PATTERN = "[\x00-\x1f\x7f]"
+#: rpm's shell, macro and expression expansions; an ``rpmprefix`` such as
+#: ``%config(noreplace)`` never needs one.
+RPM_EXPANSION_PATTERN = r"%[({\[]"
 
 _NAME_RE = re.compile(NAME_PATTERN)
 _CONTROL_RE = re.compile(CONTROL_PATTERN)
+_RPM_EXPANSION_RE = re.compile(RPM_EXPANSION_PATTERN)
 
 
 class FileType(str, enum.Enum):
@@ -177,10 +181,13 @@ def normalize_name(value: typing.Union[str, typing.List[str]], field: str) -> st
 
 def check_meta(meta: typing.Mapping[str, str]) -> None:
     """Raise :class:`UsageError` if ``meta["rpmprefix"]`` holds a control
-    character (it is written verbatim into an rpm ``%files`` line)."""
+    character or an rpm expansion (``%(``, ``%{``, ``%[``): it is written
+    verbatim into an rpm ``%files`` line, which rpmbuild macro-expands."""
     prefix = meta.get("rpmprefix")
     if prefix and _CONTROL_RE.search(prefix):
         raise UsageError(f"invalid meta rpmprefix {prefix!r}: control character")
+    if prefix and _RPM_EXPANSION_RE.search(prefix):
+        raise UsageError(f"invalid meta rpmprefix {prefix!r}: rpm expansion")
 
 
 def _parse_name(field: str) -> typing.Callable[[str], str]:

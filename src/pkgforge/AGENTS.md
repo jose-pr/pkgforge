@@ -82,7 +82,8 @@ tool's last stderr line.
     to `DEFAULT`, and raises `UsageError` unless the value is an account
     name (`[A-Za-z_][A-Za-z0-9_.-]*`, optionally ending in `$`) or the `-`/
     `--` sentinels; `check_meta(args.meta)` raises `UsageError` for a
-    control character in `meta["rpmprefix"]`.
+    control character or an rpm expansion (`%(`, `%{`, `%[`) in
+    `meta["rpmprefix"]`.
   - **`entry_from_path(path: Path, meta: Optional[dict[str, str]] = None) ->
     FileEntry`** — build by `lstat`-ing a real path; owner/group resolve via
     `pwd`/`grp` (fall back to `"-"` if those modules are unavailable, i.e.
@@ -504,7 +505,8 @@ tool's last stderr line.
   control character; `type` is `file`, `directory` or `symlink`; `mode` is
   1-4 octal digits, `-` or `--`; `owner`/`group` are an account name
   (`[A-Za-z_][A-Za-z0-9_.-]*`, optionally ending in `$`), `-` or `--`; and
-  `meta["rpmprefix"]` has no control character. `%`, whitespace and
+  `meta["rpmprefix"]` has no control character and no rpm expansion (`%(`,
+  `%{`, `%[`). `%`, whitespace and
   control characters therefore cannot occur in mode/owner/group.
   `meta["rpmprefix"]` is otherwise written verbatim, as an rpm directive
   prefix. A format's `dump()` called directly does not run this check.
@@ -613,7 +615,7 @@ above).
   real destination directory is left alone (a source symlink colliding with
   one still raises).
   `--mode`, the recorded `--owner`/`--group` names (account-name syntax
-  only), `-O rpmprefix=` (no control character), `--chown`'s owner/group
+  only), `-O rpmprefix=` (no control character or rpm expansion), `--chown`'s owner/group
   names (only when `--chown` is set; a recorded-only name is never resolved)
   and the `--db` directory are validated before anything is staged; without `-p`, a missing destination
   parent directory raises `UsageError` the same way. `--remove-source`

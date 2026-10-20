@@ -12,7 +12,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a key that is not an absolute path with no `.`/`..`/empty segment, a `type`
   other than `file`, `directory` or `symlink`, a mode that is not 1-4 octal
   digits, `-` or `--`, an owner or group that is not an account name, `-` or
-  `--`, or a control character in `meta.rpmprefix`. Fix the DB entry (or
+  `--`, or a control character or rpm expansion (`%(`, `%{`, `%[`) in
+  `meta.rpmprefix`. Fix the DB entry (or
   re-record it) and run `dbdump` again.
 - `install` and `scan` refuse an `--owner`/`--group` that is not an account
   name (`[A-Za-z_][A-Za-z0-9_.-]*`, `-` or `--`) and an `-O rpmprefix=` with a

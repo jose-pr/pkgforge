@@ -1121,6 +1121,9 @@ def test_validate_entries_accepts(row):
         (_row(group="adm\t"), "group"),
         (_row(group="a:b"), "group"),
         (_row(meta={"rpmprefix": "x\n%attr(4755,root,root) /z"}), "rpmprefix"),
+        (_row(meta={"rpmprefix": "%(touch PWNED)"}), "rpmprefix"),
+        (_row(meta={"rpmprefix": "%{lua:os.exit()}"}), "rpmprefix"),
+        (_row(meta={"rpmprefix": "%[1+1]"}), "rpmprefix"),
     ],
 )
 def test_validate_entries_rejects(row, field):
@@ -1149,8 +1152,17 @@ def test_validate_entries_empty():
         _row(owner="root,root) %(touch PWNED)"),
         _row(owner="root\n%attr(4755,root"),
         _row(meta={"rpmprefix": "a\nb"}),
+        _row(meta={"rpmprefix": "%(touch PWNED)"}),
     ],
-    ids=["dotdot", "relative", "untyped", "owner_macro", "owner_newline", "prefix"],
+    ids=[
+        "dotdot",
+        "relative",
+        "untyped",
+        "owner_macro",
+        "owner_newline",
+        "prefix",
+        "prefix_shell",
+    ],
 )
 def test_dbdump_refuses_invalid_entry(tmp_path, cli, fmt, row):
     db = tmp_path / "files.jsonl"

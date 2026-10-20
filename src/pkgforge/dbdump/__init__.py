@@ -31,6 +31,7 @@ from ..db import Db, DbError
 from ..db.jsonl import _parse_jsonl
 from ..entry import (
     CONTROL_PATTERN,
+    RPM_EXPANSION_PATTERN,
     DEFAULT,
     MODE_PATTERN,
     NAME_PATTERN,
@@ -60,7 +61,8 @@ class DumpError(PkgForgeError, ValueError):
 class InvalidEntryError(UsageError, DumpError):
     """A DB entry is malformed for every format: a key that is not an absolute
     normalized path, an unknown ``type``, a ``mode``/``owner``/``group`` outside
-    the recorded grammar, or a control character in ``meta["rpmprefix"]``.
+    the recorded grammar, or a control character or rpm expansion in
+    ``meta["rpmprefix"]``.
 
     Raised by :func:`_validate_entries` before any format renders, so it
     leaves no output behind. A :class:`~pkgforge.errors.UsageError` (exit 2):
@@ -84,6 +86,7 @@ class UnsupportedOutputError(UsageError, DumpError, NotImplementedError):
 #: both choke on these one way or another (a bare newline splits a line, a
 #: literal DEL is simply illegal), and neither format has an escape for them.
 _CONTROL_RE = re.compile(CONTROL_PATTERN)
+_RPM_EXPANSION_RE = re.compile(RPM_EXPANSION_PATTERN)
 
 _NAME_RE = re.compile(NAME_PATTERN)
 _MODE_RE = re.compile(MODE_PATTERN)
@@ -143,7 +146,7 @@ def _check_entry(path: str, entry: FileEntry) -> None:
         if value and not (isinstance(value, str) and pattern.fullmatch(value)):
             raise _entry_error(path, field, value)
     prefix = entry["meta"].get("rpmprefix")
-    if prefix and _CONTROL_RE.search(prefix):
+    if prefix and (_CONTROL_RE.search(prefix) or _RPM_EXPANSION_RE.search(prefix)):
         raise _entry_error(path, "meta rpmprefix", prefix)
 
 
@@ -171,6 +174,7 @@ def _validate_entries(entries: Entries) -> None:
     if (
         _CONTROL_RE.search(keys)
         or _CONTROL_RE.search(prefixes)
+        or _RPM_EXPANSION_RE.search(prefixes)
         or any(_CONTROL_RE.search(column) for column in columns)
         or _BAD_KEYS_RE.search(keys)
         or _BAD_MODES_RE.search(columns[0])
