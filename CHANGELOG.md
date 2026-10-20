@@ -7,6 +7,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `pkgforge stage [--init]` (and `Project.stage`) runs the `[[stage]]` steps of
+  `pkgforge.cfg` in order: install a source at a destination, or record a
+  directory, an empty file or a symlink. It replaces a hand-written staging
+  script; every source is checked before the first step runs.
 - `pkgforge mkdir [-p] DEST...` and `pkgforge symlink TARGET LINK` (and
   `Project.mkdir`, `Project.symlink`) record a directory or a symbolic link
   that has no source, so a package can own an empty directory or ship a link
@@ -29,9 +33,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `db_format` and `buildroot` in it are defaults below the command line and the
   environment; relative paths are relative to the file. `${package.name}` and
   any other key of the file can be reused in its text values. `[package]` and
-  `[[stage]]` are validated and kept on `Project.config`; they change nothing
-  yet. A bad file is one
-  `pkgforge: error:` line, status 2.
+  `[[stage]]` are validated and kept on `Project.config`; `pkgforge stage` runs
+  the steps. A bad file is one `pkgforge: error:` line, status 2.
 - `pkgforge.config` (`ProjectConfig`, `PackageInfo`, `EntryDefaults`,
   `EntryRule`, `StageStep`, `load`), `Project(..., config=)`, `Project.config`
   and `Project.from_config(path)`.

@@ -184,7 +184,8 @@ tool's last stderr line.
 The Python API for build scripts; the `pkgforge` command line is a wrapper
 over it. Nothing in it prints, exits or reads `sys.argv`; it logs under the
 operation loggers `pkgforge.install`, `pkgforge.scan`, `pkgforge.initdb`,
-`pkgforge.compact`, `pkgforge.dbdump`, `pkgforge.mkdir` and `pkgforge.symlink`. DB paths (`dest`, a scan `path`, a
+`pkgforge.compact`, `pkgforge.dbdump`, `pkgforge.mkdir`, `pkgforge.symlink`
+and `pkgforge.stage`. DB paths (`dest`, a scan `path`, a
 DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
 
 - **`Project(buildroot: StrPath, db: StrPath | DbProvider | None = None, *,
@@ -254,6 +255,18 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   written in `meta["target"]` (relative or absolute, and it may name nothing);
   an empty `target`, or a `meta` that already holds `target`, is `UsageError`.
   A symlink has no mode. Logs under `pkgforge.symlink`.
+- **`stage(*, init=False) -> FileRecords`** — run the `config.stage` steps in
+  order, with missing parents created: `src` + `dest` is `install([src], dest,
+  ...)` with the step's `type`, `into`, `decompress`, `method`, `exclude` and
+  `record_tree`; `dir` is `mkdir`, `file` an empty file, `symlink` + `target` is
+  `symlink`; a step's `mode`/`owner`/`group`/`meta` are the call's. A step's
+  `exclude` is relative to its source, as `install`'s. Every `src` must exist
+  before the first step runs (`UsageError: [[stage]] #N: source PATH does not
+  exist`), and no steps is `UsageError`. `init=True` first resets the file DB
+  (with no file DB, one WARNING and on). One owned-parent bookkeeping spans the
+  whole call. Logs `[[stage]] #N: SRC-or-KIND -> DEST` per step and `staged N
+  step(s), M record(s)` under `pkgforge.stage` (INFO), beside the installs'
+  own lines.
 - **`scan(path: str, *, mode="-", owner="-", group="-", meta=None,
   dir_mode: str | None = None, missing=False, drop_stale=False,
   exclude: Sequence[str] = ()) -> FileRecords`** — record every path below
@@ -670,7 +683,7 @@ once the operation has succeeded.
 
 Each subcommand logs under `pkgforge.<command>` (`pkgforge.install`,
 `pkgforge.scan`, `pkgforge.dbdump`, `pkgforge.initdb`, `pkgforge.compact`,
-`pkgforge.mkdir`, `pkgforge.symlink`):
+`pkgforge.stage`, `pkgforge.mkdir`, `pkgforge.symlink`):
 control one with `--loglevel pkgforge.<command>:LEVEL`, or the running command
 with `--loglevel LEVEL`. A bare `--loglevel pkgforge:LEVEL` has no effect on a
 CLI-dispatched command, whose own logger always has an explicit level (INFO by
@@ -930,6 +943,10 @@ there with a `UsageError`. See [Environment variables](#environment-variables).
   or `"<stdin>"`), so both report an error the same way
   (`{source}:{lineno}: ...`); non-UTF-8 input raises `DbError` prefixed
   `<stdin>:`.
+- **`pkgforge stage [--init]`** — `Project.stage`: run the `[[stage]]` steps of
+  `pkgforge.cfg` (`pkgforge --config FILE stage` names another). `--init`
+  resets the file DB first, as `initdb` does. Exit 2 for no steps or a missing
+  source, otherwise as `install`; with no file DB the records go to stdout.
 - **`pkgforge mkdir [-m MODE] [-o OWNER] [-g GROUP] [-O KEY=VALUE] [-p]
   DEST...`** — `Project.mkdir`: record each `DEST` as a directory and create it
   under the build root. `-p/--parents` creates the missing parents; without it a

@@ -41,6 +41,7 @@ def test_all_commands_registered():
         "dbdump",
         "initdb",
         "compact",
+        "stage",
         "mkdir",
         "symlink",
     }

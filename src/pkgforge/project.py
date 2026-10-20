@@ -19,7 +19,7 @@ from pathlib import Path, PurePath, PurePosixPath
 from . import dbdump
 from ._install import _Installer
 from ._scan import scan as _scan
-from .config import EntryDefaults, EntryRule, ProjectConfig, _owned
+from .config import EntryDefaults, EntryRule, ProjectConfig, StageStep, _owned
 from .config import load as _load_config
 from .db import Db, DbProvider, open_db
 from .entry import (
@@ -46,6 +46,7 @@ _COMPACT_LOGGER = logging.getLogger("pkgforge.compact")
 _DUMP_LOGGER = logging.getLogger("pkgforge.dbdump")
 _MKDIR_LOGGER = logging.getLogger("pkgforge.mkdir")
 _SYMLINK_LOGGER = logging.getLogger("pkgforge.symlink")
+_STAGE_LOGGER = logging.getLogger("pkgforge.stage")
 
 
 def _path(value: object, what: str) -> Path:
@@ -839,6 +840,118 @@ class Project:
             parents=parents,
             logger=logger,
             fresh=fresh,
+        )
+
+    def stage(self, *, init: bool = False) -> FileRecords:
+        """Run the ``[[stage]]`` steps of the configuration, in order.
+
+        A step with ``src`` installs it at ``dest`` (as :meth:`install`, with
+        the step's options); ``dir``, ``file`` and ``symlink`` steps record a
+        directory, an empty file or a link with no source. Missing parent
+        directories are created. Every ``src`` is checked before the first
+        step runs, so a missing source stages nothing.
+
+        Args:
+            init: reset the file DB first, as :meth:`init` does; with no file
+                DB, log a warning and go on.
+
+        Returns:
+            What was written, in write order.
+
+        Raises:
+            UsageError: the configuration has no ``[[stage]]`` steps, a source
+                is missing (the text names the step), or a step is refused.
+            PkgForgeError: staging failed.
+            OSError: the file system refused.
+        """
+        steps = self.config.stage
+        if not steps:
+            raise UsageError("no [[stage]] steps in the configuration")
+        for number, step in enumerate(steps, 1):
+            if step.src is not None and not (
+                os.path.exists(step.src) or os.path.islink(step.src)
+            ):
+                raise UsageError(
+                    f"[[stage]] #{number}: source {step.src} does not exist"
+                )
+        if init:
+            if self.db is None:
+                _STAGE_LOGGER.warning("no file DB: nothing to initialize")
+            else:
+                self.init()
+        self._begin_operation()
+        records: FileRecords = []
+        for number, step in enumerate(steps, 1):
+            what = step.src or next(
+                kind for kind in ("dir", "file", "symlink") if getattr(step, kind)
+            )
+            _STAGE_LOGGER.info(
+                "[[stage]] #%d: %s -> %s",
+                number,
+                what,
+                step.dest or step.dir or step.file or step.symlink,
+            )
+            records.extend(self._stage_step(step))
+        _STAGE_LOGGER.info("staged %d step(s), %d record(s)", len(steps), len(records))
+        return records
+
+    def _stage_step(self, step: StageStep) -> FileRecords:
+        """Run one ``[[stage]]`` step inside the running operation."""
+        mode = DEFAULT if step.mode is None else step.mode
+        owner = DEFAULT if step.owner is None else step.owner
+        group = DEFAULT if step.group is None else step.group
+        meta = dict(step.meta)
+        if step.symlink is not None:
+            return self._symlink(
+                step.target or "",
+                step.symlink,
+                owner=owner,
+                group=group,
+                meta=meta,
+                parents=True,
+                logger=_STAGE_LOGGER,
+                fresh=False,
+            )
+        if step.dir is not None:
+            return self._mkdir(
+                [step.dir],
+                mode=mode,
+                owner=owner,
+                group=group,
+                meta=meta,
+                parents=True,
+                logger=_STAGE_LOGGER,
+                fresh=False,
+            )
+        if step.src is None:
+            return self._run_install(
+                [""],
+                step.file or "",
+                mode=mode,
+                owner=owner,
+                group=group,
+                meta=meta,
+                into=False,
+                parents=True,
+                logger=_STAGE_LOGGER,
+                fresh=False,
+            )
+        return self._run_install(
+            [step.src],
+            step.dest or "",
+            mode=mode,
+            owner=owner,
+            group=group,
+            type=None if step.type is None else FileType(step.type),
+            meta=meta,
+            into=step.into,
+            parents=True,
+            decompress=step.decompress,
+            method=step.method or "copy",
+            exclude=step.exclude,
+            record_tree=step.record_tree,
+            logger=_STAGE_LOGGER,
+            fresh=False,
         )
 
     def scan(

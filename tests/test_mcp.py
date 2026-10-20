@@ -116,6 +116,7 @@ def test_every_command_is_served_as_a_tool(server):
             "initdb",
             "compact",
             "dbdump",
+            "stage",
             "mkdir",
             "symlink",
         )

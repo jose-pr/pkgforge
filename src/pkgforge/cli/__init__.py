@@ -23,6 +23,7 @@ from .initdb import InitDb
 from .install import Install
 from .mkdir import Mkdir
 from .scan import ScanCmd
+from .stage import Stage
 from .symlink import Symlink
 
 __all__ = ["PkgForge", "main"]
@@ -46,7 +47,7 @@ class PkgForge(ConfigArgs, ProjectCmd, Cli):
     # Without a name duho uses the class name for usage, errors, --version and
     # completion, and shell completion binds by exact, case-sensitive name.
     _parsername_ = "pkgforge"
-    _subcommands_ = (Install, ScanCmd, InitDb, Compact, DbDump, Mkdir, Symlink)
+    _subcommands_ = (Install, ScanCmd, InitDb, Compact, DbDump, Stage, Mkdir, Symlink)
     # First match wins: a usage mistake is listed before the class it belongs to.
     _errors_ = {
         UsageError: 2,
