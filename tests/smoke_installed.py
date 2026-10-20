@@ -15,6 +15,7 @@ printed as ``FAIL <check>: <reason>`` and the script exits 1.
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import re
 import subprocess
@@ -102,8 +103,6 @@ def check_shipped_files(cwd: str) -> None:
 
 
 def check_bare_install(cwd: str) -> None:
-    import importlib.util
-
     if importlib.util.find_spec("yaml") is not None:
         print("ok bare_install (skipped: PyYAML installed)")
         return
@@ -124,8 +123,8 @@ def check_bare_install(cwd: str) -> None:
 
 
 def check_example(cwd: str) -> None:
-    if os.name != "posix" or which("bash") is None:
-        print("ok example (skipped: requires POSIX + bash)")
+    if which("bash") is None or importlib.util.find_spec("pwd") is None:
+        print("ok example (skipped: requires bash and pwd)")
         return
     env = dict(os.environ)
     env["PATH"] = str(_console_script().parent) + os.pathsep + env.get("PATH", "")

@@ -9,8 +9,13 @@ serve MCP or print agent help instead of running a command. The autouse
 from __future__ import annotations
 
 import errno
+import functools
+import importlib
 import logging
 import os
+import shutil
+import stat
+import tempfile
 import typing
 from pathlib import Path
 
@@ -55,14 +60,43 @@ def skip_if_fs_rejects_non_utf8(dirpath: Path) -> None:
 
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
-        "markers", "posix: requires POSIX facilities (skipped off POSIX)"
+        "markers",
+        "posix: needs pwd/grp, fcntl, chmod bits and symlinks; skipped when a "
+        "probe finds one missing",
     )
 
 
+@functools.lru_cache(maxsize=None)
+def _missing_posix_capability() -> typing.Optional[str]:
+    """The first POSIX facility the ``posix`` tests need that this platform
+    lacks, or ``None`` when all are present."""
+    for module in ("pwd", "grp", "fcntl"):
+        try:
+            importlib.import_module(module)
+        except ImportError:
+            return module
+    scratch = tempfile.mkdtemp()
+    try:
+        probe = os.path.join(scratch, "probe")
+        with open(probe, "wb"):
+            pass
+        os.chmod(probe, 0o750)
+        if stat.S_IMODE(os.stat(probe).st_mode) != 0o750:
+            return "chmod"
+        try:
+            os.symlink(probe, os.path.join(scratch, "link"))
+        except (OSError, NotImplementedError, AttributeError):
+            return "symlink"
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+    return None
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items) -> None:
-    if os.name == "posix":
+    missing = _missing_posix_capability()
+    if missing is None:
         return
-    skip_posix = pytest.mark.skip(reason="requires POSIX facilities")
+    skip_posix = pytest.mark.skip(reason=f"requires POSIX facilities: {missing}")
     for item in items:
         if "posix" in item.keywords:
             item.add_marker(skip_posix)
