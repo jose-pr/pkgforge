@@ -36,8 +36,39 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   traceback before the `pkgforge: error:` line. Set `PKGFORGE_TRACEBACK=1`
   where you set `DUHO_TRACEBACK=1`; `DUHO_TRACEBACK` no longer has an effect on
   pkgforge. A closed output pipe stays silent with status 1 either way.
+- `dbdump --db -` reads the file DB as JSON Lines from standard input, so
+  `pkgforge install --db - ... | pkgforge dbdump --db - -f rpm` works. Stdin
+  must be a pipe, a socket or a regular file: a terminal, a closed stdin or a
+  device such as `/dev/null` exits 2 instead of dumping an empty manifest.
+  `compact` and `scan --drop-stale` refuse `--db -` (exit 2). Replace
+  `dbdump --stdin` with `--db -`.
+- `dbdump` and `compact` exit 2 when no DB is configured or `--db` names a file
+  that does not exist (`no file DB at PATH; run pkgforge initdb`), where they
+  logged a WARNING and exited 0. An existing empty DB still exits 0 with a
+  WARNING. Run `pkgforge initdb` first, or pass the right path.
+- The file DB format is `--db-format`, else the `--db` suffix, else `jsonl`;
+  `--db-format` and the suffix are the only inputs. A file whose content is
+  not in that format fails to load with an error that names the format and
+  suggests `--db-format`. Pass `--db-format` for a file with another suffix.
+- Every DB loader (`jsonl`, `yaml`, `sqlite`) enforces one strict record
+  schema and fails with one `pkgforge: error: <file>: <path>: ...` line (status
+  1): a path is a string starting with `/`; a record has exactly `mode`,
+  `owner`, `group` (strings), `type` (`file`, `directory` or `symlink`) and
+  `meta` (string to string). A number for a mode, owner or group, a missing
+  field, a `null` type and an unknown field were accepted before; re-record
+  the DB with the current pkgforge.
+- A text DB is split into records on `\n` only, and a leading UTF-8 byte-order
+  mark is ignored, so a record containing U+2028, U+2029 or U+0085 loads and a
+  BOM-prefixed `.jsonl` stays JSON Lines instead of being appended to as YAML.
 
 ### Removed
+- `dbdump --stdin`; use `--db -`.
+- Content sniffing of a file DB and the legacy leniency that came with it: an
+  unrecognized text file was read as YAML, and a mode, owner or group written
+  as a number, or a missing field, was coerced or defaulted at load.
+- The `sniff_format` function, the `DbProvider.sniff` hook and the `for_read`
+  argument of `open_db`; `open_db(path, fmt=None)` resolves by format name or
+  suffix only.
 - The `debian` format no longer writes the `permissions` artifact (and
   `dbdump -f debian -` no longer prints its section): nothing consumed it.
   The `fixperms` script applies the same pins.
@@ -46,6 +77,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   hooks remain.
 
 ### Fixed
+- `scan --drop-stale` into a `sqlite` DB holds one connection for all its
+  removals instead of committing once per row.
 - A `%(command)` or newline in a recorded owner, group or mode, or a newline
   in `meta.rpmprefix`, no longer reaches rpmbuild's `%files` list, where it ran
   a command or injected a line.
@@ -67,8 +100,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   status 1 instead of a traceback.
 - A JSON Lines or YAML file DB nested too deeply to parse is now a one-line
   error naming the file instead of a `RecursionError` traceback.
-- Under MCP, `dbdump --stdin` and `install -` now return an error result
-  instead of reading the protocol channel: `dbdump --stdin OUTPUT` used to
+- Under MCP, `dbdump --db -` and `install -` now return an error result
+  instead of reading the protocol channel: `dbdump --db - OUTPUT` used to
   overwrite an existing OUTPUT with an empty manifest, and `install -` failed
   with an `AttributeError`.
 
