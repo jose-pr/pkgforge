@@ -272,7 +272,7 @@ pkgforge dbdump -f rpmspec hello.spec
 pkgforge dbdump -f debian --skeleton debian
 ```
 
-[From pkgforge.cfg to .rpm and .deb](packaging.md) builds both from the example.
+[From pkgforge.cfg to packages](packaging.md) builds both from the example.
 `debian/rules` runs `pkgforge --config CFG`, with the path of the project file
 (`--config`, `PKGFORGE_CONFIG` or `./pkgforge.cfg`) relative to the directory
 above OUTPUT when it lies below it; the spec takes the path at build time:
@@ -429,3 +429,44 @@ clean tree, `1` when there is any issue (the issues are the output; no
 `pkgforge: error:` line is printed) and `2` for no file DB (`--db` unset or
 `-`), a DB file that does not exist or a build root that does not exist. It logs
 one INFO line, `verified N entries: M issue(s)`, on `pkgforge.verify`.
+
+## `package`
+
+Build one package file per declared package from the file DB and the build root:
+the main package first, then each `[[packages]]` element. Nothing is staged, so
+run [`stage`](#stage) and [`verify`](#verify) first; what is recorded is what
+ships.
+
+```bash
+pkgforge package -f {deb,rpm,arch,apk,tar} [-o DIR] [--arch NAME] [--compression KIND]
+```
+
+| Option | Meaning |
+| --- | --- |
+| `-f, --format` | the package format: `deb`, `rpm` (built by `rpmbuild`), `arch`, `apk` or `tar`. Required |
+| `-o, --output` | the directory the files are written into, created when missing; default `.` |
+| `--arch` | the architecture name of a package whose `arch` is `any`, in the format's own spelling (`arm64` for `deb`, `aarch64` for `arch` and `apk`); default: the machine's. For `rpm` it is passed to `rpmbuild --target`; `tar` has none |
+| `--compression` | the payload compression the format offers, `deb` `xz`, `gz`, `zst` or `none`, `arch` `zst`, `xz` or `gz`, `apk` `gz`, `tar` `gz`, `xz`, `zst` or `none`; default: the first listed. `rpm` takes none |
+
+```bash
+pkgforge package -f deb -o dist
+```
+
+The output is one path per line on standard output, in package order; the
+log goes to standard error. A format checks that `[package]` holds the keys it
+needs, which [From pkgforge.cfg to packages](packaging.md#5-or-build-the-packages-directly)
+lists with the file names, the install-time scripts and the differences from the
+`debian/` and `makepkg` routes. `SOURCE_DATE_EPOCH` makes two builds of one build
+root identical; `--compression zst` needs Python 3.14 or the `zstd` extra
+(`pip install "pkgforge[zstd]"`).
+
+The exit status is `0` when every package was written. It is `1` for a failed
+`rpmbuild` or one that is not installed, a file that cannot be read or written,
+and an entry the format cannot represent (a name over 32 bytes, a path that is
+not UTF-8 for `apk`); `2` for a usage problem: an unknown format, `--arch` or
+`--compression` the format cannot take, a key the format needs missing from the
+project file, no file DB (`--db` unset or `-`), a DB file or build root that does
+not exist, an entry of a package the project file does not declare, or a
+recorded path that is missing from the build root or of another type (run
+`pkgforge verify`). It logs `Wrote PATH` for each file and `built N package(s)
+with FORMAT` on `pkgforge.package`.

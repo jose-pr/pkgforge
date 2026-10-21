@@ -300,8 +300,9 @@ def _can_build_deb() -> bool:
 def test_packaging_walkthrough(tmp_path):
     """The packaging guide's commands run top to bottom and produce its packages.
 
-    The staging, ``verify`` and dump steps always run; the ``rpmbuild`` and
-    ``dpkg-buildpackage`` steps run when the host has the tools.
+    The staging, ``verify``, dump and ``package -f deb|arch|apk|tar`` steps
+    always run; the ``rpmbuild``, ``package -f rpm`` and ``dpkg-buildpackage``
+    steps run when the host has the tools.
     """
     from shutil import which
 
@@ -323,6 +324,10 @@ def test_packaging_walkthrough(tmp_path):
                 m = re.search(r"(\d+)\.(\d+)", version)
                 if m and (int(m.group(1)), int(m.group(2))) < (4, 19):
                     fence = fence.replace("-f rpmspec ", "-f rpmspec-pre419 ")
+        elif "package -f rpm" in fence and not have_rpm:
+            fence = "\n".join(
+                line for line in fence.splitlines() if "package -f rpm" not in line
+            )
         elif "dpkg-buildpackage" in fence:
             if not have_deb:
                 continue
@@ -359,6 +364,19 @@ def test_packaging_walkthrough(tmp_path):
     assert (project / "lists" / "files-hello-doc.txt").is_file()
     assert (project / "hello.spec").is_file()
     assert (project / "debian" / "control").is_file() == have_deb
+    dist = project / "dist"
+    for name in (
+        "hello_1.0-1_all.deb",
+        "hello-doc_1.0-1_all.deb",
+        "hello-1.0-1-any.pkg.tar.zst",
+        "hello-doc-1.0-1-any.pkg.tar.zst",
+        "hello-1.0-r1.apk",
+        "hello-doc-1.0-r1.apk",
+        "hello-1.0-1.tar.gz",
+        "hello-doc-1.0-1.tar.gz",
+    ):
+        assert (dist / name).is_file(), name
+    assert (dist / "hello-1.0-1.noarch.rpm").is_file() == have_rpm
     if have_rpm:
         rpms = home / "rpmbuild" / "RPMS" / "noarch"
         assert (rpms / "hello-1.0-1.noarch.rpm").is_file()

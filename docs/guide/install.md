@@ -3,6 +3,7 @@
 ```bash
 pip install pkgforge
 pip install 'pkgforge[yaml]'   # adds the YAML DB backend
+pip install 'pkgforge[zstd]'   # adds zstd compression below Python 3.14
 ```
 
 pkgforge requires **Python 3.9+**. Its one runtime dependency, as declared in
@@ -11,7 +12,12 @@ pkgforge requires **Python 3.9+**. Its one runtime dependency, as declared in
 [PyYAML](https://pypi.org/project/pyyaml/)`>=6.0,<7`, which the `yaml` DB
 backend needs; without it, `--db-format yaml` (or a `.yaml` `--db`) exits 1 with
 a message naming the extra. JSON Lines, the default backend, and SQLite need
-no third-party parser.
+no third-party parser. The `zstd` extra adds
+[zstandard](https://pypi.org/project/zstandard/)`>=0.25,<0.26`, which
+[`pkgforge package`](commands.md#package) needs for zstd compression below
+Python 3.14 (Python 3.14 has it built in): `-f arch`, whose default is zstd, and
+`--compression zst` for `deb` and `tar`. Without it those exit 2 with a message
+naming the extra; `--compression xz` needs nothing extra.
 
 ## Platform support
 

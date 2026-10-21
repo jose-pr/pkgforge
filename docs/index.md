@@ -6,7 +6,9 @@ a *file DB* (JSON Lines by default; YAML or SQLite backends). That DB can then
 be dumped into packaging manifests such as an RPM `%files` list or Debian
 `install` + `dirs` + `fixperms` files, or, from a `pkgforge.cfg`, a whole RPM
 spec and `debian/` directory for one or several packages. `pkgforge verify`
-checks the build root against the DB before you build.
+checks the build root against the DB before you build, and `pkgforge package`
+writes the `.deb`, Arch, Alpine and tar packages itself (the `.rpm` through
+`rpmbuild`).
 
 It is a small, dependency-light helper for unattended build pipelines on Linux:
 install a source into place, remember how it should be owned and permissioned,
@@ -51,4 +53,4 @@ pkgforge dbdump -f debian debian/
 ```
 
 See the [Guide](guide/install.md) for the full command and format reference, and
-[From pkgforge.cfg to .rpm and .deb](guide/packaging.md) to build packages.
+[From pkgforge.cfg to packages](guide/packaging.md) to build packages.

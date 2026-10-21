@@ -57,12 +57,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `pkgforge.package_formats` entry-point group.
 - A `zstd` extra (`pip install "pkgforge[zstd]"`) provides zstd compression below
   Python 3.14, which has `compression.zstd`.
-- A guide page, "From pkgforge.cfg to .rpm and .deb", walks the `hello` example
+- A guide page, "From pkgforge.cfg to packages", walks the `hello` example
   from `pkgforge stage` and `pkgforge verify` through `dbdump -f rpmspec` and
-  `rpmbuild`, and `dbdump -f debian --skeleton` and `dpkg-buildpackage`, to two
-  packages per format; the project-file and formats guides cover the package
-  keys, `[[packages]]` and the skeleton files, and `tests/test_docs.py` runs the
-  page's commands.
+  `rpmbuild`, and `dbdump -f debian --skeleton` and `dpkg-buildpackage`, or
+  `pkgforge package -f deb|rpm|arch|apk|tar`, to two packages per format; it
+  also tabulates what each format needs, writes and runs at install time. The
+  commands guide has a `package` section, the project-file guide the
+  `[package.pacman]` and `[package.apk]` tables, the formats guide the unit
+  scriptlets and the skeleton's `${...}` refusal, and `tests/test_docs.py` runs
+  the page's commands.
 - `dbdump -f rpmspec` (`RPMSpec`) and `rpmspec-pre419` (`RPMSpecPre419`, for rpm
   older than 4.19) write the whole spec from `pkgforge.cfg`: the preamble, a
   `%package -n` block per `[[packages]]` element, a `%install` that runs

@@ -81,8 +81,24 @@ The main (and source) package. Other values can name its keys once with
 `[package.rpm]` holds `requires`, a list of text (one `Requires:` item each),
 and `[package.debian]` holds `depends`, a list of text (one dependency each, no
 `,`), `section` (lowercase, such as `utils`) and `priority` (`required`,
-`important`, `standard`, `optional` or `extra`). A list item is not empty and has
-no control character.
+`important`, `standard`, `optional` or `extra`). `[package.pacman]` and
+`[package.apk]` each hold `depends`, a list of one-word items (no whitespace)
+that `pkgforge package -f arch` and `-f apk` write as one `depend` line each;
+they are named for the package manager because `arch` is already a key of
+`[package]`. A list item is not empty and has no control character.
+
+```toml
+[package]
+name = "tool"
+version = "1.0"
+summary = "A tool"
+
+[package.pacman]
+depends = ["glibc", "bash>=5"]
+
+[package.apk]
+depends = ["musl", "bash"]
+```
 
 ### `[[packages]]`
 
@@ -94,7 +110,7 @@ Any number of subpackages built from the same source. `[[packages]]` needs
 | `name` | text | required | the full package name, such as `${package.name}-doc`; unique and not the `[package]` name |
 | `summary`, `description` | text | none | as in `[package]` |
 | `arch` | text | the main package's | `all` or `any` |
-| `rpm`, `debian` | table | empty | as in `[package]` |
+| `rpm`, `debian`, `pacman`, `apk` | table | empty | as in `[package]` |
 
 The `package` of a rule or step, and `-P`, name `[package]` or one of these.
 
@@ -294,7 +310,7 @@ The package an entry ships in is the first of: the flag (`-P`, or the step's own
 `package`, then the `[package]` name. `[defaults]` has no `package`. With no
 `[package]` the entry is recorded as `-`, the one package there is. A name the
 file does not declare is an error (exit 2). How the generators use the packages
-is in [From pkgforge.cfg to .rpm and .deb](packaging.md#subpackages).
+is in [From pkgforge.cfg to packages](packaging.md#subpackages).
 
 ## Owned directories
 
@@ -372,7 +388,7 @@ file that cannot be read is exit 1.
 
 `examples/pkgforge.cfg` describes the `hello` and `hello-doc` packages. `examples/hello.spec`
 and `examples/debian/` are generated from it
-(see [From pkgforge.cfg to .rpm and .deb](packaging.md)):
+(see [From pkgforge.cfg to packages](packaging.md)):
 
 ```toml
 --8<-- "examples/pkgforge.cfg"

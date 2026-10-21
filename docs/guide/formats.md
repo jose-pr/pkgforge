@@ -14,7 +14,8 @@ manifest. `null` (removed) entries and `--exclude` matches are skipped.
 `rpmspec`, `rpmspec-pre419` and `debian --skeleton` write the spec and the
 `debian/` files for a whole package from `pkgforge.cfg`; the walk-through from
 the project file to the built packages is
-[From pkgforge.cfg to .rpm and .deb](packaging.md).
+[From pkgforge.cfg to packages](packaging.md). To build the packages without
+`rpmbuild` or `dpkg-buildpackage`, use [`pkgforge package`](commands.md#package).
 
 Before any format renders, every surviving entry is checked: the key must
 be an absolute path with no empty, `.` or `..` segment; `type` must be
@@ -191,6 +192,34 @@ would read it as a section such as `%post`, a conditional or a comment, even
 with the `%` doubled. An existing spec is kept with a WARNING unless `--force`. Build it with
 `rpmbuild -bb --define "pkgforge_config PATH" NAME.spec`.
 
+### Unit scriptlets
+
+A package that records a systemd unit gets the scriptlets that enable, stop and
+restart it. A unit is a regular file, not a `ghost`, directly in
+`/usr/lib/systemd/system` and named `*.service`, `*.socket`, `*.timer` or
+`*.path`; a template (`NAME@.service`) is not one. For the package that records
+`hello.service` the spec has:
+
+```spec
+%post
+%{?systemd_post:%systemd_post hello.service}
+
+%preun
+%{?systemd_preun:%systemd_preun hello.service}
+
+%postun
+%{?systemd_postun_with_restart:%systemd_postun_with_restart hello.service}
+```
+
+The line goes first in the package's one `%post`, before the `tmpfiles.d` line,
+because rpm refuses two `%post` sections for one package. The `%{?...}` guard
+expands to nothing where the macro is not defined, so the spec adds no
+`BuildRequires`; the macros come from the host that runs `rpmbuild`:
+`systemd-rpm-macros` on Fedora and RHEL 9 or later, `systemd` itself on RHEL 8.
+An rpm without them (Ubuntu's, say) builds a package whose scriptlets do not
+touch the unit, and `pkgforge package -f rpm` logs a WARNING saying so. `rpmspec`,
+`rpmspec-pre419` and `package -f rpm` write the same scriptlets.
+
 ## `debian`
 
 Needs `[package] name` in `pkgforge.cfg`: debhelper reads `debian/PKG.NAME`
@@ -349,8 +378,18 @@ ${misc:Depends}, ${pkgforge:Depends}` plus the declared `depends`),
 `rules` (the *stage into `debian/tmp`* recipe below, calling `pkgforge --config
 CFG`) and `source/format`. It needs `name`, `version`, `summary` and
 `maintainer`, and a `summary` for each subpackage. These are meant to be edited,
-so an existing one is kept with a WARNING unless `--force`. The walk-through is
-[From pkgforge.cfg to .rpm and .deb](packaging.md#4-build-the-deb).
+so an existing one is kept with a WARNING unless `--force`.
+
+dpkg-gencontrol replaces `${NAME}` in every field of `control`, and has no way to
+write a literal one: an unknown name becomes empty. `--skeleton` therefore exits
+2 when `summary`, `description`, `homepage` or `maintainer` of `[package]` or of a
+`[[packages]]` element holds a `${NAME}` (names are letters, digits, `-` and `:`),
+naming the key and the text; reword it (the project file spells a literal `${`
+as `$${`). `depends` items keep theirs, since
+`${misc:Depends}` is meant to be substituted there. The check runs when the
+skeleton is written, not when the project file loads, because `rpmspec` and
+`package -f deb` take the text as written. The walk-through is
+[From pkgforge.cfg to packages](packaging.md#4-build-the-deb).
 
 ### Debian recipes
 
