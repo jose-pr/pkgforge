@@ -340,7 +340,8 @@ Tables, all optional (`ProjectConfig` fields in this order):
 
 A mode is 1-4 octal digits and an owner or group an account name (`-`, `--` and
 `auto` are refused: a file states values). A `[[stage]]` step names exactly one of
-`src`, `dir`, `file`, `symlink`; `symlink` takes no `mode`. `type` is `file`,
+`src`, `dir`, `file`, `symlink`; `symlink` takes no `mode` and no `meta.target`
+(`target` sets it). `type` is `file`,
 `directory` or `symlink`, `decompress` a kind or `auto`, `method` `copy`, `link`
 or `move`. `[defaults]` and `[[rules]]` apply when an entry is recorded: the
 rules are tried in order against the entry's DB path with the `-X` grammar

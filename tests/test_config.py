@@ -212,6 +212,10 @@ BAD_VALUES = [
         {"stage": [{"symlink": "/l", "target": "t", "mode": "755"}]},
         "mode: not valid with symlink",
     ),
+    (
+        {"stage": [{"symlink": "/l", "target": "t", "meta": {"target": "u"}}]},
+        "meta: must not hold 'target' with symlink",
+    ),
     ({"stage": [{"dir": "/d", "type": "file"}]}, "type: only valid with src"),
     ({"stage": [{"file": "/f", "record_tree": True}]}, "record_tree: only valid"),
     ({"stage": [{**_STEP, "type": "bogus"}]}, "type: invalid type 'bogus'"),

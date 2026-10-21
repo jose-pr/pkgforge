@@ -212,6 +212,8 @@ class StageStep:
             raise UsageError("target: only valid with symlink")
         if self.symlink is not None and self.mode is not None:
             raise UsageError("mode: not valid with symlink")
+        if self.symlink is not None and "target" in self.meta:
+            raise UsageError("meta: must not hold 'target' with symlink")
         if not has_src:
             for name, default in (
                 ("type", None),
