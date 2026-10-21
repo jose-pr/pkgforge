@@ -228,6 +228,36 @@ def test_ctrl_c_exits_130_silently(monkeypatch, capsys):
     assert captured.err == ""
 
 
+@pytest.mark.posix
+def test_ctrl_c_follows_pkgforge_traceback(monkeypatch):
+    import os
+    import signal
+
+    def _interrupt(*_a, **_kw):
+        os.kill(os.getpid(), signal.SIGINT)
+        raise AssertionError("SIGINT was not delivered")
+
+    monkeypatch.setattr(DbDump, "__call__", _interrupt)
+    monkeypatch.setenv("PKGFORGE_TRACEBACK", "1")
+    with pytest.raises(KeyboardInterrupt):
+        main(["dbdump", "-f", "rpmspecfiles"])
+
+
+@pytest.mark.posix
+def test_ctrl_c_ignores_duho_traceback(monkeypatch, capsys):
+    import os
+    import signal
+
+    def _interrupt(*_a, **_kw):
+        os.kill(os.getpid(), signal.SIGINT)
+        raise AssertionError("SIGINT was not delivered")
+
+    monkeypatch.setattr(DbDump, "__call__", _interrupt)
+    monkeypatch.setenv("DUHO_TRACEBACK", "1")
+    assert main(["dbdump", "-f", "rpmspecfiles"]) == 130
+    assert capsys.readouterr().err == ""
+
+
 def _truncated_archive(tmp_path, suffix):
     import io
     import tarfile

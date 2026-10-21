@@ -6,14 +6,13 @@ shipped ``AGENTS.md``, and the library behind them is :mod:`pkgforge.project`.
 
 from __future__ import annotations
 
-import os
 import sys
 import traceback
 import typing
 
 import duho
 from duho import Cli, ConfigArgs
-from duho.text import BOOL_TRUE
+from duho.logging import traceback_enabled
 
 from ..exceptions import PkgForgeError, UsageError
 from ._common import ProjectCmd, _load_config
@@ -45,6 +44,8 @@ class PkgForge(ConfigArgs, ProjectCmd, Cli):
     _config_env_ = "PKGFORGE_CONFIG"
     _config_loader_ = staticmethod(_load_config)
 
+    # Names the switch that prints a traceback, in place of DUHO_TRACEBACK.
+    _traceback_env_ = "PKGFORGE_TRACEBACK"
     _version_ = duho.AUTO
     _distribution_ = "pkgforge"
     _completion_ = True
@@ -83,8 +84,8 @@ class PkgForge(ConfigArgs, ProjectCmd, Cli):
 
         ``command`` is ``None`` for an error raised while it was being built.
         """
-        wanted = os.environ.get("PKGFORGE_TRACEBACK", "").strip().lower() in BOOL_TRUE
-        if (wanted or getattr(command, "debug", False)) and error is not None:
+        wanted = traceback_enabled() or getattr(command, "debug", False)
+        if wanted and error is not None:
             traceback.print_exception(type(error), error, error.__traceback__)
         print(f"pkgforge: error: {message}", file=sys.stderr)
 
