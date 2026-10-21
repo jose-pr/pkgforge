@@ -588,6 +588,14 @@ def _write_debian_control_and_changelog(
     )
 
 
+def _package_cfg(directory: Path, pkg: str) -> str:
+    """Write a ``pkgforge.cfg`` naming the package ``pkg`` in ``directory`` (the
+    debian format names its files after the package); returns its path."""
+    cfg = directory / "pkgforge.cfg"
+    cfg.write_text(f'[package]\nname = "{pkg}"\n', encoding="utf-8")
+    return str(cfg)
+
+
 def _stage_dh_entry(
     cli,
     db: Path,
@@ -665,7 +673,11 @@ def test_dh_install_ships_exact_files(tmp_path, cli):
     emptysrc.mkdir()
     _stage_dh_entry(cli, db, root, emptysrc, "/var/lib/tool", mode="750", is_dir=True)
 
-    assert cli("--db", str(db), "dbdump", "-f", "debian", str(debian_dir)).rc == 0
+    cfg = _package_cfg(tmp_path, pkg)
+    dump = cli(
+        "--config", cfg, "--db", str(db), "dbdump", "-f", "debian", str(debian_dir)
+    )
+    assert dump.rc == 0
 
     dh_install_result = subprocess.run(
         ["dh_install", f"--sourcedir={root}"],
@@ -778,7 +790,11 @@ def test_dh_install_fixperms_builds_deb(tmp_path, cli):
         is_dir=True,
     )
 
-    assert cli("--db", str(db), "dbdump", "-f", "debian", str(debian_dir)).rc == 0
+    cfg = _package_cfg(tmp_path, pkg)
+    dump = cli(
+        "--config", cfg, "--db", str(db), "dbdump", "-f", "debian", str(debian_dir)
+    )
+    assert dump.rc == 0
 
     dh_install_result = subprocess.run(
         ["dh_install", f"--sourcedir={root}"],
@@ -800,7 +816,7 @@ def test_dh_install_fixperms_builds_deb(tmp_path, cli):
     out_dir.mkdir()
     build_script = (
         "dh_fixperms && "
-        f"sh debian/fixperms debian/{pkg} && "
+        "sh debian/fixperms debian && "
         "dh_gencontrol && "
         f"dh_builddeb --destdir={out_dir}"
     )
@@ -938,6 +954,7 @@ def _build_deb_with_recipe(tmp_path: Path, recipe: str, pkg: str):
     (pkgroot / "src" / "helper").write_text("#!/bin/sh\n", encoding="utf-8")
     (pkgroot / "src" / "pf.conf").write_text("k = v\n", encoding="utf-8")
     (pkgroot / "stage.sh").write_text(_STAGE_SH.replace("PKG", pkg), encoding="utf-8")
+    _package_cfg(pkgroot, pkg)
 
     # dh_strip_nondeterminism is a separate package some hosts lack; the
     # recipe has nothing to strip.
@@ -1133,7 +1150,11 @@ def test_dh_install_kinds_and_caps(tmp_path, cli):
 
     db = tmp_path / "files.jsonl"
     _stage_kinds_db(cli, stage, db, tmp_path / "src")
-    assert cli("--db", str(db), "dbdump", "-f", "debian", str(debian_dir)).rc == 0
+    cfg = _package_cfg(tmp_path, pkg)
+    dump = cli(
+        "--config", cfg, "--db", str(db), "dbdump", "-f", "debian", str(debian_dir)
+    )
+    assert dump.rc == 0
 
     _result, members = _run_dpkg_buildpackage(tmp_path, pkgroot)
     assert "etc/kc/kc.conf" in members and "opt/kc/kc.conf" in members
@@ -1312,8 +1333,8 @@ _STAGE_ONLY_RULES = "\tpkgforge -q --config pkgforge.cfg stage --init\n"
 
 def _example_tree(dest: Path, *, shell: bool) -> Path:
     """A copy of examples/ at ``dest``: as shipped, or with its recipes running
-    the shell staging instead of ``pkgforge stage`` (and no pkgforge.cfg for
-    the working directory to pick up)."""
+    the shell staging instead of ``pkgforge stage`` (and a pkgforge.cfg that
+    only names the package and the account, for the dumps to read)."""
     shutil.copytree(EXAMPLES, dest)
     (dest / "debian" / "rules").chmod(0o755)
     if shell:
@@ -1321,17 +1342,12 @@ def _example_tree(dest: Path, *, shell: bool) -> Path:
         (dest / "stage.cfg").write_text(_EXAMPLE_SHELL_CFG, encoding="utf-8")
         for name, old, new in (
             ("hello.spec", _STAGE_ONLY_SPEC, "sh %{proj}/stage.sh\n"),
-            (
-                "hello.spec",
-                "%{proj}/pkgforge.cfg sysfiles",
-                "%{proj}/stage.cfg sysfiles",
-            ),
             ("debian/rules", _STAGE_ONLY_RULES, "\tsh stage.sh\n"),
         ):
             text = (dest / name).read_text(encoding="utf-8")
             assert text.count(old) == 1, name
             (dest / name).write_text(text.replace(old, new), encoding="utf-8")
-        (dest / "pkgforge.cfg").unlink()
+        (dest / "pkgforge.cfg").write_text(_EXAMPLE_SHELL_CFG, encoding="utf-8")
     return dest
 
 
@@ -1610,3 +1626,223 @@ def test_dh_install_example_installs_accounts(tmp_path):
         assert override().returncode == 1
     finally:
         _run_as_root("dpkg", "--purge", "hello", check=False)
+
+
+# --------------------------------------------------------------------------
+# two packages from one source
+# --------------------------------------------------------------------------
+
+_TWO_PACKAGE_CFG = """\
+[package]
+name = "hello"
+
+[[packages]]
+name = "hello-doc"
+
+[[packages]]
+name = "hello-empty"
+"""
+
+
+def _payload(deb: Path) -> typing.Dict[str, tarfile.TarInfo]:
+    """The members of ``deb``'s payload, keyed by path without the leading ``./``."""
+    fsys_tarfile = subprocess.run(
+        ["dpkg-deb", "--fsys-tarfile", str(deb)], capture_output=True, check=True
+    ).stdout
+    with tarfile.open(fileobj=io.BytesIO(fsys_tarfile)) as tf:
+        return {
+            (m.name[2:] if m.name.startswith("./") else m.name).rstrip("/"): m
+            for m in tf.getmembers()
+        }
+
+
+@requires_dh_sequence
+def test_dh_install_two_packages_split_payload(tmp_path):
+    """One source, two binary packages: each payload holds only the entries
+    recorded for it, ``libcap2-bin`` reaches only the package with a capability
+    (through ``${pkgforge:Depends}``), and a ghost file of the second package
+    is neither shipped nor reported by ``dh_missing``."""
+    pkgroot = tmp_path / "work" / "hello"
+    debian_dir = pkgroot / "debian"
+    (debian_dir / "source").mkdir(parents=True)
+    (pkgroot / "src").mkdir()
+    (pkgroot / "src" / "tool").write_text("#!/bin/sh\n", encoding="utf-8")
+    (pkgroot / "src" / "README").write_text("docs\n", encoding="utf-8")
+    (pkgroot / "pkgforge.cfg").write_text(_TWO_PACKAGE_CFG, encoding="utf-8")
+    (debian_dir / "source" / "format").write_text("3.0 (native)\n", encoding="utf-8")
+    (debian_dir / "changelog").write_text(
+        "hello (1.0) unstable; urgency=medium\n\n"
+        "  * Test package.\n\n"
+        " -- pkgforge tests <noreply@example.invalid>  Mon, 01 Jan 2026 00:00:00 +0000\n",
+        encoding="utf-8",
+    )
+    stanza = (
+        "Package: {name}\n"
+        "Architecture: all\n"
+        "Depends: ${{misc:Depends}}, ${{pkgforge:Depends}}\n"
+        "Description: pkgforge consumer test package\n"
+        " Built only to exercise the per-package files.\n"
+    )
+    (debian_dir / "control").write_text(
+        "Source: hello\n"
+        "Section: utils\n"
+        "Priority: optional\n"
+        "Maintainer: pkgforge tests <noreply@example.invalid>\n"
+        "Build-Depends: debhelper-compat (= 13)\n"
+        "Rules-Requires-Root: binary-targets\n\n"
+        + stanza.format(name="hello")
+        + "\n"
+        + stanza.format(name="hello-doc"),
+        encoding="utf-8",
+    )
+    (pkgroot / "stage.sh").write_text(
+        "set -eu\n"
+        'pf() { pkgforge -q "$@"; }\n'
+        "pf initdb\n"
+        "pf install -p -m 755 -o root -g root --caps cap_net_raw=ep src/tool /usr/bin\n"
+        "pf install -p -m 644 -o root -g root -P hello-doc src/README"
+        " /usr/share/doc/hello-doc\n"
+        "pf install -D -m 640 -o root -g adm -k ghost -P hello-doc - "
+        "/var/log/hello-doc.log < /dev/null\n",
+        encoding="utf-8",
+    )
+    recipe = _doc_rules_recipe("\tdh_installdirs\n")
+    rules = recipe + "\noverride_dh_strip_nondeterminism:\n"
+    (debian_dir / "rules").write_text(rules, encoding="utf-8")
+    (debian_dir / "rules").chmod(0o755)
+
+    result = subprocess.run(
+        ["dpkg-buildpackage", "-b", "-us", "-uc", "-d"],
+        cwd=pkgroot,
+        capture_output=True,
+        text=True,
+        env=_pkgforge_on_path(tmp_path),
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert "hello-doc.log" not in output  # dh_missing found nothing to report
+
+    work = tmp_path / "work"
+    main_deb = work / "hello_1.0_all.deb"
+    doc_deb = work / "hello-doc_1.0_all.deb"
+    assert sorted(p.name for p in work.glob("*.deb")) == [
+        doc_deb.name,
+        main_deb.name,
+    ]
+
+    main_files = _payload(main_deb)
+    doc_files = _payload(doc_deb)
+    assert "usr/bin/tool" in main_files
+    assert "usr/share/doc/hello-doc/README" not in main_files
+    assert "usr/share/doc/hello-doc/README" in doc_files
+    assert "usr/bin/tool" not in doc_files
+    assert "var/log/hello-doc.log" not in main_files
+    assert "var/log/hello-doc.log" not in doc_files
+
+    control = _control_member(main_deb, "control")
+    assert "libcap2-bin" in next(
+        line for line in control.splitlines() if line.startswith("Depends:")
+    )
+    assert "libcap2-bin" not in _control_member(doc_deb, "control")
+    assert 'setcap cap_net_raw=ep "$DPKG_ROOT"/usr/bin/tool' in _control_member(
+        main_deb, "postinst"
+    )
+
+
+_TWO_PACKAGE_SPEC = """\
+Name: hello
+Version: 1
+Release: 1
+Summary: pkgforge consumer test
+License: MIT
+BuildArch: noarch
+AutoReqProv: no
+
+%description
+pkgforge consumer test package.
+
+%package -n hello-doc
+Summary: pkgforge consumer test documentation
+
+%description -n hello-doc
+Documentation of the consumer test package.
+
+%package -n hello-empty
+Summary: pkgforge consumer test package with no file
+
+%description -n hello-empty
+Holds nothing.
+
+%install
+rm -rf %{{buildroot}}
+mkdir -p %{{buildroot}}
+cp -a {root}/. %{{buildroot}}/
+
+%files -f {lists}/files-hello.txt
+
+%files -n hello-doc -f {lists}/files-hello-doc.txt
+
+%files -n hello-empty -f {lists}/files-hello-empty.txt
+"""
+
+
+@requires_rpmbuild
+def test_rpmbuild_two_packages_file_lists(tmp_path, cli):
+    """``dbdump`` into a directory writes one ``%files`` list per package; each
+    built RPM holds only its own entries, and a package with no entry (its list
+    one empty line) builds as an empty package."""
+    cfg = tmp_path / "pkgforge.cfg"
+    cfg.write_text(_TWO_PACKAGE_CFG, encoding="utf-8")
+    root = tmp_path / "root"
+    db = tmp_path / "files.jsonl"
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "tool").write_text("#!/bin/sh\n", encoding="utf-8")
+    (src / "README").write_text("docs\n", encoding="utf-8")
+    base = ["--config", str(cfg), "--db", str(db), "--buildroot", str(root)]
+    install = ["install", "-p", "-m", "644", "-o", "root", "-g", "root"]
+    assert cli(*base, *install, "-m", "755", str(src / "tool"), "/usr/bin").rc == 0
+    result = cli(
+        *base, *install, "-P", "hello-doc", str(src / "README"), "/usr/share/doc/hello"
+    )
+    assert result.rc == 0, result.err
+
+    lists = tmp_path / "lists"
+    lists.mkdir()
+    dump = cli(*base, "dbdump", "-f", _HOST_FORMAT, str(lists))
+    assert dump.rc == 0, dump.err
+    assert (lists / "files-hello-empty.txt").read_bytes() == b"\n"
+
+    topdir = tmp_path / "top"
+    for sub in ("BUILD", "RPMS", "SOURCES", "SPECS", "SRPMS", "BUILDROOT"):
+        (topdir / sub).mkdir(parents=True)
+    spec = tmp_path / "hello.spec"
+    spec.write_text(_TWO_PACKAGE_SPEC.format(root=root, lists=lists), encoding="utf-8")
+    build = subprocess.run(
+        [
+            "rpmbuild",
+            "-bb",
+            "--nodeps",
+            "--define",
+            f"_topdir {topdir}",
+            "--define",
+            "_unpackaged_files_terminate_build 0",
+            "--define",
+            "__os_install_post %{nil}",
+            str(spec),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert build.returncode == 0, build.stdout + build.stderr
+
+    def listing(name: str) -> typing.List[str]:
+        (rpm_path,) = (topdir / "RPMS").rglob(f"{name}-1-1.*.rpm")
+        out = subprocess.run(
+            ["rpm", "-qpl", str(rpm_path)], capture_output=True, text=True, check=True
+        ).stdout
+        return out.splitlines()
+
+    assert listing("hello") == ["/usr/bin/tool"]
+    assert listing("hello-doc") == ["/usr/share/doc/hello/README"]
+    assert listing("hello-empty") == ["(contains no files)"]

@@ -34,9 +34,10 @@ class DbDump(ExcludeArgs, ProjectCmd):
     ("--format", "-f")
     output: Path = Path("-")
     (
-        "OUTPUT: a file for a per-entry format (e.g. rpmspecfiles), or a "
-        "directory for a multi-artifact format (e.g. debian, created if "
-        "missing); '-' for stdout (concatenated, sectioned, for a "
+        "OUTPUT: a file for a per-entry format (e.g. rpmspecfiles; one "
+        "package), an existing directory for one files-PACKAGE.txt per "
+        "package, or a directory for a multi-artifact format (e.g. debian, "
+        "created if missing); '-' for stdout (concatenated, sectioned, for a "
         "multi-artifact format)"
     )
     ("output",)
@@ -103,7 +104,12 @@ class DbDump(ExcludeArgs, ProjectCmd):
         if str(self.db) == "-":
             own = project._dump_own(self.dirs)
             rendered = dump(
-                self._stdin_db(), fmt, output, exclude=self.exclude, own=own
+                self._stdin_db(),
+                fmt,
+                output,
+                exclude=self.exclude,
+                own=own,
+                config=project.config,
             )
         else:
             rendered = project.dump(fmt, output, exclude=self.exclude, dirs=self.dirs)

@@ -8,6 +8,6 @@ Standards-Version: 4.7.0
 
 Package: hello
 Architecture: all
-Depends: ${misc:Depends}, libcap2-bin
+Depends: ${misc:Depends}, ${pkgforge:Depends}
 Description: pkgforge example
  Built from a pkgforge file DB (see examples/pkgforge.cfg).

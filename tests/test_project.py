@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from pkgforge import Project
+from pkgforge.config import PackageInfo, ProjectConfig
 from pkgforge.db import DbProvider, JSONLinesDb, open_db
 from pkgforge.dbdump import dump
 from pkgforge.entry import FileType
@@ -33,7 +34,7 @@ def staged(tmp_path):
 def test_project_install_scan_and_dump_round_trip(tmp_path, staged):
     root, app, tree = staged
     db = tmp_path / "files.jsonl"
-    project = Project(root, db)
+    project = Project(root, db, config=ProjectConfig(package=PackageInfo(name="app")))
     project.init()
 
     written = project.install([app], "/usr/bin", mode="755", parents=True)
@@ -135,8 +136,10 @@ def test_dump_with_an_unknown_format_names_it_before_the_db_is_read(tmp_path):
 
 
 def test_dump_checks_the_output_shape_before_the_db_is_read(tmp_path):
+    out = tmp_path / "out"
+    out.write_text("x", encoding="utf-8")
     with pytest.raises(UsageError, match="directory"):
-        Project(tmp_path, tmp_path / "missing.jsonl").dump("rpm", tmp_path)
+        Project(tmp_path, tmp_path / "missing.jsonl").dump("debian", out)
 
 
 def test_dbdump_dump_renders_an_in_memory_db(tmp_path, make_entry):

@@ -34,9 +34,9 @@ from pathlib import Path
 
 import pkgforge
 from pkgforge import Project
-from pkgforge.config import GroupAccount, ProjectConfig, UserAccount
+from pkgforge.config import GroupAccount, PackageInfo, ProjectConfig, UserAccount
 from pkgforge.db import open_db
-from pkgforge.dbdump import DebianFiles, RPMSpecFiles
+from pkgforge.dbdump import DebianFiles, DumpContext, RPMSpecFiles
 from pkgforge.entry import BASE_GROUPS, BASE_USERS, _group_name, _user_name
 
 # Per-metric inner iteration counts, sized so each metric runs in ~1s regardless
@@ -161,12 +161,13 @@ def measure():
 
     rpm_format = RPMSpecFiles()
     debian_format = DebianFiles()
+    context = DumpContext(config=ProjectConfig(package=PackageInfo(name="bench")))
 
     def _render_rpm():
-        rpm_format.render(entries)
+        rpm_format.render(entries, context)
 
     def _render_debian():
-        debian_format.render(entries)
+        debian_format.render(entries, context)
 
     metrics = {}
 

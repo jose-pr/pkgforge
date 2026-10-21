@@ -265,6 +265,21 @@ def host_accounts_cfg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture
+def package_cfg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Factory writing a ``pkgforge.cfg`` that names the package ``name`` (and
+    holds ``body``, e.g. ``[[packages]]`` tables), and pointing
+    ``PKGFORGE_CONFIG`` at it. Returns the file's path."""
+
+    def _write(name: str = "tool", body: str = "", file: str = "package.cfg") -> Path:
+        path = tmp_path / file
+        path.write_text(f'[package]\nname = "{name}"\n\n{body}', encoding="utf-8")
+        monkeypatch.setenv("PKGFORGE_CONFIG", str(path))
+        return path
+
+    return _write
+
+
+@pytest.fixture
 def restore_registries():
     """Snapshot/restore the pluggable-class registries around a test that
     registers a throwaway :class:`~pkgforge.db.DbProvider` or

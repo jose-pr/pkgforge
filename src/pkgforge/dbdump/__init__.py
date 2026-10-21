@@ -3,11 +3,15 @@
 Two shapes of format are supported, each a :class:`DumpFormat` subclass:
 
 * :class:`PerEntryFormat` (e.g. :class:`~pkgforge.dbdump.RPMSpecFiles`)
-  renders one line per DB entry into one ``bytes`` value, written to a file;
+  renders one line per DB entry into one ``bytes`` value, written to a file
+  (or, given a directory, one ``files-PACKAGE.txt`` per package);
 * :class:`MultiArtifactFormat` (e.g. :class:`~pkgforge.dbdump.DebianFiles`)
   renders several related files (e.g. an ``install`` path list plus a
   ``fixperms`` script) into a ``{name: bytes}`` dict, written into a
   directory.
+
+Every format renders with a :class:`DumpContext`: the project configuration
+that names the packages, and the output being written.
 
 A third party adds a format by subclassing one of the two with its own
 ``NAME`` (and, optionally, ``ALIASES``): defining the subclass registers it,
@@ -21,6 +25,7 @@ from __future__ import annotations
 
 import abc
 import contextlib
+import dataclasses
 import logging
 import os
 import re
@@ -34,14 +39,20 @@ from ..entry import (
     _KIND_TYPES,
     _MODE_PATTERN,
     _NAME_PATTERN,
+    _PACKAGE_PATTERN,
     DEFAULT,
     FileEntries,
     FileEntry,
     FileType,
     StrPath,
 )
-from ..exceptions import DumpError, InvalidEntryError, UnsupportedOutputError
-from ..config import _owned
+from ..exceptions import (
+    DumpError,
+    InvalidEntryError,
+    UnsupportedOutputError,
+    UsageError,
+)
+from ..config import ProjectConfig, _owned
 from ..exclude import PathMatch, _statements
 
 #: Every C0 control character (0x00-0x1f) plus DEL (0x7f): rpm and debhelper
@@ -52,12 +63,14 @@ _CONTROL_RE = re.compile(_CONTROL_PATTERN)
 _NAME_RE = re.compile(_NAME_PATTERN)
 _MODE_RE = re.compile(_MODE_PATTERN)
 _CAPS_RE = re.compile(_CAPS_PATTERN)
+_PACKAGE_RE = re.compile(_PACKAGE_PATTERN)
 #: Finds a line of newline-joined values that is not a valid name / mode.
 #: Empty values (rendered as ``-``) never match. Run only after
 #: :data:`_CONTROL_RE` found no newline in the values.
 _BAD_NAMES_RE = re.compile(rf"^(?!(?:{_NAME_PATTERN})$).+", re.M)
 _BAD_MODES_RE = re.compile(rf"^(?!(?:{_MODE_PATTERN})$).+", re.M)
 _BAD_CAPS_RE = re.compile(rf"^(?!(?:{_CAPS_PATTERN}|-)$).*", re.M)
+_BAD_PACKAGES_RE = re.compile(rf"^(?!(?:{_PACKAGE_PATTERN})$).*", re.M)
 #: The ``(type, kind)`` pairs an entry may hold, and the ones that may carry
 #: ``caps`` (a regular file that is not a ghost).
 _KIND_FITS = frozenset(
@@ -114,6 +127,9 @@ def _check_entry(path: str, entry: FileEntry) -> None:
         value = entry[field]
         if value and not (isinstance(value, str) and pattern.fullmatch(value)):
             raise _entry_error(path, field, value)
+    package = entry["package"]
+    if not (isinstance(package, str) and _PACKAGE_RE.fullmatch(package)):
+        raise _entry_error(path, "package", package)
     fkind = entry["kind"]
     if fkind not in _KIND_TYPES:
         raise _entry_error(path, "kind", fkind)
@@ -142,7 +158,7 @@ def _validate_entries(entries: FileEntries) -> None:
     keys = "\n".join(path for path, _entry in entries)
     columns = [
         "\n".join(str(entry[field] or "") for _path, entry in entries)
-        for field in ("mode", "owner", "group", "caps")
+        for field in ("mode", "owner", "group", "caps", "package")
     ]
     kinds = set()
     pairs = set()
@@ -164,6 +180,7 @@ def _validate_entries(entries: FileEntries) -> None:
         or _BAD_NAMES_RE.search(columns[1])
         or _BAD_NAMES_RE.search(columns[2])
         or _BAD_CAPS_RE.search(columns[3])
+        or _BAD_PACKAGES_RE.search(columns[4])
         or not kinds <= _FILE_TYPES
         or not pairs <= _KIND_FITS
         or not capped <= _CAPS_FITS
@@ -196,6 +213,50 @@ Rendered = typing.Union[bytes, typing.Dict[str, bytes]]
 _LOGGER = logging.getLogger("pkgforge.dbdump")
 
 
+@dataclasses.dataclass(frozen=True)
+class DumpContext:
+    """What a format renders against besides the entries.
+
+    ``config`` is the project configuration (its ``[package]`` and
+    ``[[packages]]`` name the packages), ``config_path`` the file it was read
+    from when known, and ``output`` the path being written (``None`` for
+    stdout or when nothing is written).
+    """
+
+    config: ProjectConfig = dataclasses.field(default_factory=ProjectConfig)
+    config_path: typing.Optional[Path] = None
+    output: typing.Optional[Path] = None
+
+
+def _packages(
+    entries: FileEntries, config: ProjectConfig
+) -> typing.List[typing.Tuple[str, FileEntries]]:
+    """Group ``entries`` by package: the main package first (its name, or
+    ``-`` when the configuration has no ``[package]``), then each
+    ``[[packages]]`` name in order. An entry recorded as ``-`` belongs to the
+    main package; an empty group is kept.
+
+    Raises :class:`~pkgforge.exceptions.UsageError` for an entry whose package
+    the configuration does not declare.
+    """
+    main = config.package.name if config.package is not None else DEFAULT
+    groups: typing.Dict[str, FileEntries] = {main: []}
+    for sub in config.packages:
+        groups[sub.name] = []
+    for path, entry in entries:
+        package = entry["package"]
+        if package == DEFAULT:
+            package = main
+        group = groups.get(package)
+        if group is None:
+            raise UsageError(
+                f"dbdump: entry {path!r} ships in package {package!r}, "
+                "which pkgforge.cfg does not declare"
+            )
+        group.append((path, entry))
+    return list(groups.items())
+
+
 class DumpFormat(Registered, abc.ABC):
     """A packaging-manifest format, selected by ``dbdump -f NAME``.
 
@@ -213,7 +274,7 @@ class DumpFormat(Registered, abc.ABC):
     _GROUP = "pkgforge.dump_formats"
 
     @abc.abstractmethod
-    def render(self, entries: FileEntries) -> Rendered:
+    def render(self, entries: FileEntries, context: DumpContext) -> Rendered:
         """Render the (already validated) ``entries`` to bytes, writing nothing."""
 
     @abc.abstractmethod
@@ -228,31 +289,73 @@ class DumpFormat(Registered, abc.ABC):
 
 
 class PerEntryFormat(DumpFormat):
-    """A format that renders one line per DB entry to a single file."""
+    """A format that renders one line per DB entry.
+
+    Given a file (or stdout) it renders the entries of the one package that
+    has any; more than one package is a
+    :class:`~pkgforge.exceptions.UsageError`. Given an existing directory it
+    renders :attr:`PACKAGE_FILE` for every declared package, so a package with
+    no entry still gets its (possibly empty) list.
+    """
+
+    #: The file written into a directory, per package.
+    PACKAGE_FILE: typing.ClassVar[str] = "files-{package}.txt"
+    #: What an empty package's file holds.
+    EMPTY: typing.ClassVar[bytes] = b""
 
     @abc.abstractmethod
     def render_entry(self, path: str, entry: FileEntry) -> bytes:
         """Render one DB entry to its line of bytes."""
 
-    def render(self, entries: FileEntries) -> bytes:
+    def _render_lines(self, entries: FileEntries) -> bytes:
         return b"".join(self.render_entry(path, entry) for path, entry in entries)
 
-    def check_output(self, output: Path) -> None:
-        if output.is_dir():
-            raise UnsupportedOutputError(
-                f"{self.NAME} writes one file; OUTPUT is a directory: {output}"
+    def render(
+        self, entries: FileEntries, context: DumpContext
+    ) -> typing.Union[bytes, typing.Dict[str, bytes]]:
+        groups = _packages(entries, context.config)
+        if context.output is not None and context.output.is_dir():
+            if context.config.package is None:
+                raise UsageError(
+                    f"writing {self.PACKAGE_FILE.replace('{package}', 'PACKAGE')} "
+                    "needs [package] name"
+                )
+            return {
+                self.PACKAGE_FILE.format(package=name): (
+                    self._render_lines(group) if group else self.EMPTY
+                )
+                for name, group in groups
+            }
+        used = [(name, group) for name, group in groups if group]
+        if len(used) > 1:
+            names = ", ".join(name for name, _group in used)
+            raise UsageError(
+                f"dbdump: the DB holds entries of {len(used)} packages ({names}): "
+                f"give a directory OUTPUT for one "
+                f"{self.PACKAGE_FILE.replace('{package}', 'PACKAGE')} each"
             )
+        return self._render_lines(used[0][1]) if used else self._render_lines([])
+
+    def check_output(self, output: Path) -> None:
+        """Any path fits: a file, or a directory for one list per package."""
 
     def write(self, rendered: Rendered, output: Path) -> typing.List[Path]:
-        _write_files({output: typing.cast(bytes, rendered)})
-        return [output]
+        if isinstance(rendered, bytes):
+            _write_files({output: rendered})
+            return [output]
+        files = {output / name: data for name, data in rendered.items()}
+        output.mkdir(parents=True, exist_ok=True)
+        _write_files(files)
+        return list(files)
 
 
 class MultiArtifactFormat(DumpFormat):
     """A format that renders several named artifacts into a directory."""
 
     @abc.abstractmethod
-    def render(self, entries: FileEntries) -> typing.Dict[str, bytes]:
+    def render(
+        self, entries: FileEntries, context: DumpContext
+    ) -> typing.Dict[str, bytes]:
         """Render every artifact this format produces: ``{filename: bytes}``."""
 
     def check_output(self, output: Path) -> None:
@@ -310,6 +413,7 @@ def dump(
     *,
     exclude: typing.Sequence[str] = (),
     own: typing.Optional[typing.Sequence[str]] = None,
+    config: typing.Optional[ProjectConfig] = None,
 ) -> Rendered:
     """Render the live entries of ``db`` with the format ``fmt``.
 
@@ -317,13 +421,17 @@ def dump(
     and entries matched by an ``exclude`` statement are dropped. With ``own``
     (``/``-rooted prefixes), so is every directory entry that is neither a
     prefix nor below one; entries of other types are untouched. The rest are
-    sorted by path and validated. With ``output`` the result is also written
-    whole: a file for a per-entry format, a directory (created if missing) for
-    a multi-artifact one.
+    sorted by path and validated. ``config`` names the packages the entries
+    ship in (default: an empty configuration, one unnamed package). With
+    ``output`` the result is also written whole: a file for a per-entry format
+    (or a directory holding one list per package), a directory (created if
+    missing) for a multi-artifact one.
 
     Returns the rendered bytes (a ``bytes`` value, or ``{filename: bytes}``).
     Raises :class:`~pkgforge.exceptions.UsageError` for an unknown format or
-    exclude statement, :class:`~pkgforge.exceptions.UnsupportedOutputError`
+    exclude statement, an entry of a package ``config`` does not declare, or a
+    format that needs ``[package] name``;
+    :class:`~pkgforge.exceptions.UnsupportedOutputError`
     for an ``output`` of the wrong shape (checked before anything is
     rendered), :class:`~pkgforge.exceptions.InvalidEntryError` for an entry no
     format can render and :class:`~pkgforge.exceptions.DumpError` for one this
@@ -335,7 +443,10 @@ def dump(
         instance.check_output(target)
     entries = _surviving_entries(db, exclude, own)
     _validate_entries(entries)
-    rendered = instance.render(entries)
+    context = DumpContext(
+        config=config if config is not None else ProjectConfig(), output=target
+    )
+    rendered = instance.render(entries, context)
     if target is not None:
         for written in instance.write(rendered, target):
             _LOGGER.info("Wrote %s", written)
@@ -351,6 +462,7 @@ from ._debian import DebianFiles  # noqa: E402
 
 __all__ = [
     "DebianFiles",
+    "DumpContext",
     "DumpFormat",
     "MultiArtifactFormat",
     "PerEntryFormat",

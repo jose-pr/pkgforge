@@ -57,7 +57,10 @@ def test_db_dash_after_the_subcommand(cli, make_entry, monkeypatch):
 
 
 @pytest.mark.parametrize("fmt", ["rpmspecfiles", "debian"])
-def test_db_dash_matches_file_db(tmp_path, cli, make_entry, monkeypatch, fmt):
+def test_db_dash_matches_file_db(
+    tmp_path, cli, make_entry, monkeypatch, fmt, package_cfg
+):
+    package_cfg()
     records = [
         ("/usr/bin/tool", make_entry(mode="755")),
         ("/usr/share/doc/x", make_entry(mode="644")),

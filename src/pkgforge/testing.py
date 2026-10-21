@@ -25,7 +25,8 @@ import typing
 from pathlib import Path
 
 from .db import DbProvider
-from .dbdump import DumpFormat, MultiArtifactFormat, PerEntryFormat
+from .config import PackageInfo, ProjectConfig
+from .dbdump import DumpContext, DumpFormat, MultiArtifactFormat, PerEntryFormat
 from .entry import FileEntry, FileType, StrPath
 from .exceptions import UnsupportedOutputError
 
@@ -214,9 +215,14 @@ _FORMAT_ENTRIES: typing.List[typing.Tuple[str, FileEntry]] = [
 ]
 
 
+#: Every format renders with one package, ``contract``; the entries above ship
+#: in it (``-`` is the main package).
+_CONTEXT = DumpContext(config=ProjectConfig(package=PackageInfo(name="contract")))
+
+
 @_check
 def _format_render_type(cls: typing.Type[DumpFormat], work: Path) -> None:
-    rendered = cls().render(list(_FORMAT_ENTRIES))
+    rendered = cls().render(list(_FORMAT_ENTRIES), _CONTEXT)
     if issubclass(cls, PerEntryFormat):
         _require(isinstance(rendered, bytes), "render() does not return bytes")
     elif issubclass(cls, MultiArtifactFormat):
@@ -237,15 +243,16 @@ def _format_render_type(cls: typing.Type[DumpFormat], work: Path) -> None:
 def _format_deterministic(cls: typing.Type[DumpFormat], work: Path) -> None:
     fmt = cls()
     _require(
-        fmt.render(list(_FORMAT_ENTRIES)) == fmt.render(list(_FORMAT_ENTRIES)),
+        fmt.render(list(_FORMAT_ENTRIES), _CONTEXT)
+        == fmt.render(list(_FORMAT_ENTRIES), _CONTEXT),
         "the same entries render differently twice",
     )
 
 
 @_check
 def _format_empty(cls: typing.Type[DumpFormat], work: Path) -> None:
-    populated = cls().render(list(_FORMAT_ENTRIES))
-    empty = cls().render([])
+    populated = cls().render(list(_FORMAT_ENTRIES), _CONTEXT)
+    empty = cls().render([], _CONTEXT)
     _require(
         type(empty) is type(populated),
         f"render([]) returns {type(empty).__name__}, not {type(populated).__name__}",
@@ -260,16 +267,18 @@ def _format_check_output(cls: typing.Type[DumpFormat], work: Path) -> None:
     a_directory = work / "a_directory"
     a_directory.mkdir()
     absent = work / "absent"
+    right: typing.Tuple[Path, ...]
     if issubclass(cls, PerEntryFormat):
-        wrong, right = a_directory, (a_file, absent)
+        # A directory holds one list per package.
+        right = (a_file, a_directory, absent)
     else:
-        wrong, right = a_file, (a_directory, absent)
-    try:
-        fmt.check_output(wrong)
-    except UnsupportedOutputError:
-        pass
-    else:
-        raise AssertionError(f"check_output({wrong.name}) does not refuse the shape")
+        right = (a_directory, absent)
+        try:
+            fmt.check_output(a_file)
+        except UnsupportedOutputError:
+            pass
+        else:
+            raise AssertionError("check_output(a_file) does not refuse the shape")
     for path in right:
         fmt.check_output(path)
 
@@ -277,7 +286,7 @@ def _format_check_output(cls: typing.Type[DumpFormat], work: Path) -> None:
 @_check
 def _format_write(cls: typing.Type[DumpFormat], work: Path) -> None:
     fmt = cls()
-    rendered = fmt.render(list(_FORMAT_ENTRIES))
+    rendered = fmt.render(list(_FORMAT_ENTRIES), _CONTEXT)
     output = work / "out"
     written = fmt.write(rendered, output)
     if isinstance(rendered, bytes):
@@ -307,7 +316,8 @@ def check_dump_format(cls: typing.Type[DumpFormat], directory: StrPath) -> None:
 
     The sample is seven entries owned by ``root``: a file with capabilities, a
     directory, a symlink, a ``config-noreplace`` file outside ``/etc``, a
-    ``doc`` file and a ghost file and directory; each check works in its own subdirectory of ``directory``.
+    ``doc`` file and a ghost file and directory, all in one package named
+    ``contract``; each check works in its own subdirectory of ``directory``.
     Raises :class:`AssertionError` naming ``cls`` and the failed check.
     """
     for check in DUMP_FORMAT_CHECKS:

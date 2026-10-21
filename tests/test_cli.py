@@ -109,17 +109,19 @@ def test_dbdump_rpm_to_stdout(tmp_path, cli):
     assert b'%attr(755,root,root) "/usr/bin/tool"' in result.out
 
 
-def test_dbdump_debian_to_stdout(tmp_path, cli):
+def test_dbdump_debian_to_stdout(tmp_path, cli, package_cfg):
+    package_cfg()
     db = tmp_path / "files.jsonl"
     _seed_tool_entry(db)
 
     result = cli("--db", str(db), "dbdump", "-f", "debian", "-")
     assert result.rc == 0
-    assert b"# === install ===\n" in result.out
+    assert b"# === tool.install ===\n" in result.out
     assert b"usr/bin/tool usr/bin" in result.out
 
 
-def test_dbdump_debian_stdout_sections(tmp_path, cli):
+def test_dbdump_debian_stdout_sections(tmp_path, cli, package_cfg):
+    package_cfg()
     db = tmp_path / "files.jsonl"
     _seed_tool_entry(db)
 
@@ -127,12 +129,13 @@ def test_dbdump_debian_stdout_sections(tmp_path, cli):
     assert result.rc == 0
     text = result.out.decode()
     assert "# === permissions ===" not in text
-    assert text.index("# === install ===") < text.index("# === dirs ===")
-    assert text.index("# === dirs ===") < text.index("# === fixperms ===")
+    assert text.index("# === tool.install ===") < text.index("# === tool.dirs ===")
+    assert text.index("# === tool.dirs ===") < text.index("# === fixperms ===")
 
 
 @pytest.mark.parametrize("fmt", ["rpmspecfiles", "debian"])
-def test_dbdump_stdout_honours_redirect(tmp_path, fmt):
+def test_dbdump_stdout_honours_redirect(tmp_path, fmt, package_cfg):
+    package_cfg()
     # A raw os.fdopen(sys.stdout.fileno(), ...) raises io.UnsupportedOperation
     # the moment sys.stdout isn't backed by a real fd (redirect_stdout here;
     # equally pytest capture or an embedding host).
@@ -248,7 +251,10 @@ def test_dbdump_registered_format_accepted(tmp_path, cli, restore_registries):
         ("deb", "debian"),
     ],
 )
-def test_dump_format_alias_matches_canonical_output(tmp_path, cli, alias, canonical):
+def test_dump_format_alias_matches_canonical_output(
+    tmp_path, cli, alias, canonical, package_cfg
+):
+    package_cfg()
     db = tmp_path / "files.jsonl"
     _seed_tool_entry(db)
     via_alias = cli("--db", str(db), "dbdump", "-f", alias, "-")
@@ -323,7 +329,7 @@ def test_dbdump_unrepresentable_exits_1_without_output(tmp_path, cli, row, ident
     assert not out.exists()
 
 
-def test_dbdump_rpm_onto_directory_exits_2(tmp_path, cli):
+def test_dbdump_rpm_into_directory_without_package_name_exits_2(tmp_path, cli):
     db = tmp_path / "files.jsonl"
     _seed_tool_entry(db)
     target = tmp_path / "outdir"
@@ -331,7 +337,7 @@ def test_dbdump_rpm_onto_directory_exits_2(tmp_path, cli):
 
     result = cli("--db", str(db), "dbdump", "-f", "rpmspecfiles", str(target))
     assert result.rc == 2
-    assert result.err
+    assert b"needs [package] name" in result.err
     assert list(target.iterdir()) == []
 
 

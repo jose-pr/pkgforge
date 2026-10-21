@@ -1273,8 +1273,10 @@ class Project:
         """Render the file DB with the format ``fmt`` (see
         :func:`pkgforge.dbdump.dump`).
 
-        With ``output``, also write it whole: a file for a per-entry format, a
-        directory (created if missing) for a multi-artifact one. ``dirs`` is
+        With ``output``, also write it whole: a file for a per-entry format
+        (or an existing directory, which gets one list per package), a
+        directory (created if missing) for a multi-artifact one. The packages
+        are those of ``config`` (``[package]``, ``[[packages]]``). ``dirs`` is
         ``"all"`` or ``"owned"``: the latter keeps a directory entry only at or
         below a prefix of ``config.own``.
 
@@ -1283,8 +1285,11 @@ class Project:
 
         Raises:
             UsageError: ``fmt`` is unknown, ``dirs`` is neither ``"all"`` nor
-                ``"owned"`` or is ``"owned"`` with no ``own`` prefixes, or the
-                file DB is missing.
+                ``"owned"`` or is ``"owned"`` with no ``own`` prefixes, the
+                file DB is missing, an entry ships in a package the
+                configuration does not declare, a file ``output`` would hold
+                the entries of two packages, or the format needs ``[package]
+                name`` and the configuration has none.
             UnsupportedOutputError: ``output`` has the wrong shape for ``fmt``.
             InvalidEntryError: an entry no format can render.
             DumpError: an entry ``fmt`` cannot represent.
@@ -1300,7 +1305,14 @@ class Project:
             _DUMP_LOGGER.warning(
                 "DB %s holds no entries; dumping an empty manifest", db.path
             )
-        return dbdump.dump(loaded, fmt_cls.NAME, target, exclude=exclude, own=own)
+        return dbdump.dump(
+            loaded,
+            fmt_cls.NAME,
+            target,
+            exclude=exclude,
+            own=own,
+            config=self.config,
+        )
 
     def verify(self, *, exclude: typing.Sequence[str] = ()) -> typing.List[VerifyIssue]:
         """Compare the build root with the file DB, the way a packaging tool

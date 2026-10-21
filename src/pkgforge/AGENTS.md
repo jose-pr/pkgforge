@@ -97,7 +97,7 @@ tool's last stderr line.
   argparse usage error at parse time.
 - **`UnsupportedOutputError(UsageError, DumpError, NotImplementedError)`** —
   OUTPUT is the wrong shape for the chosen format (an existing file for
-  `debian`, an existing directory for `rpmspecfiles`); raised by
+  `debian`); raised by
   `check_output`. Caught by `main()`'s error boundary as a `UsageError`
   (one stderr line, exit 2, same as before); also a `DumpError` (the format
   itself is refusing this OUTPUT) and, per its name, a `NotImplementedError`.
@@ -110,8 +110,9 @@ tool's last stderr line.
   (`[A-Za-z_][A-Za-z0-9_.-]*`, optionally ending in `$`), `-` or `--`; `kind`
   is one of the six `FileKind` values and fits `type` (all but `file` and
   `ghost` need `file`); and `caps` is `-` or one lowercase `setcap` clause on a
-  regular file that is not a ghost. `%`, whitespace and
-  control characters therefore cannot occur in mode/owner/group/caps.
+  regular file that is not a ghost; `package` is `-` or a package name
+  (`[a-z0-9][a-z0-9+.-]+`). `%`, whitespace and
+  control characters therefore cannot occur in mode/owner/group/caps/package.
   A format's `render()` called directly does not run this check; `dbdump.dump` does.
 - **`DumpError(PkgForgeError, ValueError)`** — a DB path that a dump
   format's own tooling cannot represent (a `%` or a control character for
@@ -355,7 +356,8 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   prefixes). The format and OUTPUT shape are checked first, then the DB must
   exist (`UsageError` for `db=None` or a missing file); with `output` the
   result is also written whole (a file, or a directory for a multi-artifact
-  format). See `dbdump.dump` for the rest and the errors.
+  format, or an existing directory for a per-entry one), passing `config` so
+  the packages are the project's. See `dbdump.dump` for the rest and the errors.
 - **`verify(*, exclude: Sequence[str] = ()) -> list[VerifyIssue]`** — compare
   the build root with the live entries of the file DB, as `rpmbuild` and
   `dh_missing` will see them. `unrecorded`: a file or symlink on disk with no
@@ -621,10 +623,19 @@ whole file is validated before any command runs: a problem is one
   work the same way too). Subclass one of the two shapes below, not
   `DumpFormat` directly.
 - **`Rendered`** — type alias `bytes | dict[str, bytes]`: one file's bytes
-  (a `PerEntryFormat`) or `{filename: bytes}` (a `MultiArtifactFormat`).
+  (a `PerEntryFormat`) or `{filename: bytes}` (a `MultiArtifactFormat`, or a
+  `PerEntryFormat` given a directory).
+- **`DumpContext(config: ProjectConfig = ProjectConfig(), config_path: Path |
+  None = None, output: Path | None = None)`** — frozen dataclass handed to every
+  `render`: the project configuration whose `[package]` and `[[packages]]`
+  name the packages, the file it came from when known, and the OUTPUT being
+  written (`None` for stdout). `dbdump._packages(entries, config)` groups the
+  entries by package, main first, an entry recorded as `-` in the main
+  package, empty groups kept; a package the configuration does not declare is
+  `UsageError`.
 - **`dump(db: Mapping[str, FileEntry | None], fmt: str, output: StrPath | None
-  = None, *, exclude: Sequence[str] = (), own: Sequence[str] | None = None) ->
-  Rendered`** — the dump pipeline
+  = None, *, exclude: Sequence[str] = (), own: Sequence[str] | None = None,
+  config: ProjectConfig | None = None) -> Rendered`** — the dump pipeline
   over an already-loaded DB: look up `fmt` (a name or alias), check `output`'s
   shape (before anything is rendered), drop removed entries, those matching
   an `exclude` statement (an absolute glob is relative to the DB path) and, with
@@ -635,18 +646,23 @@ whole file is validated before any command runs: a problem is one
   on `pkgforge.dbdump`. Returns the rendered bytes. `UsageError` for an unknown
   format or statement, `UnsupportedOutputError` for a wrong-shape `output`,
   `DumpError` for an entry the format cannot represent.
-- The format contract: `render(entries: FileEntries) -> Rendered` (writes
-  nothing), `check_output(output: Path) -> None` (raises
+- The format contract: `render(entries: FileEntries, context: DumpContext) ->
+  Rendered` (writes nothing), `check_output(output: Path) -> None` (raises
   `UnsupportedOutputError`; there is no `-` case) and `write(rendered, output:
   Path) -> list[Path]` (whole or nothing; returns the files written).
-- **`PerEntryFormat(DumpFormat)`** — renders one line per DB entry into one
-  file. Abstract `render_entry(path, entry) -> bytes`;
-  concrete `render(entries) -> bytes` (default: joins every `render_entry`
-  call -- a format MAY override `render` itself to validate/render a whole
-  batch at once, as `RPMSpecFiles` does below) and
-  `write(rendered, output)` (OUTPUT whole or not at all: a sibling
-  `.<name>.pkgforge-tmp` is written first and renamed over OUTPUT).
-  `check_output` refuses an existing directory.
+- **`PerEntryFormat(DumpFormat)`** — renders one line per DB entry. Abstract
+  `render_entry(path, entry) -> bytes`; `_render_lines(entries) -> bytes`
+  (default: joins every `render_entry` call -- a format MAY override it to
+  validate/render a whole batch at once, as `RPMSpecFiles` does below);
+  concrete `render(entries, context)`: with `context.output` an existing
+  directory it returns `{PACKAGE_FILE.format(package=name): lines}` for every
+  declared package (`PACKAGE_FILE = "files-{package}.txt"`; an empty group is
+  the class's `EMPTY`; `UsageError` without `[package] name`), otherwise the
+  bytes of the one package that has entries (`UsageError` naming them when
+  there are several: give a directory). `write(rendered, output)` takes bytes
+  (a file) or the dict (a directory, created if missing); OUTPUT whole or not
+  at all: a sibling `.<name>.pkgforge-tmp` is written first and renamed over
+  it. `check_output` accepts a file, a directory or an absent path.
   Built in: **`RPMSpecFiles`** (`dbdump/_rpm.py`; `NAME = "rpmspecfiles"`,
   `ALIASES = ("rpm", "rpmspec")`) — RPM `%files` lines:
   `%attr(mode,owner,group) "path"`, a `%dir` prefix for directories,
@@ -659,17 +675,19 @@ whole file is validated before any command runs: a problem is one
   quoting already matches only the literal name). A `%` anywhere in the
   path raises `DumpError` -- no version of rpm treats a quoted `%` as
   literal, and `%(...)` runs a shell command -- as does any C0 control
-  character or DEL. `RPMSpecFiles` overrides `render(entries)`: it
+  character or DEL. `RPMSpecFiles` overrides `_render_lines(entries)`: it
   validates the whole batch's paths in one pass (a single check over every
   path joined together decides whether ANY entry needs the slower per-entry
   rejection at all -- a clean batch, the common case, never runs a
   rejection check per entry) before rendering every line; `render_entry`
-  renders a one-entry batch (`self.render([(path, entry)])`), so the two
+  renders a one-entry batch (`self._render_lines([(path, entry)])`), so the two
   are always byte-identical. A symlink entry is written with mode `-`
   (rpm ignores a symlink's mode and warns on an explicit one). The
   escaping/rejection behavior itself is three class-attribute hooks
   (`_escape`, `_reject`, `_batch_reject_needed`), so a subclass changes only those, never
-  `render`/`render_entry` themselves. Targets rpm 4.19+; below that, a
+  `_render_lines`/`render_entry` themselves. `EMPTY = b"\n"`: rpm builds an
+  empty package from a list of one empty line and refuses no bytes or a
+  comment. Targets rpm 4.19+; below that, a
   quoted name is macro-expanded twice and glob characters are matched
   unescaped, so this quoting is not safe there -- use
   **`RPMSpecFilesPre419`** (`NAME = "rpmspecfiles-pre419"`,
@@ -693,48 +711,70 @@ whole file is validated before any command runs: a problem is one
   into a scratch root with no file DB. Both are harmless on 4.19+.
   `examples/hello.spec` is the worked recipe.
 - **`MultiArtifactFormat(DumpFormat)`** — renders several named artifacts
-  into a directory. Abstract `render(entries) -> dict[str, bytes]`; concrete
+  into a directory. Abstract `render(entries, context) -> dict[str, bytes]`; concrete
   `write(rendered, output)` (creates the directory, writes every artifact to a
   sibling `.<name>.pkgforge-tmp` and renames them all into place only once every
   write succeeded; a failure removes the temp files and leaves earlier OUTPUT
   content as it was). `check_output` refuses an existing non-directory.
   Built in: **`DebianFiles`** (`dbdump/_debian.py`; `NAME = "debian"`, `ALIASES = ("deb",)`) —
-  `install` (`dh_install`-style `<src> <dest-dir>` lines, non-directory
-  entries only) + `dirs`
+  needs `[package] name` (`UsageError` otherwise) and names every per-package
+  file for its package, because debhelper reads `debian/PKG.NAME` before
+  `debian/NAME` and refuses the nameless form from compat 15 in a source with
+  several binary packages. For each declared package `P` (`[package]`, then each
+  `[[packages]]` name; an entry recorded `-` is the main package's) it renders
+  `P.install` (`dh_install`-style `<src> <dest-dir>` lines, non-directory
+  entries only) + `P.dirs`
   (`dh_installdirs`-style dest-escaped lines, one
   per directory entry, always written even when empty -- routed there and
   never through `install`, which would re-copy any children `--exclude`
   dropped -- so a directory recorded with no files under it, e.g. `install
-  -d` for an empty state directory, still reaches the package) + `fixperms`
+  -d` for an empty state directory, still reaches the package) +
+  `P.conffiles` (each `config`/`config-noreplace` path outside `/etc/`, which
+  debhelper adds itself, one absolute path per line; whitespace in one is
+  `DumpError`; no marker, since debhelper copies a comment into the package and
+  `dpkg-deb` refuses it) + `P.postinst`
+  (`#!/bin/sh`, a `# Generated by pkgforge dbdump -f debian` marker line,
+  `set -e`, `#DEBHELPER#`, then under `if [ "$1" = configure ]` one guarded
+  `dpkg-statoverride --update --add OWNER GROUP MODE PATH` per entry owned by
+  an account the package creates (below), then one `setcap CAPS
+  "$DPKG_ROOT"PATH` per `caps` entry) + `P.postrm` (the same header; under
+  `if [ "$1" = purge ]` a guarded `dpkg-statoverride --remove PATH` per such
+  entry) + `P.substvars` (the marker, then `pkgforge:Depends=libcap2-bin` when
+  `P` has a `caps` entry, else `pkgforge:Depends=`; list `${pkgforge:Depends}`
+  in the package's `Depends`; `dh_prep` deletes the file on every build, so it
+  works only when the dump runs after `dh_prep`, as in the `debian/tmp` recipe).
+  Once per source it renders `not-installed` (the marker, then every package's
+  ghost entries that are not directories, sorted and escaped like `install`, so
+  `dh_missing --fail-missing` accepts a staged ghost file; debhelper reads only
+  the source-wide file) and `fixperms`
   (a POSIX `sh` script, always written, that applies every pinned
   mode/owner/group directly: run it from an `override_dh_fixperms` target, after
-  `dh_fixperms` -- e.g. `sh debian/fixperms debian/<pkg>`. Per pinned
+  `dh_fixperms` -- `sh debian/fixperms debian`. Per pinned
   entry: one `chown owner:group` (or `chown`/`chgrp` when only one is
   pinned), then `chmod` (`chown`
   before `chmod`, since `chown` clears a regular file's setuid/setgid bit
   even to the same owner); a symlink gets `chown -h`/`chgrp -h` and never a
   `chmod` (POSIX `chmod` has no `-h` and would follow the link to a target
-  outside the package tree). Each path is written as `"$d"` (the script's
-  required first argument, guarded by `${1:?}`) plus the DB path,
-  `shlex.quote`d for POSIX `sh`; owner/group/mode go through a
-  `functools.lru_cache`d quoting call, since those values repeat far more
-  than paths do. Each entry resolves its path through a header function
+  outside the package tree). Each path is written as `"$d"/` (the script's
+  required first argument, the debian directory, guarded by `${1:?}`) plus the
+  package name and the DB path, `shlex.quote`d for POSIX `sh`; owner/group/mode
+  go through a `functools.lru_cache`d quoting call, since those values repeat
+  far more than paths do. Each entry resolves its path through a header function
   (`<path>` or the `<path>.gz` dh_compress renamed it to); a path that is
   gone (dh_usrlocal) is named on stderr and skipped, exit status 0. With
-  no pinned entry, the script is just its own header) + `conffiles` (each
-  `config`/`config-noreplace` path outside `/etc/`, which debhelper adds
-  itself, one absolute path per line; whitespace in one is `DumpError`) +
-  `not-installed` (each ghost that is not a directory, escaped like `install`,
-  so `dh_missing --fail-missing` accepts a staged ghost file) + `postinst`
-  (`#!/bin/sh`, a `# Generated by pkgforge dbdump -f debian` marker line,
-  `set -e`, `#DEBHELPER#`, then under `if [ "$1" = configure ]` one guarded
-  `dpkg-statoverride --update --add OWNER GROUP MODE PATH` per entry owned by
-  an account the package creates (below), then one `setcap CAPS
-  "$DPKG_ROOT"PATH` per `caps` entry; a package with one needs `Depends:
-  libcap2-bin`) + `postrm` (the same header; under `if [ "$1" = purge ]` a
-  guarded `dpkg-statoverride --remove PATH` per such entry). The seven
-  artifacts are always written. A ghost entry is left out of `install`, `dirs`
-  and `fixperms`. **Install-time entries**: an entry whose owner is not a
+  no pinned entry, the script is just its own header). Every artifact is
+  written for every declared package, so no stale file survives. A ghost
+  entry is left out of `install`, `dirs` and `fixperms`. **Hand-written files**
+  (`write` runs `_check_existing` before it writes anything; a refusal is
+  `UsageError`, exit 2, and leaves every file as it was): an existing
+  `install`, `dirs`, `not-installed`, `postinst`, `postrm` or `fixperms`
+  (package-named or not) whose first two lines hold no line starting with the
+  marker is hand-written and never replaced; a nameless `install`, `dirs`,
+  `conffiles`, `postinst` or `postrm` in OUTPUT is refused, marker or not,
+  because debhelper ignores it, silently, beside `debian/P.NAME`; an existing
+  `P.conffiles` listing a path the new one lacks is refused (mark that file
+  `config`, or delete the line). A marked file and `P.substvars` are replaced.
+  **Install-time entries**: an entry whose owner is not a
   base-passwd user or whose group is not a base-passwd group (so declared in
   `[[users]]`/`[[groups]]`) cannot be chowned while dpkg unpacks, because the
   account does not exist yet. `fixperms` leaves it alone (dh_fixperms keeps it
@@ -746,10 +786,7 @@ whole file is validated before any command runs: a problem is one
   mode). The accounts come from the generated sysusers.d file, so the Debian
   build must run `dh $@ --with installsysusers` (debhelper 13.10+; the
   `dh_installtmpfiles` step is already in the compat-13 sequence) and the
-  package gets `systemd-sysusers` from `${misc:Depends}`. A directory OUTPUT
-  whose existing `postinst` or `postrm` lacks the marker line is refused with
-  `UsageError` (exit 2, nothing written) so a hand-written script is never
-  overwritten; one with the marker is replaced. `install`'s
+  package gets `systemd-sysusers` from `${misc:Depends}`. `install`'s
   source is debhelper-escaped (needs compat 13): a backslash before each
   glob character (`\ * ? [ ] { }`, which also makes a literal `${` read as
   literal since `{`/`}` get escaped), a space as `${Space}`, and a leading
@@ -786,10 +823,12 @@ whole file is validated before any command runs: a problem is one
   load every live entry and no `None`; and have every write made inside
   `batch()` visible to a fresh instance after it exits.
 - A format must: render `bytes` (`PerEntryFormat`) or a `{name: bytes}` dict of
-  non-empty values (`MultiArtifactFormat`); render the same entries to the same
-  output twice; keep that type for no entries; refuse the wrong output shape
-  with `UnsupportedOutputError` and accept the right one in `check_output`;
-  and `write` returns the paths it wrote with bytes equal to `render`.
+  non-empty values (`MultiArtifactFormat`) for the sample entries, which ship in
+  the one package `contract` (the context names it); render the same entries to
+  the same output twice; keep that type for no entries; refuse the wrong output
+  shape with `UnsupportedOutputError` and accept the right one in `check_output`
+  (a `PerEntryFormat` accepts a file, a directory and an absent path); and
+  `write` returns the paths it wrote with bytes equal to `render`.
 
 ```python
 from pkgforge.testing import check_db_provider
@@ -1058,7 +1097,12 @@ there with a `UsageError`. See [Environment variables](#environment-variables).
   Render surviving (post-`--exclude`) DB entries via the format registry
   above. `-f` accepts a `NAME` or an `ALIASES` entry (`rpm`/`rpmspec` for
   `rpmspecfiles`, `deb` for `debian`); an alias and its canonical name always
-  produce identical output. A DB must be given: with `--db` unset it raises
+  produce identical output. The packages come from `[package]` and
+  `[[packages]]` of the project file: `debian` needs `[package] name` and
+  writes `P.*` files per package; a per-entry format writes one file (or `-`)
+  for one package, or `files-PACKAGE.txt` for each when OUTPUT is an existing
+  directory (also needing `[package] name`); an entry of an undeclared package,
+  or of two packages into one file, is `UsageError` (exit 2). A DB must be given: with `--db` unset it raises
   `UsageError("no file DB configured; pass --db or set PKGFORGE_DB")` and with
   a path that does not exist `UsageError("no file DB at {path}; run pkgforge
   initdb")` (both exit 2); an existing empty DB logs a WARNING and dumps an

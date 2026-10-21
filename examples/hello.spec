@@ -16,7 +16,7 @@ on older rpm.
 %install
 export PKGFORGE_ROOT=%{buildroot} PKGFORGE_DB=%{_builddir}/files.jsonl
 pkgforge -q --config %{proj}/pkgforge.cfg stage --init
-pkgforge -q dbdump -f rpmspecfiles %{_builddir}/files.txt
+pkgforge -q --config %{proj}/pkgforge.cfg dbdump -f rpmspecfiles %{_builddir}/files.txt
 
 # rpm below 4.19 reads a pre-install script file when it parses the spec,
 # before the install step has written anything, so the sysusers text is

@@ -114,10 +114,17 @@ class RPMSpecFiles(PerEntryFormat):
     anywhere in the path, or a control character (including a tab), raises
     :class:`~pkgforge.exceptions.DumpError`. Below rpm 4.19, use
     :class:`RPMSpecFilesPre419` instead -- this quoting is not safe there.
+
+    Into a directory it writes ``files-PACKAGE.txt`` for every declared
+    package (``%files -n PACKAGE -f .../files-PACKAGE.txt``); a package with
+    no entry gets one empty line, which rpm builds as an empty package.
     """
 
     NAME = "rpmspecfiles"
     ALIASES = ("rpm", "rpmspec")
+    #: rpm builds an empty package from a list of one empty line, and refuses
+    #: a list of no bytes or of comments only.
+    EMPTY = b"\n"
     #: Quote an already-validated path for the ``%files`` line.
     _escape = staticmethod(_rpm_escape)
     #: Raise :class:`DumpError` for a path the format cannot represent; run
@@ -134,7 +141,7 @@ class RPMSpecFiles(PerEntryFormat):
         """
         return _has_control([joined]) or "%" in joined
 
-    def render(self, entries: FileEntries) -> bytes:
+    def _render_lines(self, entries: FileEntries) -> bytes:
         """Render every entry, validating the whole batch's paths once: a
         single check over every path joined together decides whether
         anything needs the slower per-entry rejection at all, so a clean
@@ -189,7 +196,7 @@ class RPMSpecFiles(PerEntryFormat):
         return b"".join(lines)
 
     def render_entry(self, path: str, entry: FileEntry) -> bytes:
-        return self.render([(path, entry)])
+        return self._render_lines([(path, entry)])
 
 
 class RPMSpecFilesPre419(RPMSpecFiles):

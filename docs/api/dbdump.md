@@ -22,6 +22,10 @@ every format must pass are in [Contract suite](testing.md).
     options:
       show_root_heading: true
 
+::: pkgforge.dbdump.DumpContext
+    options:
+      show_root_heading: true
+
 ::: pkgforge.dbdump.DumpFormat
     options:
       show_root_heading: true

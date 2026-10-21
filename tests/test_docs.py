@@ -96,6 +96,7 @@ REQUIRED_API_TARGETS = (
     "pkgforge.exceptions.InvalidEntryError",
     "pkgforge.exceptions.UnsupportedOutputError",
     "pkgforge.dbdump.dump",
+    "pkgforge.dbdump.DumpContext",
     "pkgforge.dbdump.DumpFormat",
     "pkgforge.dbdump.PerEntryFormat",
     "pkgforge.dbdump.MultiArtifactFormat",

@@ -37,6 +37,8 @@ symlinks); the CLI and `--help` import cleanly on any platform.
 work="$(mktemp -d)"
 export PKGFORGE_ROOT="$work/stage" PKGFORGE_DB="$work/files.jsonl"
 mkdir -p "$PKGFORGE_ROOT"
+printf '[package]\nname = "tool"\n' > "$work/pkgforge.cfg"
+export PKGFORGE_CONFIG="$work/pkgforge.cfg"
 
 pkgforge initdb
 pkgforge install -p -m 755 -o root -g root ./build/tool /usr/bin

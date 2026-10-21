@@ -20,6 +20,11 @@ printf '#!/bin/sh\necho hello\n' > "$work/src/tool"
 printf 'key = value\n'           > "$work/src/tool.conf"
 printf 'data\n'                  > "$work/src/share/data.txt"
 
+# The debian format names its files after the package, so the project file
+# says which one this is.
+printf '[package]\nname = "tool"\n' > "$work/pkgforge.cfg"
+pkgforge() { command pkgforge --config "$work/pkgforge.cfg" "$@"; }
+
 echo "== initdb =="
 pkgforge initdb
 
@@ -47,10 +52,10 @@ pkgforge dbdump -f rpmspecfiles -
 echo
 echo "== debian artifacts =="
 pkgforge dbdump -f debian "$work/debian"
-echo "-- debian/install --";  cat "$work/debian/install"
-echo "-- debian/dirs --";     cat "$work/debian/dirs"
-echo "-- debian/fixperms --"; cat "$work/debian/fixperms"
-echo "-- debian/postinst --"; cat "$work/debian/postinst"
+echo "-- debian/tool.install --";  cat "$work/debian/tool.install"
+echo "-- debian/tool.dirs --";     cat "$work/debian/tool.dirs"
+echo "-- debian/fixperms --";      cat "$work/debian/fixperms"
+echo "-- debian/tool.postinst --"; cat "$work/debian/tool.postinst"
 
 echo
 echo "== build real packages from this directory =="

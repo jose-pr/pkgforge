@@ -1,7 +1,8 @@
 #!/usr/bin/make -f
 # Stages into debian/tmp from pkgforge.cfg, records the file DB, and applies
-# its pins after dh_fixperms. Needs pkgforge on PATH and
-# Rules-Requires-Root: binary-targets in debian/control (see
+# its pins after dh_fixperms. The dump runs after dh_prep, so the substitution
+# variable ${pkgforge:Depends} in debian/control is defined. Needs pkgforge on
+# PATH and Rules-Requires-Root: binary-targets in debian/control (see
 # docs/guide/formats.md, "Debian recipes").
 export PKGFORGE_ROOT := $(CURDIR)/debian/tmp
 export PKGFORGE_DB := $(CURDIR)/debian/pkgforge.jsonl
@@ -13,9 +14,9 @@ export PKGFORGE_DB := $(CURDIR)/debian/pkgforge.jsonl
 
 override_dh_auto_install:
 	pkgforge -q --config pkgforge.cfg stage --init
-	pkgforge dbdump -f debian debian/
+	pkgforge -q --config pkgforge.cfg dbdump -f debian debian/
 	dh_installdirs
 
 override_dh_fixperms:
 	dh_fixperms
-	sh debian/fixperms debian/hello
+	sh debian/fixperms debian

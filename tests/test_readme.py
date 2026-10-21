@@ -57,7 +57,11 @@ def test_quickstart_output_matches_readme(tmp_path, monkeypatch, capfdbinary):
 
     db = tmp_path / "files.jsonl"
     root = tmp_path / "stage"
-    globalopts = ["--buildroot", str(root), "--db", str(db)]
+    # The Quick start writes this file itself; the debian format names its
+    # files after the package.
+    cfg = tmp_path / "pkgforge.cfg"
+    cfg.write_text('[package]\nname = "tool"\n', encoding="utf-8")
+    globalopts = ["--config", str(cfg), "--buildroot", str(root), "--db", str(db)]
 
     monkeypatch.chdir(tmp_path)
     for line in lines:

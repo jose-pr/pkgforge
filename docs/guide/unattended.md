@@ -9,6 +9,8 @@ script:
 work="$(mktemp -d)"
 export PKGFORGE_ROOT="$work/stage" PKGFORGE_DB="$work/files.jsonl"
 mkdir -p "$PKGFORGE_ROOT"
+printf '[package]\nname = "tool"\n' > "$work/pkgforge.cfg"
+export PKGFORGE_CONFIG="$work/pkgforge.cfg"
 
 pkgforge initdb
 
