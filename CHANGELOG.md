@@ -526,6 +526,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   written beside its final name and renamed into place only when every package
   is built, and a failure (Ctrl-C included) removes what the build created and
   leaves an existing package of the same name as it was.
+- `pkgforge package` held each package's whole payload, and a compressed copy of
+  it, in memory: a 200 MB payload took 750 to 860 MB of resident memory, and a
+  multi-GB payload needed that much RAM. A package is now streamed from the build
+  root through the compressor into the output file: the same 200 MB payload peaks
+  at about 40 MB with gzip or no compression, and at about 130 MB with xz or zstd,
+  which is the compressor's own fixed state and does not grow with the payload.
+  The `apk` data member is spooled to an unnamed scratch file in the output
+  directory while it is built. A zstd package is compressed as a stream, so its
+  bytes can differ from those of earlier builds of the same files (builds stay
+  reproducible; gzip, xz and uncompressed output is unchanged).
 - `pkgforge package` shipped each file of a hardlinked set as a separate copy. In
   a `tar`, `deb`, `arch` or `apk` package the first one (by DB path) is a regular
   file and the others are hardlinks to it, so they install as one inode and the

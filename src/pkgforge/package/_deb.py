@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import shlex
 import tarfile
@@ -19,8 +20,15 @@ from ..dbdump._debian import (
 from ..entry import DEFAULT, FileType, _or_default
 from ..exceptions import UsageError
 from . import BuildContext, PackageFormat, PackagePayload
-from ._compress import SUFFIXES, compress
-from ._payload import Blob, Member, installed_kib, members, stamp, tar_bytes
+from ._compress import SUFFIXES
+from ._payload import (
+    Blob,
+    Member,
+    installed_kib,
+    members,
+    stamp,
+    write_compressed_tar,
+)
 
 #: The only dpkg-gencontrol variables a depends item may hold here.
 _VERSION_VARS = ("${binary:Version}", "${source:Version}")
@@ -32,10 +40,24 @@ _ROOT_OPTION = '${DPKG_ROOT:+--root="$DPKG_ROOT"}'
 _AR_MAGIC = b"!<arch>\n"
 
 
-def _ar_member(name: str, when: int, data: bytes) -> bytes:
-    """One ar member: a 60-byte header, then ``data`` padded to an even length."""
-    header = f"{name:<16}{when:<12}{0:<6}{0:<6}{0o100644:<8o}{len(data):<10}`\n"
-    return header.encode("ascii") + data + (b"\n" if len(data) % 2 else b"")
+@contextlib.contextmanager
+def _ar_member(
+    out: typing.BinaryIO, name: str, when: int
+) -> typing.Iterator[typing.BinaryIO]:
+    """One ar member of ``out``, which must be seekable: a 60-byte header whose
+    size is filled in when the block ends, the data written inside the block,
+    then a newline when the size is odd."""
+    out.write(f"{name:<16}{when:<12}{0:<6}{0:<6}{0o100644:<8o}".encode("ascii"))
+    size_at = out.tell()
+    out.write(b" " * 10 + b"`\n")
+    start = out.tell()
+    yield out
+    end = out.tell()
+    out.seek(size_at)
+    out.write(f"{end - start:<10}".encode("ascii"))
+    out.seek(end)
+    if (end - start) % 2:
+        out.write(b"\n")
 
 
 def _owners(item: Member) -> typing.Tuple[str, str]:
@@ -231,10 +253,8 @@ class DebFormat(PackageFormat):
             main = payload.main
             version = f"{main.version}-{main.release}" if main.release else main.version
             assert version is not None  # REQUIRED
-            data = self._deb(payload, context, version, arch, when)
             path = context.output / f"{payload.name}_{version}_{arch}.deb"
-            with context.writer.create(path) as handle:
-                handle.write(data)
+            self._deb(payload, context, version, arch, when, path)
             files.append(path)
         return files
 
@@ -245,7 +265,8 @@ class DebFormat(PackageFormat):
         version: str,
         arch: str,
         when: int,
-    ) -> bytes:
+        path: Path,
+    ) -> None:
         paths = [path for path, _entry in payload.entries]
         if _has_control(paths):
             for path in paths:
@@ -302,34 +323,31 @@ class DebFormat(PackageFormat):
             ("prerm", _prerm(units)),
         )
         blobs.extend(Blob(name, _script(body), 0o755) for name, body in scripts if body)
-        control = tar_bytes(
-            blobs,
-            format=tarfile.GNU_FORMAT,
-            prefix="./",
-            root=True,
-            mtime=when,
-        )
-        payload_tar = tar_bytes(
-            items,
-            format=tarfile.GNU_FORMAT,
-            prefix="./",
-            root=True,
-            owners=_owners,
-            mtime=when,
-        )
-        assert context.compression is not None
-        suffix = SUFFIXES[context.compression]
-        return b"".join(
-            (
-                _AR_MAGIC,
-                _ar_member("debian-binary", when, b"2.0\n"),
-                _ar_member(
-                    f"control.tar{suffix}", when, compress(control, context.compression)
-                ),
-                _ar_member(
-                    f"data.tar{suffix}",
-                    when,
-                    compress(payload_tar, context.compression),
-                ),
-            )
-        )
+        kind = context.compression
+        assert kind is not None
+        suffix = SUFFIXES[kind]
+        with context.writer.create(path) as out:
+            out.write(_AR_MAGIC)
+            with _ar_member(out, "debian-binary", when):
+                out.write(b"2.0\n")
+            with _ar_member(out, f"control.tar{suffix}", when):
+                write_compressed_tar(
+                    out,
+                    kind,
+                    blobs,
+                    format=tarfile.GNU_FORMAT,
+                    prefix="./",
+                    root=True,
+                    mtime=when,
+                )
+            with _ar_member(out, f"data.tar{suffix}", when):
+                write_compressed_tar(
+                    out,
+                    kind,
+                    items,
+                    format=tarfile.GNU_FORMAT,
+                    prefix="./",
+                    root=True,
+                    owners=_owners,
+                    mtime=when,
+                )

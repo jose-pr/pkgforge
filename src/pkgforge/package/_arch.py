@@ -15,8 +15,15 @@ from ..config import ProjectConfig
 from ..entry import DEFAULT, FileType
 from ..exceptions import UsageError
 from . import BuildContext, PackageFormat, PackagePayload
-from ._compress import SUFFIXES, compress
-from ._payload import Blob, Member, members, payload_bytes, stamp, tar_bytes
+from ._compress import SUFFIXES
+from ._payload import (
+    Blob,
+    Member,
+    members,
+    payload_bytes,
+    stamp,
+    write_compressed_tar,
+)
 
 _PKGREL_RE = re.compile(r"[0-9]+(\.[0-9]+)?")
 _HEREDOC = "PKGFORGE_SYSUSERS"
@@ -205,10 +212,8 @@ class ArchFormat(PackageFormat):
             arch = self.arch_name(payload, context)
             version = f"{payload.main.version}-{_pkgrel(payload.main.release)}"
             name = f"{payload.name}-{version}-{arch}.pkg.tar"
-            data = self._package(payload, context, version, arch, when)
             path = context.output / (name + SUFFIXES[context.compression])
-            with context.writer.create(path) as handle:
-                handle.write(data)
+            self._package(payload, context, version, arch, when, path)
             files.append(path)
         return files
 
@@ -219,7 +224,8 @@ class ArchFormat(PackageFormat):
         version: str,
         arch: str,
         when: int,
-    ) -> bytes:
+        path: Path,
+    ) -> None:
         assert context.compression is not None
         items = members(payload.entries, context.buildroot, epoch=context.epoch)
         script = _install_script(payload, items, context.config)
@@ -245,10 +251,12 @@ class ArchFormat(PackageFormat):
             ]
         )
         mtree = Blob(".MTREE", _mtree([pkginfo, *install], items, when), 0o644)
-        data = tar_bytes(
-            [pkginfo, mtree, *install, *items],
-            format=tarfile.GNU_FORMAT,
-            owners=lambda _item: ("root", "root"),
-            mtime=when,
-        )
-        return compress(data, context.compression)
+        with context.writer.create(path) as out:
+            write_compressed_tar(
+                out,
+                context.compression,
+                [pkginfo, mtree, *install, *items],
+                format=tarfile.GNU_FORMAT,
+                owners=lambda _item: ("root", "root"),
+                mtime=when,
+            )

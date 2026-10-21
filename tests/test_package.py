@@ -9,13 +9,18 @@ import lzma
 import os
 import sys
 import tarfile
+import tracemalloc
 import typing
 from pathlib import Path
 
 import pytest
 
 from pkgforge import PackageFormat, Project, UsageError, open_db
+from pkgforge.entry import FileType
 from pkgforge.package import BuildContext, PackagePayload, PackageWriter
+from pkgforge.package import _payload as payload_module
+from pkgforge.package._compress import compressor
+from pkgforge.package._payload import Blob, Member, tar_size, write_tar
 
 #: A hand-written DB record; a test overrides the fields it cares about.
 _RECORD = {
@@ -350,6 +355,161 @@ def test_tar_hardlinks_extract_as_hardlinks(staged, cli, tmp_path):
             archive.extract(archive.getmember(name), tmp_path / "x", **options)
     assert os.stat(tmp_path / "x/opt/h2/data").st_nlink == 2
     assert os.path.samefile(tmp_path / "x/opt/h1/data", tmp_path / "x/opt/h2/data")
+
+
+# -- streaming ------------------------------------------------------------
+
+
+def _zstd_content_size(blob: bytes) -> typing.Optional[int]:
+    try:
+        from compression import zstd
+    except ImportError:
+        import zstandard
+
+        size = zstandard.get_frame_parameters(blob).content_size
+        return None if size < 0 else size
+    return zstd.get_frame_info(blob).decompressed_size
+
+
+def _squeeze(data: bytes, kind: str, step: int, size: typing.Optional[int]) -> bytes:
+    out = io.BytesIO()
+    with compressor(out, kind, size) as stream:
+        for start in range(0, len(data), step):
+            stream.write(data[start : start + step])
+    return out.getvalue()
+
+
+@pytest.mark.parametrize("kind", ["gz", "xz", "zst", "none"])
+def test_compressor_output_does_not_depend_on_the_write_sizes(kind):
+    data = bytes(range(256)) * 3000 + b"tail"
+    outputs = {
+        _squeeze(data, kind, step, len(data)) for step in (999, 65536, len(data))
+    }
+    assert len(outputs) == 1
+    (blob,) = outputs
+    if kind == "gz":
+        assert blob == gzip.compress(data, 9, mtime=0)
+    elif kind == "xz":
+        assert blob == lzma.compress(
+            data, format=lzma.FORMAT_XZ, check=lzma.CHECK_CRC64
+        )
+    elif kind == "zst":
+        assert _zstd_module().decompress(blob) == data
+        assert _zstd_content_size(blob) == len(data)
+    else:
+        assert blob == data
+
+
+def test_compressor_leaves_the_file_open():
+    out = io.BytesIO()
+    for kind in ("gz", "xz", "none"):
+        with compressor(out, kind):
+            pass
+        assert not out.closed
+
+
+def _file(path: Path, data: bytes, size: typing.Optional[int] = None) -> Member:
+    path.write_bytes(data)
+    return Member(
+        "/" + path.name,
+        FileType.File,
+        0o644,
+        "root",
+        "root",
+        1,
+        len(data) if size is None else size,
+        path,
+        None,
+        None,
+    )
+
+
+@pytest.mark.parametrize("fmt", [tarfile.GNU_FORMAT, tarfile.PAX_FORMAT])
+def test_tar_size_is_the_length_write_tar_writes(tmp_path, fmt):
+    long = "d" * 120 + "/" + "f" * 130
+    items = [
+        _file(tmp_path / "plain", b"x" * 1000),
+        _file(tmp_path / "empty", b""),
+        _file(tmp_path / "exact", b"y" * 512),
+        Member(
+            "/" + long,
+            FileType.File,
+            0o644,
+            "root",
+            "root",
+            1,
+            3,
+            _file(tmp_path / "long", b"abc").local,
+            None,
+            None,
+        ),
+        Member(
+            "/l",
+            FileType.Symlink,
+            0o777,
+            "root",
+            "root",
+            1,
+            0,
+            tmp_path,
+            "t" * 300,
+            None,
+        ),
+        _file(tmp_path / "linked", b"x" * 1000)._replace(link="/plain"),
+        Blob("script", b"#!/bin/sh\n", 0o755),
+    ]
+    options = {"format": fmt, "prefix": "./", "root": True, "mtime": 5}
+    out = io.BytesIO()
+    write_tar(out, items, **options)
+    assert tar_size(items, **options) == len(out.getvalue())
+    out = io.BytesIO()
+    write_tar(out, items, eof=False, **options)
+    assert tar_size(items, eof=False, **options) == len(out.getvalue())
+    with tarfile.open(fileobj=io.BytesIO(out.getvalue() + bytes(1024))) as archive:
+        names = archive.getnames()
+    assert "./plain" in names and "./" + long in names and "./script" in names
+
+
+def test_write_tar_reads_a_large_file_in_chunks(tmp_path, monkeypatch):
+    monkeypatch.setattr(payload_module, "_CHUNK", 7)
+    data = bytes(range(100))
+    out = io.BytesIO()
+    write_tar(out, [_file(tmp_path / "big", data)], format=tarfile.GNU_FORMAT)
+    with tarfile.open(fileobj=io.BytesIO(out.getvalue())) as archive:
+        extracted = archive.extractfile("big")
+        assert extracted is not None and extracted.read() == data
+
+
+@pytest.mark.parametrize("limit", [7, 1 << 20])
+@pytest.mark.parametrize("claimed", [60, 100 + 40])
+def test_write_tar_detects_a_file_that_changed_size(
+    tmp_path, monkeypatch, limit, claimed
+):
+    monkeypatch.setattr(payload_module, "_CHUNK", limit)
+    item = _file(tmp_path / "moving", bytes(100), size=claimed)
+    with pytest.raises(OSError, match="moving: changed while the package was built"):
+        write_tar(io.BytesIO(), [item], format=tarfile.GNU_FORMAT)
+
+
+@pytest.mark.posix
+@pytest.mark.parametrize("compression", ["gz", "none"])
+def test_package_memory_does_not_grow_with_the_payload(
+    staged, cli, tmp_path, compression
+):
+    with open(staged / "src/big", "wb") as handle:
+        handle.truncate(64 << 20)
+    assert cli("install", "-p", "--method", "link", "src/big", "/opt/big").rc == 0
+    project = Project.from_config(
+        staged / "pkgforge.cfg", buildroot=tmp_path / "root", db=tmp_path / "f.jsonl"
+    )
+    tracemalloc.start()
+    try:
+        paths = project.package("tar", tmp_path / "out", compression=compression)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert paths[0].stat().st_size >= (64 << 20 if compression == "none" else 1)
+    assert peak < 16 << 20
 
 
 # -- a failed build leaves nothing ----------------------------------------

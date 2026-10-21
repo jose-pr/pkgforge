@@ -17,7 +17,7 @@ from .._sysfiles import unit_names
 from ..dbdump._rpmspec import _spec
 from ..exceptions import PkgForgeError
 from . import BuildContext, PackageFormat, PackagePayload
-from ._payload import members, tar_bytes
+from ._payload import members, write_tar
 
 _LOGGER = logging.getLogger("pkgforge.package")
 _VERSION_RE = re.compile(r"(\d+)\.(\d+)")
@@ -104,9 +104,8 @@ class RpmFormat(PackageFormat):
                 ),
                 key=lambda item: item.path,
             )
-            (top / "payload.tar").write_bytes(
-                tar_bytes(items, format=tarfile.GNU_FORMAT)
-            )
+            with open(top / "payload.tar", "wb") as handle:
+                write_tar(handle, items, format=tarfile.GNU_FORMAT)
             lists = top / "lists"
             lists.mkdir()
             dbdump.dump(

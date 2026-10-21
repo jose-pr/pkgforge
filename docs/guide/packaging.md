@@ -154,6 +154,11 @@ This writes `dist/hello-1.0-1.noarch.rpm` and `dist/hello-doc-1.0-1.noarch.rpm`.
   renamed into place when all are built, and the `-o` directory is created only
   with the first file. A failed build, `rpm` without `rpmbuild` included, leaves
   no new directory, and a package already in `-o` keeps its content.
+- Packages are streamed from the build root into the output file, so memory does
+  not grow with the payload: a 200 MB package needs about 40 MB with `gz` or
+  `none`, and about 130 MB with `xz` or `zst`, whose encoders hold that much
+  state whatever the size. An `apk` also needs room for its data member in the
+  output directory while it is built.
 - Files of one package that are hardlinks in the build root (one inode, and the
   same recorded mode, owner, group and capability) ship as one file and
   hardlinks to it in `deb`, `arch`, `apk` and `tar`, and `rpm` keeps them too, so

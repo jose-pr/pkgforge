@@ -421,6 +421,13 @@ def test_apk_architecture_names(work, cli, tmp_path, monkeypatch):
 
 
 @pytest.mark.posix
+def test_apk_leaves_nothing_but_the_packages(staged, cli, tmp_path):
+    assert _package(cli, tmp_path / "out").rc == 0
+    names = sorted(path.name for path in (tmp_path / "out").iterdir())
+    assert names == sorted([HELLO, DOC])
+
+
+@pytest.mark.posix
 def test_apk_needs_keys(work, cli, tmp_path):
     _edit_cfg(work, ('summary = "pkgforge example package"\n', ""))
     _stage(cli)

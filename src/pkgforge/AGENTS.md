@@ -947,6 +947,18 @@ Importing `pkgforge.package` loads no optional dependency.
   release), the package's own table (`PackageInfo` or `SubPackageInfo`), its
   architecture (`"all"` or `"any"`: its own, else the main's, else `"any"`) and
   its live entries sorted by DB path.
+- **Memory** — a package is streamed: each file is read in chunks of at most
+  1 MiB into the tar writer, through the compressor, into the output file, so
+  memory does not grow with the payload. What stays in memory is proportional to
+  the number of files, not their size (the control data, `md5sums`, Arch's
+  `.MTREE`, the member list), plus the compressor's own state: about 100 MiB for
+  xz (preset 6) and for zstd (level 19), a few MiB for gzip and `none`. A `.deb`
+  is one ar file whose member sizes are filled in after each member is written;
+  an apk's data member is first compressed to an unnamed scratch file beside the
+  output, since `.PKGINFO` in front of it holds its SHA-256, and then copied. zstd
+  is given the tar's exact length up front so the frame records it; the stream is
+  deterministic, but its bytes are not those of zstd's one-shot call on the same
+  tar.
 - **Hardlinks** — within one package, regular files that share an inode and
   record the same mode, owner, group and capability are written as the first
   (by DB path) and, for each other one, a tar hardlink member (`LNKTYPE`, size 0,

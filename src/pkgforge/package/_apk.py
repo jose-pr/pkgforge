@@ -5,7 +5,9 @@ from __future__ import annotations
 import hashlib
 import re
 import shlex
+import shutil
 import tarfile
+import tempfile
 import typing
 from pathlib import Path
 
@@ -14,8 +16,14 @@ from ..config import ProjectConfig
 from ..entry import DEFAULT, FileKind, FileType
 from ..exceptions import DumpError, UsageError
 from . import BuildContext, PackageFormat, PackagePayload
-from ._compress import compress
-from ._payload import Blob, Member, members, payload_bytes, stamp, tar_bytes
+from ._payload import (
+    Blob,
+    Member,
+    members,
+    payload_bytes,
+    stamp,
+    write_compressed_tar,
+)
 
 _VERSION_RE = re.compile(
     r"[0-9]+(\.[0-9]+)*[a-z]?(_(alpha|beta|pre|rc|cvs|svn|git|hg|p)[0-9]*)*"
@@ -27,6 +35,22 @@ _CHECKSUM = "APK-TOOLS.checksum.SHA1"
 _HOME = "/"
 _SHELL = "/sbin/nologin"
 _QUIET = " 2>/dev/null || :"
+_COPY_CHUNK = 1 << 20
+
+
+class _Hashed:
+    """A file that also feeds everything written to it to a hash."""
+
+    def __init__(self, out: typing.BinaryIO, digest: typing.Any) -> None:
+        self._out = out
+        self._digest = digest
+
+    def write(self, data: bytes) -> int:
+        self._digest.update(data)
+        return self._out.write(data)
+
+    def flush(self) -> None:
+        self._out.flush()
 
 
 def _sha1(member: Member) -> str:
@@ -194,10 +218,8 @@ class ApkFormat(PackageFormat):
         for payload in payloads:
             arch = self.arch_name(payload, context)
             version = _version(payload)
-            data = self._package(payload, context, version, arch, when)
             path = context.output / f"{payload.name}-{version}.apk"
-            with context.writer.create(path) as handle:
-                handle.write(data)
+            self._package(payload, context, version, arch, when, path)
             files.append(path)
         return files
 
@@ -208,20 +230,17 @@ class ApkFormat(PackageFormat):
         version: str,
         arch: str,
         when: int,
-    ) -> bytes:
+        path: Path,
+    ) -> None:
         items = members(payload.entries, context.buildroot, epoch=context.epoch)
         # Ghost directories are not members, but .post-install names them.
         texts = [(path, path) for path, _entry in payload.entries]
         texts.extend((item.path, item.target) for item in items if item.target)
-        for path, text in texts:
+        for name, text in texts:
             try:
                 text.encode("utf-8")
             except UnicodeEncodeError:
-                raise DumpError(f"{path}: apk needs UTF-8 paths") from None
-        data_gz = compress(
-            tar_bytes(items, format=tarfile.PAX_FORMAT, pax=_checksum, mtime=when),
-            "gz",
-        )
+                raise DumpError(f"{name}: apk needs UTF-8 paths") from None
         depends = list(payload.info.apk.depends)
         if any(
             item.entry is not None and item.entry["caps"] != DEFAULT for item in items
@@ -229,29 +248,47 @@ class ApkFormat(PackageFormat):
             depends.append("libcap-setcap")
         pre = _script(_account_commands(items, payload.main.name, context.config))
         post = _script(_setup_commands(payload, items))
-        control: typing.List[Blob] = [
-            Blob(
-                ".PKGINFO",
-                _pkginfo(
-                    payload,
-                    version,
-                    arch,
-                    when,
-                    payload_bytes(items),
-                    depends,
-                    hashlib.sha256(data_gz).hexdigest(),
-                ),
-                0o644,
-            )
-        ]
-        for scripts, names in (
-            (pre, (".pre-install", ".pre-upgrade")),
-            (post, (".post-install", ".post-upgrade")),
-        ):
-            if scripts is not None:
-                control.extend(Blob(name, scripts, 0o755) for name in names)
-        control_gz = compress(
-            tar_bytes(control, format=tarfile.USTAR_FORMAT, eof=False, mtime=when),
-            "gz",
-        )
-        return control_gz + data_gz
+        with context.writer.create(path) as out:
+            # .PKGINFO holds the hash of the data member, which follows it, so
+            # the data member is compressed to a scratch file first.
+            with tempfile.TemporaryFile(dir=path.parent) as data:
+                digest = hashlib.sha256()
+                write_compressed_tar(
+                    _Hashed(data, digest),
+                    "gz",
+                    items,
+                    format=tarfile.PAX_FORMAT,
+                    pax=_checksum,
+                    mtime=when,
+                )
+                control: typing.List[Blob] = [
+                    Blob(
+                        ".PKGINFO",
+                        _pkginfo(
+                            payload,
+                            version,
+                            arch,
+                            when,
+                            payload_bytes(items),
+                            depends,
+                            digest.hexdigest(),
+                        ),
+                        0o644,
+                    )
+                ]
+                for scripts, names in (
+                    (pre, (".pre-install", ".pre-upgrade")),
+                    (post, (".post-install", ".post-upgrade")),
+                ):
+                    if scripts is not None:
+                        control.extend(Blob(name, scripts, 0o755) for name in names)
+                write_compressed_tar(
+                    out,
+                    "gz",
+                    control,
+                    format=tarfile.USTAR_FORMAT,
+                    eof=False,
+                    mtime=when,
+                )
+                data.seek(0)
+                shutil.copyfileobj(data, out, _COPY_CHUNK)

@@ -3,10 +3,8 @@ and the tar archive that holds them."""
 
 from __future__ import annotations
 
-import io
 import os
 import posixpath
-import shutil
 import stat
 import tarfile
 import time
@@ -16,11 +14,15 @@ from pathlib import Path
 from .._buildroot import under_root
 from ..entry import DEFAULT, FileEntries, FileEntry, FileKind, FileType, _file_type
 from ..exceptions import DumpError, UsageError
+from ._compress import Sink, compressor
 
 #: Longest user or group name a tar header holds; GNU headers cut a longer one.
 _NAME_BYTES = 32
 _GHOST = FileKind.Ghost.value
 _BLOCK = 512
+_ZEROS = bytes(_BLOCK)
+#: Bytes read from a file per write.
+_CHUNK = 1 << 20
 
 
 class Member(typing.NamedTuple):
@@ -224,41 +226,31 @@ def payload_bytes(items: typing.Iterable[Member]) -> int:
     return total
 
 
-def tar_bytes(
+class _Record(typing.NamedTuple):
+    """One tar entry: its header bytes, then ``size`` bytes of content (from a
+    file, or bytes) padded to a block."""
+
+    header: bytes
+    name: str
+    size: int
+    content: typing.Union[bytes, Path, None]
+
+
+def _records(
     items: typing.Iterable[typing.Union[Member, Blob]],
     *,
     format: int,
-    prefix: str = "",
-    root: bool = False,
-    pax: typing.Optional[typing.Callable[[Member], typing.Dict[str, str]]] = None,
-    owners: typing.Optional[typing.Callable[[Member], typing.Tuple[str, str]]] = None,
-    eof: bool = True,
-    mtime: int = 0,
-) -> bytes:
-    """A tar archive of ``items`` in ``format`` (``tarfile.GNU_FORMAT``,
-    ``PAX_FORMAT`` or ``USTAR_FORMAT``).
-
-    Every entry has uid and gid 0. A :class:`Member` takes its names from
-    ``owners(member)`` when given, else from itself, and ``pax(member)`` adds
-    pax records to its header; a :class:`Blob` is root:root. Names are
-    ``prefix`` plus the DB path without its leading ``/`` (a blob's own name).
-    ``root`` writes a ``./`` directory first. ``mtime`` is the time of the
-    ``./`` entry and of every blob. ``eof=False`` leaves out the end-of-archive
-    blocks, for a stream another archive continues.
-    """
-    out = io.BytesIO()
-
-    def put(info: tarfile.TarInfo, content: typing.Union[bytes, Path, None]) -> None:
-        out.write(info.tobuf(format, "utf-8", "surrogateescape"))
-        if not info.isreg() or not info.size:
-            return
-        if isinstance(content, Path):
-            with open(content, "rb") as handle:
-                content = handle.read(info.size + 1)
-        if content is None or len(content) != info.size:
-            raise OSError(f"{info.name}: changed while the package was built")
-        out.write(content)
-        out.write(b"\0" * (-info.size % _BLOCK))
+    prefix: str,
+    root: bool,
+    pax: typing.Optional[typing.Callable[[Member], typing.Dict[str, str]]],
+    owners: typing.Optional[typing.Callable[[Member], typing.Tuple[str, str]]],
+    mtime: int,
+) -> typing.Iterator[_Record]:
+    def put(info: tarfile.TarInfo, content: typing.Union[bytes, Path, None]) -> _Record:
+        size = info.size if info.isreg() else 0
+        return _Record(
+            info.tobuf(format, "utf-8", "surrogateescape"), info.name, size, content
+        )
 
     def header(name: str, kind: bytes, mode: int, when: int) -> tarfile.TarInfo:
         info = tarfile.TarInfo(name)
@@ -270,12 +262,12 @@ def tar_bytes(
         return info
 
     if root:
-        put(header("./", tarfile.DIRTYPE, 0o755, mtime), None)
+        yield put(header("./", tarfile.DIRTYPE, 0o755, mtime), None)
     for item in items:
         if isinstance(item, Blob):
             info = header(prefix + item.name, tarfile.REGTYPE, item.mode, mtime)
             info.size = len(item.data)
-            put(info, item.data)
+            yield put(info, item.data)
             continue
         kind = {
             FileType.File: tarfile.REGTYPE,
@@ -293,7 +285,125 @@ def tar_bytes(
             info.linkname = prefix + item.link.lstrip("/")
         if pax is not None:
             info.pax_headers = pax(item)
-        put(info, item.local)
+        yield put(info, item.local)
+
+
+def _write_record(out: Sink, record: _Record) -> None:
+    """Write ``record`` to ``out``: its header, then its content and padding,
+    a chunk at a time. A file up to one chunk goes out in a single write, which
+    is what keeps a payload of many small files cheap.
+
+    Raises:
+        OSError: the file is not ``record.size`` bytes long any more.
+    """
+    size = record.size
+    if not size:
+        out.write(record.header)
+        return
+    padding = _ZEROS[: -size % _BLOCK]
+    if isinstance(record.content, bytes):
+        out.write(record.header + record.content + padding)
+        return
+    assert record.content is not None
+    changed = OSError(f"{record.name}: changed while the package was built")
+    with open(record.content, "rb") as handle:
+        if size <= _CHUNK:
+            data = handle.read(size + 1)
+            if len(data) != size:
+                raise changed
+            out.write(record.header + data + padding)
+            return
+        out.write(record.header)
+        remaining = size
+        while remaining:
+            chunk = handle.read(min(_CHUNK, remaining))
+            if not chunk:
+                raise changed
+            out.write(chunk)
+            remaining -= len(chunk)
+        if handle.read(1):
+            raise changed
+    out.write(padding)
+
+
+def write_tar(
+    out: Sink,
+    items: typing.Iterable[typing.Union[Member, Blob]],
+    *,
+    format: int,
+    prefix: str = "",
+    root: bool = False,
+    pax: typing.Optional[typing.Callable[[Member], typing.Dict[str, str]]] = None,
+    owners: typing.Optional[typing.Callable[[Member], typing.Tuple[str, str]]] = None,
+    eof: bool = True,
+    mtime: int = 0,
+) -> None:
+    """Write a tar archive of ``items`` in ``format`` (``tarfile.GNU_FORMAT``,
+    ``PAX_FORMAT`` or ``USTAR_FORMAT``) to ``out``, reading each file in
+    chunks.
+
+    Every entry has uid and gid 0. A :class:`Member` takes its names from
+    ``owners(member)`` when given, else from itself, and ``pax(member)`` adds
+    pax records to its header; a :class:`Blob` is root:root. A member with
+    :attr:`Member.link` is a hardlink to that member. Names are ``prefix`` plus
+    the DB path without its leading ``/`` (a blob's own name). ``root`` writes a
+    ``./`` directory first. ``mtime`` is the time of the ``./`` entry and of
+    every blob. ``eof=False`` leaves out the end-of-archive blocks, for a stream
+    another archive continues.
+
+    Raises:
+        OSError: a file changed size while it was read.
+    """
+    for record in _records(
+        items,
+        format=format,
+        prefix=prefix,
+        root=root,
+        pax=pax,
+        owners=owners,
+        mtime=mtime,
+    ):
+        _write_record(out, record)
     if eof:
         out.write(b"\0" * (2 * _BLOCK))
-    return out.getvalue()
+
+
+def tar_size(
+    items: typing.Iterable[typing.Union[Member, Blob]],
+    *,
+    format: int,
+    prefix: str = "",
+    root: bool = False,
+    pax: typing.Optional[typing.Callable[[Member], typing.Dict[str, str]]] = None,
+    owners: typing.Optional[typing.Callable[[Member], typing.Tuple[str, str]]] = None,
+    eof: bool = True,
+    mtime: int = 0,
+) -> int:
+    """The length of what :func:`write_tar` writes for the same arguments,
+    without reading any file (``pax`` is still called per member)."""
+    total = 2 * _BLOCK if eof else 0
+    for record in _records(
+        items,
+        format=format,
+        prefix=prefix,
+        root=root,
+        pax=pax,
+        owners=owners,
+        mtime=mtime,
+    ):
+        total += len(record.header) + record.size + -record.size % _BLOCK
+    return total
+
+
+def write_compressed_tar(
+    out: Sink,
+    kind: str,
+    items: typing.Sequence[typing.Union[Member, Blob]],
+    **options: typing.Any,
+) -> None:
+    """:func:`write_tar` of ``items`` into ``out`` compressed as ``kind`` (see
+    :func:`~pkgforge.package._compress.compressor`). ``options`` are
+    :func:`write_tar`'s keyword arguments."""
+    size = tar_size(items, **options) if kind == "zst" else None
+    with compressor(out, kind, size) as stream:
+        write_tar(stream, items, **options)

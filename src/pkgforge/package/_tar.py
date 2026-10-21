@@ -9,8 +9,8 @@ from pathlib import Path
 
 from ..entry import DEFAULT
 from . import BuildContext, PackageFormat, PackagePayload
-from ._compress import SUFFIXES, compress
-from ._payload import members, tar_bytes
+from ._compress import SUFFIXES
+from ._payload import members, write_compressed_tar
 
 _LOGGER = logging.getLogger("pkgforge.package")
 
@@ -43,14 +43,13 @@ class TarFormat(PackageFormat):
                         item.entry["caps"],
                         item.path,
                     )
-            data = compress(
-                tar_bytes(items, format=tarfile.GNU_FORMAT), context.compression
-            )
             version = payload.main.version
             release = f"-{payload.main.release}" if payload.main.release else ""
             name = f"{payload.name}-{version}{release}.tar"
             path = context.output / (name + SUFFIXES[context.compression])
             with context.writer.create(path) as handle:
-                handle.write(data)
+                write_compressed_tar(
+                    handle, context.compression, items, format=tarfile.GNU_FORMAT
+                )
             files.append(path)
         return files
