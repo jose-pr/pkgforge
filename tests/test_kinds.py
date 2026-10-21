@@ -533,6 +533,7 @@ def test_debian_artifacts_for_kinds_and_caps():
         "conffiles",
         "not-installed",
         "postinst",
+        "postrm",
     ]
     install = arts["install"].decode().splitlines()
     assert "var/log/t.log var/log" not in install

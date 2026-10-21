@@ -759,7 +759,7 @@ def _debian_corpus_entries():
             "/usr/share/t/with space",
             {
                 "mode": "-",
-                "owner": "svc",
+                "owner": "daemon",
                 "group": "-",
                 "type": "file",
                 "kind": "file",
@@ -771,7 +771,7 @@ def _debian_corpus_entries():
             "/opt/app/caf\udce9",
             {
                 "mode": "644",
-                "owner": "svc",
+                "owner": "daemon",
                 "group": "-",
                 "type": "symlink",
                 "kind": "file",
@@ -838,9 +838,9 @@ def test_debian_render_pinned():
         FIXPERMS_HEADER
         + line("/usr/bin/tool", 'chown -- root:root "$t"; chmod -- 755 "$t"')
         + line("/#comment/file", 'chown -- root:adm "$t"; chmod -- 640 "$t"')
-        + line("/usr/share/t/with space", 'chown -- svc "$t"')
+        + line("/usr/share/t/with space", 'chown -- daemon "$t"')
         # A symlink: chown -h only (group unpinned), never chmod.
-        + line("/opt/app/caf\udce9", 'chown -h -- svc "$t"')
+        + line("/opt/app/caf\udce9", 'chown -h -- daemon "$t"')
     )
 
 
@@ -978,7 +978,7 @@ def test_debian_fixperms_bytes():
             "/opt/app/owner-only",
             {
                 "mode": "-",
-                "owner": "svc",
+                "owner": "daemon",
                 "group": "-",
                 "type": "file",
                 "kind": "file",
@@ -1002,7 +1002,7 @@ def test_debian_fixperms_bytes():
             "/opt/app/link",
             {
                 "mode": "644",
-                "owner": "svc",
+                "owner": "daemon",
                 "group": "-",
                 "type": "symlink",
                 "kind": "file",
@@ -1016,11 +1016,11 @@ def test_debian_fixperms_bytes():
         FIXPERMS_HEADER
         + line("/usr/bin/tool", 'chown -- root:root "$t"; chmod -- 4755 "$t"')
         + line("/var/lib/state", 'chmod -- 750 "$t"')
-        + line("/opt/app/owner-only", 'chown -- svc "$t"')
+        + line("/opt/app/owner-only", 'chown -- daemon "$t"')
         + line("/opt/app/group-only", 'chgrp -- adm "$t"')
         # A symlink gets chown -h (never chown/chgrp without -h, and never
         # chmod at all -- POSIX chmod has no -h and would follow the link).
-        + line("/opt/app/link", 'chown -h -- svc "$t"')
+        + line("/opt/app/link", 'chown -h -- daemon "$t"')
     )
 
 
@@ -1038,9 +1038,8 @@ def test_debian_fixperms_bytes():
         ),
         ("/star*", "644", "-", '"$d"\'/star*\'); then chmod -- 644 "$t"; fi'),
         ("/café", "644", "-", '"$d"\'/café\'); then chmod -- 644 "$t"; fi'),
-        ("/f", "-", "-x", '"$d"/f); then chown -- -x "$t"; fi'),
     ],
-    ids=["space", "squote", "dollar", "backslash", "glob", "utf8", "dash_owner"],
+    ids=["space", "squote", "dollar", "backslash", "glob", "utf8"],
 )
 def test_debian_fixperms_quotes(path, mode, owner, expected):
     entries = [
@@ -1095,8 +1094,11 @@ def test_debian_fixperms_requires_package_dir(tmp_path):
 
 
 @pytest.mark.posix
-def test_debian_fixperms_script_applies_pins(tmp_path):
+def test_debian_fixperms_script_applies_pins(tmp_path, monkeypatch):
     skip_if_fs_rejects_non_utf8(tmp_path)
+    # The host's own account is not a base-passwd name, which would leave its
+    # entries to postinst; this test runs the script, so pin them here.
+    monkeypatch.setattr("pkgforge.dbdump._debian._install_time", lambda o, g: False)
 
     user = pwd.getpwuid(os.getuid()).pw_name
     group = grp.getgrgid(os.getgid()).gr_name
@@ -1450,7 +1452,7 @@ def _golden_debian_entries():
     for i in range(1100):
         entry = {
             "mode": ["644", "-", "4755"][i % 3],
-            "owner": ["root", "-", "svc"][i % 3],
+            "owner": ["root", "-", "daemon"][i % 3],
             "group": ["root", "-", "adm"][(i // 3) % 3],
             "type": ["file", "directory", "symlink"][i % 3],
             "kind": "file",
@@ -1476,7 +1478,7 @@ def test_debian_render_golden_hashes():
     assert digests == {
         "install": "cdbce5277664e91c60e2eec5b5b7d59c87200d79e8f997fdd4cf49b66916395c",
         "dirs": "95deb2467fc8e87027affcb7b9c3ccfa32f6ae74f3441ac215fed5e5d72c7a8f",
-        "fixperms": "56e129fbca6d69dcf497c4c11caf824311702f62ae752ab691598e2a1a42d995",
+        "fixperms": "7fa9ccb6bf77d38aa516dbfac9c061c6ae11adbbd697972341316df533ce3855",
     }
 
 
@@ -1549,6 +1551,158 @@ def test_dump_leaves_no_temp_file_on_success(tmp_path):
     _dump(DebianFiles(), _one_entry("/opt/a"), outdir)
     _dump(RPMSpecFiles(), _one_entry("/opt/a"), tmp_path / "files.txt")
     assert sorted(p.name for p in outdir.iterdir()) == sorted(
-        ["conffiles", "dirs", "fixperms", "install", "not-installed", "postinst"]
+        [
+            "conffiles",
+            "dirs",
+            "fixperms",
+            "install",
+            "not-installed",
+            "postinst",
+            "postrm",
+        ]
     )
     assert sorted(p.name for p in tmp_path.iterdir()) == ["debian", "files.txt"]
+
+
+# --------------------------------------------------------------------------
+# entries owned by an account the package creates: dpkg-statoverride
+# --------------------------------------------------------------------------
+
+
+def _owned_entry(path, mode="750", owner="svc", group="svc", ftype="directory", **over):
+    return (
+        path,
+        {
+            "mode": mode,
+            "owner": owner,
+            "group": group,
+            "type": ftype,
+            "kind": "file",
+            "caps": "-",
+            "meta": {},
+            **over,
+        },
+    )
+
+
+def test_debian_postinst_and_postrm_apply_and_remove_overrides():
+    arts = DebianFiles().render(
+        [
+            _owned_entry("/srv/it's", "700", "root", "svc"),
+            _owned_entry("/var/lib/svc"),
+            _owned_entry("/var/log/svc.log", "640", "svc", "adm", "file"),
+        ]
+    )
+    assert arts["postinst"] == (
+        b"#!/bin/sh\n"
+        b"# Generated by pkgforge dbdump -f debian\n"
+        b"set -e\n\n"
+        b"#DEBHELPER#\n"
+        b'if [ "$1" = configure ]; then\n'
+        b"  if ! dpkg-statoverride --list '/srv/it'\"'\"'s' >/dev/null; then "
+        b"dpkg-statoverride --update --add root svc 700 '/srv/it'\"'\"'s'; fi\n"
+        b"  if ! dpkg-statoverride --list /var/lib/svc >/dev/null; then "
+        b"dpkg-statoverride --update --add svc svc 750 /var/lib/svc; fi\n"
+        b"  if ! dpkg-statoverride --list /var/log/svc.log >/dev/null; then "
+        b"dpkg-statoverride --update --add svc adm 640 /var/log/svc.log; fi\n"
+        b"fi\n"
+    )
+    assert arts["postrm"] == (
+        b"#!/bin/sh\n"
+        b"# Generated by pkgforge dbdump -f debian\n"
+        b"set -e\n\n"
+        b"#DEBHELPER#\n"
+        b'if [ "$1" = purge ]; then\n'
+        b"  if dpkg-statoverride --list '/srv/it'\"'\"'s' >/dev/null; then "
+        b"dpkg-statoverride --remove '/srv/it'\"'\"'s'; fi\n"
+        b"  if dpkg-statoverride --list /var/lib/svc >/dev/null; then "
+        b"dpkg-statoverride --remove /var/lib/svc; fi\n"
+        b"  if dpkg-statoverride --list /var/log/svc.log >/dev/null; then "
+        b"dpkg-statoverride --remove /var/log/svc.log; fi\n"
+        b"fi\n"
+    )
+
+
+def test_debian_overrides_come_before_setcap():
+    arts = DebianFiles().render(
+        [
+            _owned_entry(
+                "/usr/bin/svc", "755", "svc", "svc", "file", caps="cap_net_raw=ep"
+            ),
+            _owned_entry("/var/lib/svc"),
+        ]
+    )
+    postinst = arts["postinst"].decode()
+    assert postinst.index("dpkg-statoverride --update --add svc svc 750") < (
+        postinst.index("setcap --")
+    )
+    assert postinst.index("dpkg-statoverride --update --add svc svc 755") < (
+        postinst.index("setcap --")
+    )
+
+
+def test_debian_without_install_time_entries_has_a_plain_postrm():
+    arts = DebianFiles().render(
+        [
+            _owned_entry("/var/lib/t", "750", "root", "adm"),
+            _owned_entry("/usr/bin/t", "755", "daemon", "-", "file"),
+        ]
+    )
+    assert arts["postrm"].endswith(b"set -e\n\n#DEBHELPER#\n")
+    assert b"statoverride" not in arts["postinst"]
+
+
+def test_debian_fixperms_leaves_install_time_entries_to_postinst():
+    arts = DebianFiles().render(
+        [
+            _owned_entry("/var/lib/base", "750", "root", "adm"),
+            _owned_entry("/var/lib/grp", "750", "root", "svc"),
+            _owned_entry("/var/lib/svc"),
+        ]
+    )
+    assert arts["fixperms"] == FIXPERMS_HEADER + line(
+        "/var/lib/base", 'chown -- root:adm "$t"; chmod -- 750 "$t"'
+    )
+    # The entries still reach the package.
+    assert arts["dirs"].decode().splitlines() == [
+        "var/lib/base",
+        "var/lib/grp",
+        "var/lib/svc",
+    ]
+
+
+def test_debian_ghost_owned_by_a_created_account_has_no_override():
+    entry = _owned_entry("/run/svc", "755", kind="ghost")
+    arts = DebianFiles().render([entry])
+    assert b"statoverride" not in arts["postinst"] + arts["postrm"]
+    assert arts["fixperms"] == FIXPERMS_HEADER
+
+
+def test_debian_refuses_a_symlink_owned_by_a_created_account():
+    entries = [_owned_entry("/usr/bin/l", "-", "svc", "-", "symlink")]
+    with pytest.raises(DumpError, match="/usr/bin/l is a symlink owned by an account"):
+        DebianFiles().render(entries)
+
+
+def test_debian_refuses_a_missing_mode_for_a_created_account():
+    entries = [_owned_entry("/var/lib/svc", mode="-")]
+    with pytest.raises(DumpError, match="needs a recorded mode for dpkg-statoverride"):
+        DebianFiles().render(entries)
+
+
+def test_debian_a_postrm_that_was_not_generated_is_never_overwritten(tmp_path):
+    out = tmp_path / "debian"
+    out.mkdir()
+    (out / "postrm").write_bytes(b"#!/bin/sh\necho mine\n")
+    fmt = DebianFiles()
+    with pytest.raises(UsageError, match="postrm was not generated by pkgforge"):
+        fmt.check_output(out)
+    assert sorted(p.name for p in out.iterdir()) == ["postrm"]
+
+
+def test_debian_a_generated_postrm_is_replaced(tmp_path):
+    out = tmp_path / "debian"
+    _dump(DebianFiles(), [_owned_entry("/var/lib/svc")], out)
+    assert b"--remove /var/lib/svc" in (out / "postrm").read_bytes()
+    _dump(DebianFiles(), _one_entry("/opt/a"), out)
+    assert b"statoverride" not in (out / "postrm").read_bytes()
