@@ -61,8 +61,13 @@ echo
 echo "== build real packages from this directory =="
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cat <<MSG
+Two packages, hello and hello-doc, are described in $here/pkgforge.cfg; their
+packaging was written from it with
+  pkgforge dbdump -f rpmspec hello.spec
+  pkgforge dbdump -f debian --skeleton debian
+
 RPM (hello.spec runs "pkgforge stage" from pkgforge.cfg inside %install):
-  cd $here && rpmbuild -bb --define "proj \$PWD" hello.spec
+  cd $here && rpmbuild -bb --define "pkgforge_config \$PWD/pkgforge.cfg" hello.spec
 
 Debian (debian/rules runs "pkgforge stage" from pkgforge.cfg into debian/tmp;
 build in a copy, since dpkg-buildpackage writes next to the source tree):

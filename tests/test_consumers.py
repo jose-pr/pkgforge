@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 
 from conftest import skip_if_fs_rejects_non_utf8
+from pkgforge import Project
 
 try:  # Unix-only; this whole module targets Linux consumer tools.
     import grp
@@ -92,6 +93,8 @@ requires_deb_build = pytest.mark.skipif(
 #: glob characters are matched by rpm's own globbing, so `rpmspecfiles`'
 #: quoting (targets 4.19+) is not safe there -- `rpmspecfiles-pre419` is.
 _HOST_FORMAT = "rpmspecfiles-pre419" if _RPM_BELOW_419 else "rpmspecfiles"
+#: The spec format this host's own rpm can build, for the same reason.
+_HOST_SPEC = "rpmspec-pre419" if _RPM_BELOW_419 else "rpmspec"
 #: The format `_HOST_FORMAT` is not -- used by the cross-format guard below.
 _OTHER_FORMAT = {
     "rpmspecfiles": "rpmspecfiles-pre419",
@@ -981,9 +984,9 @@ def _pkgforge_on_path(tmp_path: Path) -> dict:
     return env
 
 
-def _run_dpkg_buildpackage(tmp_path: Path, pkgroot: Path):
-    """``dpkg-buildpackage -b`` in ``pkgroot``; returns the build result and
-    the built ``.deb``'s tar members keyed by path without the leading ``./``."""
+def _build_debs(tmp_path: Path, pkgroot: Path):
+    """``dpkg-buildpackage -b`` in ``pkgroot``; returns the build result and the
+    ``.deb`` files built next to it, by file name."""
     result = subprocess.run(
         ["dpkg-buildpackage", "-b", "-us", "-uc", "-d"],
         cwd=pkgroot,
@@ -992,7 +995,14 @@ def _run_dpkg_buildpackage(tmp_path: Path, pkgroot: Path):
         env=_pkgforge_on_path(tmp_path),
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    debs = list(pkgroot.parent.glob("*.deb"))
+    return result, {deb.name: deb for deb in pkgroot.parent.glob("*.deb")}
+
+
+def _run_dpkg_buildpackage(tmp_path: Path, pkgroot: Path):
+    """``dpkg-buildpackage -b`` in ``pkgroot``; returns the build result and
+    the built ``.deb``'s tar members keyed by path without the leading ``./``."""
+    result, built = _build_debs(tmp_path, pkgroot)
+    debs = list(built.values())
     assert len(debs) == 1, debs
     fsys_tarfile = subprocess.run(
         ["dpkg-deb", "--fsys-tarfile", str(debs[0])], capture_output=True, check=True
@@ -1177,6 +1187,166 @@ def test_dh_install_kinds_and_caps(tmp_path, cli):
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 
 
+def _example_source(dest: Path) -> Path:
+    """``dest`` holding only what a user writes: examples/pkgforge.cfg and src/."""
+    dest.mkdir(parents=True)
+    shutil.copy(EXAMPLES / "pkgforge.cfg", dest / "pkgforge.cfg")
+    shutil.copytree(EXAMPLES / "src", dest / "src")
+    return dest
+
+
+def _generate(
+    tree: Path,
+    fmt: str,
+    output: Path,
+    scratch: Path,
+    *,
+    skeleton: bool = False,
+    force: bool = False,
+) -> None:
+    """What ``pkgforge stage`` then ``pkgforge dbdump -f FMT OUTPUT`` do for the
+    pkgforge.cfg in ``tree``, staging into ``scratch``."""
+    scratch.mkdir(exist_ok=True)
+    project = Project.from_config(
+        tree / "pkgforge.cfg", buildroot=scratch / "root", db=scratch / "files.jsonl"
+    )
+    project.stage(init=True)
+    project.dump(fmt, output, skeleton=skeleton, force=force)
+
+
+def _append_strip_override(rules: Path) -> None:
+    """Give ``rules`` an empty ``override_dh_strip_nondeterminism`` target when
+    the host has no such tool (Fedora's debhelper does not)."""
+    if shutil.which("dh_strip_nondeterminism") is None:
+        with rules.open("a", encoding="utf-8") as handle:
+            handle.write("\noverride_dh_strip_nondeterminism:\n")
+
+
+def _query(rpm_path: Path, *args: str) -> str:
+    return subprocess.run(
+        ["rpm", "-qp", *args, str(rpm_path)],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+
+
+def _rpmbuild_spec(
+    base: Path, tree: Path, spec: Path, *, noclean: bool = False
+) -> typing.Dict[str, Path]:
+    """``rpmbuild -bb`` of ``spec`` with ``tree``'s pkgforge.cfg; returns the
+    RPMs built, by package name."""
+    topdir = base / "top"
+    for sub in ("BUILD", "RPMS", "SOURCES", "SPECS", "SRPMS", "BUILDROOT"):
+        (topdir / sub).mkdir(parents=True, exist_ok=True)
+    result = subprocess.run(
+        [
+            "rpmbuild",
+            "-bb",
+            "--nodeps",
+            *(["--noclean"] if noclean else []),
+            "--define",
+            f"_topdir {topdir}",
+            "--define",
+            f"pkgforge_config {tree / 'pkgforge.cfg'}",
+            "--define",
+            f"proj {tree}",
+            str(spec),
+        ],
+        capture_output=True,
+        text=True,
+        env=_pkgforge_on_path(base),
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    return {
+        _query(path, "--qf", "%{NAME}"): path
+        for path in (topdir / "RPMS").rglob("*.rpm")
+    }
+
+
+_ROW_FIELDS = "%{FILEMODES:octal}|%{FILEUSERNAME}|%{FILEGROUPNAME}"
+
+
+@requires_rpmbuild
+def test_rpmbuild_generated_spec_builds_two_packages(tmp_path):
+    """From pkgforge.cfg and its sources alone, ``pkgforge stage`` and
+    ``dbdump -f rpmspec`` give a spec that ``rpmbuild`` builds into two
+    packages: the README only in the second, and the first carrying the modes,
+    owners and capability the file DB recorded."""
+    tree = _example_source(tmp_path / "hello")
+    spec = tree / "hello.spec"
+    _generate(tree, _HOST_SPEC, spec, tmp_path / "generated")
+    rpms = _rpmbuild_spec(tmp_path, tree, spec, noclean=True)
+    assert sorted(rpms) == ["hello", "hello-doc"]
+    assert sorted(path.name for path in rpms.values()) == [
+        "hello-1.0-1.noarch.rpm",
+        "hello-doc-1.0-1.noarch.rpm",
+    ]
+
+    listing = _query(rpms["hello-doc"], "-l").splitlines()
+    assert listing == ["/usr/share/doc/hello-doc", "/usr/share/doc/hello-doc/README"]
+    assert "/usr/share/doc/hello-doc/README" not in _query(rpms["hello"], "-l")
+
+    packaged: typing.Dict[str, typing.Dict[str, tuple]] = {}
+    for name, path in rpms.items():
+        rows = _query(path, "--qf", f"[%{{FILENAMES}}|{_ROW_FIELDS}\\n]").splitlines()
+        packaged[name] = {}
+        for row in rows:
+            file, mode, user, group = row.split("|")
+            packaged[name][file] = (int(mode, 8) & 0o7777, user, group)
+    caps = _query(rpms["hello"], "--qf", "[%{FILENAMES} %{FILECAPS}\\n]").splitlines()
+    assert "/usr/libexec/hello/helper cap_net_bind_service=ep" in caps
+
+    (db,) = (tmp_path / "top" / "BUILD").rglob("pkgforge.jsonl")
+    recorded = [
+        json.loads(line)
+        for line in db.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert recorded
+    for entry in recorded:
+        path = entry["path"]
+        package = "hello" if entry["package"] == "-" else entry["package"]
+        assert path in packaged[package], path
+        mode, user, group = packaged[package][path]
+        if entry["mode"] != "-":
+            assert mode == int(entry["mode"], 8), path
+        if entry["owner"] != "-":
+            assert user == entry["owner"], path
+        if entry["group"] != "-":
+            assert group == entry["group"], path
+
+
+@requires_dh_sequence
+def test_dh_install_generated_skeleton_builds_two_packages(tmp_path):
+    """From pkgforge.cfg and its sources alone, ``pkgforge stage`` and
+    ``dbdump -f debian --skeleton`` give a debian/ that ``dpkg-buildpackage``
+    builds into two packages: the README only in the second, and
+    ``libcap2-bin`` only where a capability is set."""
+    pkgroot = _example_source(tmp_path / "work" / "hello")
+    debian = pkgroot / "debian"
+    _generate(pkgroot, "debian", debian, tmp_path / "generated", skeleton=True)
+    _append_strip_override(debian / "rules")
+    _result, debs = _build_debs(tmp_path, pkgroot)
+    assert sorted(debs) == ["hello-doc_1.0-1_all.deb", "hello_1.0-1_all.deb"]
+
+    readme = "usr/share/doc/hello-doc/README"
+    assert readme in _payload(debs["hello-doc_1.0-1_all.deb"])
+    assert readme not in _payload(debs["hello_1.0-1_all.deb"])
+    assert "usr/bin/hello" in _payload(debs["hello_1.0-1_all.deb"])
+
+    def depends(name: str) -> str:
+        control = _control_member(debs[name], "control")
+        # dpkg drops the field when every part of it is empty.
+        return next(
+            (line for line in control.splitlines() if line.startswith("Depends:")),
+            "",
+        )
+
+    assert "libcap2-bin" in depends("hello_1.0-1_all.deb")
+    assert "libcap2-bin" not in depends("hello-doc_1.0-1_all.deb")
+
+
 @requires_dh_sequence
 def test_dh_install_example_debian_builds(tmp_path):
     """examples/debian builds with the same flow as the recipe tests, from a
@@ -1184,11 +1354,11 @@ def test_dh_install_example_debian_builds(tmp_path):
     pkgroot = tmp_path / "work" / "hello"
     shutil.copytree(EXAMPLES, pkgroot)
     (pkgroot / "debian" / "rules").chmod(0o755)
-    # dh_strip_nondeterminism is a separate package some hosts lack.
-    with (pkgroot / "debian" / "rules").open("a", encoding="utf-8") as rules:
-        rules.write("\noverride_dh_strip_nondeterminism:\n")
+    _append_strip_override(pkgroot / "debian" / "rules")
 
-    _result, members = _run_dpkg_buildpackage(tmp_path, pkgroot)
+    _result, debs = _build_debs(tmp_path, pkgroot)
+    assert sorted(debs) == ["hello-doc_1.0-1_all.deb", "hello_1.0-1_all.deb"]
+    members = _payload(debs["hello_1.0-1_all.deb"])
 
     def pinned(name: str, mode: int, owner: str, group: str):
         member = members[name]
@@ -1202,87 +1372,15 @@ def test_dh_install_example_debian_builds(tmp_path):
     # dh_fixperms' root-owned mode is what ships, and postinst applies the rest.
     pinned("var/lib/hello", 0o755, "root", "root")
     assert members["usr/bin/hi"].issym()
+    assert not [name for name in members if name.startswith("usr/share/doc/hello-doc")]
+    assert "usr/share/doc/hello-doc/README" in _payload(debs["hello-doc_1.0-1_all.deb"])
     # The ghost log is neither shipped nor reported as missing, and the
     # capability is set by the maintainer script.
     assert "var/log/hello.log" not in members
-    deb = next((tmp_path / "work").glob("*.deb"))
-    postinst = _control_member(deb, "postinst")
+    postinst = _control_member(debs["hello_1.0-1_all.deb"], "postinst")
     assert 'setcap cap_net_bind_service=ep "$DPKG_ROOT"/usr/libexec/hello/helper' in (
         postinst
     )
-
-
-@requires_rpmbuild
-def test_rpmbuild_example_hello_spec(tmp_path):
-    """examples/hello.spec stages with pkgforge stage inside %install, and the RPM
-    it builds carries the modes and owners the file DB recorded."""
-    topdir = tmp_path / "top"
-    for sub in ("BUILD", "RPMS", "SOURCES", "SPECS", "SRPMS", "BUILDROOT"):
-        (topdir / sub).mkdir(parents=True)
-    result = subprocess.run(
-        [
-            "rpmbuild",
-            "-bb",
-            "--nodeps",
-            "--noclean",  # keep the build dir: it holds the file DB
-            "--define",
-            f"_topdir {topdir}",
-            "--define",
-            f"proj {EXAMPLES}",
-            "--define",
-            "__os_install_post %{nil}",
-            str(EXAMPLES / "hello.spec"),
-        ],
-        capture_output=True,
-        text=True,
-        env=_pkgforge_on_path(tmp_path),
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    rpms = list((topdir / "RPMS").rglob("*.rpm"))
-    assert len(rpms) == 1, rpms
-
-    listing = subprocess.run(
-        [
-            "rpm",
-            "-qp",
-            "--qf",
-            "[%{FILENAMES}|%{FILEMODES:octal}|%{FILEUSERNAME}|%{FILEGROUPNAME}\\n]",
-            str(rpms[0]),
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
-    packaged = {}
-    for row in listing.splitlines():
-        path, mode, user, group = row.split("|")
-        packaged[path] = (int(mode, 8) & 0o7777, user, group)
-
-    dbs = list(topdir.rglob("files.jsonl"))
-    assert len(dbs) == 1, dbs
-    recorded = [
-        json.loads(line)
-        for line in dbs[0].read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
-    assert packaged["/usr/libexec/hello/helper"][0] == 0o755
-    caps = subprocess.run(
-        ["rpm", "-qp", "--qf", "[%{FILENAMES} %{FILECAPS}\\n]", str(rpms[0])],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.splitlines()
-    assert "/usr/libexec/hello/helper cap_net_bind_service=ep" in caps
-    for entry in recorded:
-        path = entry["path"]
-        assert path in packaged, path
-        mode, user, group = packaged[path]
-        if entry["mode"] != "-":
-            assert mode == int(entry["mode"], 8), path
-        if entry["owner"] != "-":
-            assert user == entry["owner"], path
-        if entry["group"] != "-":
-            assert group == entry["group"], path
 
 
 #: The shell staging that examples/pkgforge.cfg describes: the stage-only and
@@ -1296,9 +1394,10 @@ pf() { pkgforge -q --config "$D/stage.cfg" "$@"; }
 pf initdb
 
 E="$(mktemp -d)"
-for d in /usr/libexec/hello /etc/hello /usr/share/licenses/hello /usr/share/doc/hello; do
+for d in /usr/libexec/hello /etc/hello /usr/share/licenses/hello; do
   pf install -D -d -m 755 -o root -g root "$E" "$d"
 done
+pf install -D -d -m 755 -o root -g root -P hello-doc "$E" /usr/share/doc/hello-doc
 pf install -D -d -m 750 -o hello -g hello "$E" /var/lib/hello
 pf install -D -d -m 755 -o hello -g hello -k ghost "$E" /run/hello
 rmdir "$E"
@@ -1309,17 +1408,20 @@ pf install -p -m 755 -o root -g root --caps cap_net_bind_service=ep "$S/helper" 
 pf install -p -m 640 -o root -g adm -k config-noreplace "$S/hello.conf" /etc/hello
 pf install -p -m 644 -o root -g root "$S/hello.service" /usr/lib/systemd/system
 pf install -p -m 644 -o root -g root -k license "$S/LICENSE" /usr/share/licenses/hello
-pf install -p -m 644 -o root -g root -k doc "$S/README" /usr/share/doc/hello
+pf install -p -m 644 -o root -g root -k doc -P hello-doc "$S/README" /usr/share/doc/hello-doc
 pf install -D -m 640 -o root -g adm -k ghost - /var/log/hello.log < /dev/null
 
 pf sysfiles
 """
 
-#: The two tables of examples/pkgforge.cfg that the shell staging still needs:
-#: the package name for the generated files and the account they create.
+#: The tables of examples/pkgforge.cfg that the shell staging still needs: the
+#: packages for the generated files and the account they create.
 _EXAMPLE_SHELL_CFG = """\
 [package]
 name = "hello"
+
+[[packages]]
+name = "hello-doc"
 
 [[users]]
 name = "hello"
@@ -1327,16 +1429,21 @@ description = "hello example daemon"
 home = "/var/lib/hello"
 """
 
-_STAGE_ONLY_SPEC = "pkgforge -q --config %{proj}/pkgforge.cfg stage --init\n"
+_STAGE_ONLY_SPEC = 'pkgforge -q --config "%{pkgforge_config}" stage --init\n'
 _STAGE_ONLY_RULES = "\tpkgforge -q --config pkgforge.cfg stage --init\n"
 
 
-def _example_tree(dest: Path, *, shell: bool) -> Path:
+def _example_tree(dest: Path, *, shell: bool, spec: bool = False) -> Path:
     """A copy of examples/ at ``dest``: as shipped, or with its recipes running
     the shell staging instead of ``pkgforge stage`` (and a pkgforge.cfg that
-    only names the package and the account, for the dumps to read)."""
+    only names the packages and the account, for the dumps to read). With
+    ``spec``, hello.spec is first written again for this host's rpm."""
     shutil.copytree(EXAMPLES, dest)
     (dest / "debian" / "rules").chmod(0o755)
+    if spec:
+        _generate(
+            dest, _HOST_SPEC, dest / "hello.spec", dest.parent / "generated", force=True
+        )
     if shell:
         (dest / "stage.sh").write_text(_EXAMPLE_SHELL_STAGING, encoding="utf-8")
         (dest / "stage.cfg").write_text(_EXAMPLE_SHELL_CFG, encoding="utf-8")
@@ -1357,96 +1464,74 @@ _RPM_ROWS = (
 )
 
 
-def _build_example_rpm(base: Path, *, shell: bool = False) -> Path:
-    """Build examples/hello.spec under ``base``; returns the .rpm."""
+def _build_example_rpms(base: Path, *, shell: bool = False) -> typing.Dict[str, Path]:
+    """Build examples/hello.spec, as this host's rpm reads it, under ``base``;
+    returns the RPMs by package name."""
     base.mkdir(exist_ok=True)
-    tree = _example_tree(base / "examples", shell=shell)
-    topdir = base / "top"
-    for sub in ("BUILD", "RPMS", "SOURCES", "SPECS", "SRPMS", "BUILDROOT"):
-        (topdir / sub).mkdir(parents=True)
-    result = subprocess.run(
-        [
-            "rpmbuild",
-            "-bb",
-            "--nodeps",
-            "--define",
-            f"_topdir {topdir}",
-            "--define",
-            f"proj {tree}",
-            "--define",
-            "__os_install_post %{nil}",
-            str(tree / "hello.spec"),
-        ],
-        capture_output=True,
-        text=True,
-        env=_pkgforge_on_path(base),
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    rpms = list((topdir / "RPMS").rglob("*.rpm"))
-    assert len(rpms) == 1, rpms
-    return rpms[0]
+    tree = _example_tree(base / "examples", shell=shell, spec=True)
+    rpms = _rpmbuild_spec(base, tree, tree / "hello.spec")
+    assert sorted(rpms) == ["hello", "hello-doc"]
+    return rpms
 
 
-def _example_rpm_rows(base: Path, *, shell: bool) -> typing.List[str]:
-    """Build examples/hello.spec under ``base`` and return the sorted
-    per-file rows of the RPM."""
-    rpm_path = _build_example_rpm(base, shell=shell)
-    listing = subprocess.run(
-        ["rpm", "-qp", "--qf", _RPM_ROWS, str(rpm_path)],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
-    return sorted(listing.splitlines())
+def _example_rpm_rows(base: Path, *, shell: bool) -> typing.Dict[str, typing.List[str]]:
+    """Build examples/hello.spec under ``base`` and return the sorted per-file
+    rows of each RPM."""
+    return {
+        name: sorted(_query(path, "--qf", _RPM_ROWS).splitlines())
+        for name, path in _build_example_rpms(base, shell=shell).items()
+    }
 
 
 @requires_rpmbuild
 def test_rpmbuild_example_cfg_matches_shell_staging(tmp_path):
-    """The RPM built by ``pkgforge stage`` from examples/pkgforge.cfg lists the
-    same paths, modes, owners, flags and link targets as the one built by the
+    """The RPMs built by ``pkgforge stage`` from examples/pkgforge.cfg list the
+    same paths, modes, owners, flags and link targets as the ones built by the
     shell staging it replaces."""
     staged = _example_rpm_rows(tmp_path / "stage", shell=False)
     shell = _example_rpm_rows(tmp_path / "shell", shell=True)
-    assert len(staged) == 16
+    assert len(staged["hello"]) == 14
+    assert len(staged["hello-doc"]) == 2
     assert staged == shell
 
 
-def _build_example_deb(base: Path, *, shell: bool = False):
-    """Build examples/debian under ``base``; returns the .deb and its payload's
-    tar members keyed by path."""
+def _build_example_debs(base: Path, *, shell: bool = False) -> typing.Dict[str, Path]:
+    """Build examples/debian under ``base``; returns the .debs by package."""
     base.mkdir(exist_ok=True)
     pkgroot = _example_tree(base / "work" / "hello", shell=shell)
-    # dh_strip_nondeterminism is a separate package some hosts lack.
-    with (pkgroot / "debian" / "rules").open("a", encoding="utf-8") as rules:
-        rules.write("\noverride_dh_strip_nondeterminism:\n")
-    _result, members = _run_dpkg_buildpackage(base, pkgroot)
-    return next((base / "work").glob("*.deb")), members
+    _append_strip_override(pkgroot / "debian" / "rules")
+    _result, built = _build_debs(base, pkgroot)
+    debs = {name.partition("_")[0]: path for name, path in built.items()}
+    assert sorted(debs) == ["hello", "hello-doc"]
+    return debs
 
 
-def _example_deb_members(base: Path, *, shell: bool) -> typing.Set[tuple]:
-    """Build examples/debian under ``base`` and return the payload's
+def _example_deb_members(base: Path, *, shell: bool) -> typing.Dict[str, set]:
+    """Build examples/debian under ``base`` and return each payload's
     ``(name, type, mode, uname, gname, linkname)`` set."""
-    _deb, members = _build_example_deb(base, shell=shell)
     return {
-        (
-            name,
-            member.type,
-            stat.S_IMODE(member.mode),
-            member.uname,
-            member.gname,
-            member.linkname,
-        )
-        for name, member in members.items()
+        package: {
+            (
+                name,
+                member.type,
+                stat.S_IMODE(member.mode),
+                member.uname,
+                member.gname,
+                member.linkname,
+            )
+            for name, member in _payload(deb).items()
+        }
+        for package, deb in _build_example_debs(base, shell=shell).items()
     }
 
 
 @requires_dh_sequence
 def test_dh_install_example_cfg_matches_shell_staging(tmp_path):
-    """The .deb built by ``pkgforge stage`` from examples/pkgforge.cfg has the
-    same payload as the one built by the shell staging it replaces."""
+    """The .debs built by ``pkgforge stage`` from examples/pkgforge.cfg have the
+    same payloads as the ones built by the shell staging it replaces."""
     staged = _example_deb_members(tmp_path / "stage", shell=False)
     shell = _example_deb_members(tmp_path / "shell", shell=True)
-    assert any(name == "usr/bin/hi" for name, *_ in staged)
+    assert any(name == "usr/bin/hi" for name, *_ in staged["hello"])
     assert staged == shell
 
 
@@ -1458,24 +1543,22 @@ def test_dh_install_example_cfg_matches_shell_staging(tmp_path):
 @requires_rpmbuild
 def test_rpmbuild_example_accounts_and_scripts(tmp_path):
     """The RPM carries the sysusers.d and tmpfiles.d files, the pre-install
-    script that creates the account on rpm below 4.19, and the post-install
-    tmpfiles call; its rows keep the account, the ghost and the capability."""
-    rpm_path = _build_example_rpm(tmp_path)
+    script that creates the account only where rpm does not read the shipped
+    file (below 4.19), and the post-install tmpfiles call; its rows keep the
+    account, the ghost and the capability."""
+    rpm_path = _build_example_rpms(tmp_path)["hello"]
 
     def query(*args: str) -> str:
-        return subprocess.run(
-            ["rpm", "-qp", *args, str(rpm_path)],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
+        return _query(rpm_path, *args)
 
-    if not _RPM_BELOW_419:
+    pre, _, post = query("--scripts").partition("postinstall scriptlet")
+    if _RPM_BELOW_419:
+        assert "systemd-sysusers -" in pre
+        assert "u hello - " in pre
+    else:
         # rpm 4.19+ reads the shipped sysusers.d file itself.
         assert "user(hello)" in query("--provides")
-    pre, _, post = query("--scripts").partition("postinstall scriptlet")
-    assert "systemd-sysusers -" in pre
-    assert "u hello - " in pre
+        assert "systemd-sysusers" not in pre
     assert "systemd-tmpfiles --create /usr/lib/tmpfiles.d/hello.conf" in post
 
     rows = {}
@@ -1498,7 +1581,8 @@ def test_dh_install_example_accounts_and_scripts(tmp_path):
     """The .deb ships the generated files; ``dh_installsysusers`` and
     ``dh_installtmpfiles`` add their snippets to ``postinst``, which then
     applies the ownership of ``/var/lib/hello`` before the capability is set."""
-    deb, members = _build_example_deb(tmp_path)
+    deb = _build_example_debs(tmp_path)["hello"]
+    members = _payload(deb)
     assert "usr/lib/sysusers.d/hello.conf" in members
     assert "usr/lib/tmpfiles.d/hello.conf" in members
     state = members["var/lib/hello"]
@@ -1584,7 +1668,7 @@ def _assert_installed_example_state():
 def test_rpmbuild_example_installs_accounts(tmp_path):
     """Installing the RPM on a host without the account creates it, owns
     ``/var/lib/hello`` by it and has ``%post`` create ``/run/hello``."""
-    rpm_path = _build_example_rpm(tmp_path)
+    rpm_path = _build_example_rpms(tmp_path)["hello"]
     try:
         _run_as_root("rpm", "-i", str(rpm_path))
         _assert_installed_example_state()
@@ -1600,7 +1684,7 @@ def test_dh_install_example_installs_accounts(tmp_path):
     """Installing the .deb creates the account, overrides the ownership of
     ``/var/lib/hello`` once, keeps an administrator's override on reinstall
     and drops it on purge."""
-    deb, _members = _build_example_deb(tmp_path)
+    deb = _build_example_debs(tmp_path)["hello"]
 
     def override() -> subprocess.CompletedProcess:
         return subprocess.run(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ from pkgforge.db import jsonl_line
 from pkgforge.dbdump import dump
 from pkgforge.exceptions import UnsupportedOutputError, UsageError
 
+EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 MAINTAINER = "Example Maintainer <maintainer@example.org>"
 EPOCH = "1792368000"
 
@@ -613,3 +615,40 @@ def test_project_config_path_is_absolute(tmp_path, monkeypatch):
     project = Project.from_config("pkgforge.cfg", buildroot=tmp_path / "root")
     assert project.config_path == (tmp_path / "pkgforge.cfg").resolve()
     assert Project(tmp_path).config_path is None
+
+
+# -- the example ---------------------------------------------------------------
+
+
+@pytest.mark.posix
+def test_examples_are_generated(tmp_path, monkeypatch):
+    """The committed spec and debian/ are what the generators write from
+    examples/pkgforge.cfg: edit the configuration, then regenerate them."""
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", EPOCH)
+    tree = tmp_path / "hello"
+    tree.mkdir()
+    shutil.copy(EXAMPLES / "pkgforge.cfg", tree / "pkgforge.cfg")
+    shutil.copytree(EXAMPLES / "src", tree / "src")
+    project = Project.from_config(
+        tree / "pkgforge.cfg", buildroot=tmp_path / "root", db=tmp_path / "files.jsonl"
+    )
+    project.stage(init=True)
+    project.dump("rpmspec", tree / "hello.spec")
+    project.dump("debian", tree / "debian", skeleton=True)
+
+    committed = {
+        "hello.spec": "hello.spec",
+        "debian/control": "debian/control",
+        "debian/changelog": "debian/changelog",
+        "debian/rules": "debian/rules",
+        "debian/source/format": "debian/source/format",
+    }
+    for generated, name in committed.items():
+        assert (tree / generated).read_bytes() == (EXAMPLES / name).read_bytes(), name
+    # Only what the user edits is committed, never what the build writes.
+    shipped = {
+        path.relative_to(EXAMPLES / "debian").as_posix()
+        for path in (EXAMPLES / "debian").rglob("*")
+        if path.is_file()
+    }
+    assert shipped == {"control", "changelog", "rules", "source/format"}

@@ -146,6 +146,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `%files` lines.
 - `DumpFormat.write` takes a keyword `force` (default `False`); a format that
   overrides `write` accepts it.
+- `examples/` builds two packages, `hello` and `hello-doc`, and its `hello.spec`
+  and `debian/` are written by `dbdump -f rpmspec` and `dbdump -f debian
+  --skeleton` from `examples/pkgforge.cfg`. Build the spec with `--define
+  "pkgforge_config PATH"` where it took `--define "proj DIR"`.
 - `dbdump -f debian` writes one set of files per package, named for it:
   `PKG.install`, `PKG.dirs`, `PKG.conffiles`, `PKG.postinst`, `PKG.postrm` and
   `PKG.substvars` for `[package]` and each `[[packages]]` name, and once
