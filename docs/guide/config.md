@@ -152,7 +152,7 @@ and so on) exist on every target and need no declaration. Any other owner or gro
 declared, or recording it is an error (exit 2):
 
 ```text
-pkgforge: error: install: owner 'jose' is neither a base-passwd account nor declared in [[users]]
+pkgforge: error: install: owner 'alice' is neither a base-passwd account nor declared in [[users]]
 ```
 
 The check runs when the file is loaded (`[defaults]`, `[[rules]]`, `[[stage]]`,
@@ -320,7 +320,7 @@ pkgforge: error: j.cfg: expected a quoted string, not int [at rules[0].mode (Pro
 pkgforge: error: a.cfg: ProjectConfig has no field(s) 'dbb'
 pkgforge: error: d.cfg: dest: required with src [at stage[0] (ProjectConfig)]
 pkgforge: error: PKGFORGE_CONFIG names no file: nope.cfg
-pkgforge: error: a.cfg: defaults: owner 'jose' is neither a base-passwd account nor declared in [[users]] [(ProjectConfig)]
+pkgforge: error: a.cfg: defaults: owner 'alice' is neither a base-passwd account nor declared in [[users]] [(ProjectConfig)]
 pkgforge: error: b.cfg: [[users]] and [[groups]] that create an account need [package] name [(ProjectConfig)]
 pkgforge: error: c.cfg: kind: config needs a regular file, not a directory [at stage[0] (ProjectConfig)]
 pkgforge: error: d.cfg: caps: invalid caps 'cap_net_raw=ep cap_net_admin=p': expected one lowercase setcap clause without spaces, such as cap_net_bind_service=ep [at rules[0] (ProjectConfig)]
