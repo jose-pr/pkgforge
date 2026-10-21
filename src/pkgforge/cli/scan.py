@@ -6,7 +6,6 @@ import typing
 
 import duho
 
-from ..entry import AUTO
 from ._common import EntryArgs, ExcludeArgs, ProjectCmd, _parse_mode
 
 __all__ = ["ScanCmd"]
@@ -42,11 +41,6 @@ class ScanCmd(EntryArgs, ExcludeArgs, ProjectCmd):
     path: str
     "path under the build root to scan"
     ("path",)
-
-    def __init__(self, **kwargs: typing.Any) -> None:
-        super().__init__(**kwargs)
-        if self.dir_mode == []:  # argparse before 3.12 strips an attached "--"
-            self.dir_mode = AUTO
 
     def __call__(self) -> int:
         records = self._project().scan(

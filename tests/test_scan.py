@@ -613,8 +613,7 @@ def test_scan_auto_mode_reads_dirs_skips_links(tmp_path, cli):
 
 @pytest.mark.posix
 def test_scan_dir_mode_auto_sentinel(tmp_path, cli):
-    # --dir-mode=-- must resolve to the on-disk mode, never argparse's
-    # Python-3.9 stripped "[]" artifact for an attached "--" value.
+    # --dir-mode=-- resolves to the on-disk mode, on every supported Python.
     root = tmp_path / "root"
     (root / "usr" / "share" / "app" / "sub").mkdir(parents=True)
     (root / "usr" / "share" / "app" / "sub").chmod(0o750)

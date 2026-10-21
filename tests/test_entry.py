@@ -137,8 +137,7 @@ def test_install_symlink_with_mode_records_entry(tmp_path):
 
 @pytest.mark.posix
 def test_apply_entry_auto_mode_on_symlink(tmp_path):
-    # API only, not via the CLI's `-m--`: py3.9's argparse parses that as []
-    # (a separate defect, 06b's), which would pass at baseline there too.
+    # The entry dict is built directly, not parsed from `-m--`.
     target = tmp_path / "t"
     target.write_text("x")
     target.chmod(0o600)
@@ -316,15 +315,38 @@ def test_mode_rejected_at_parse(command, value, tmp_path, cli):
         ("mode", ["-m--"]),
         ("mode", ["-m", "auto"]),
         ("owner", ["--owner=--"]),
+        ("owner", ["-o--"]),
+        ("group", ["--group=--"]),
+        ("group", ["-g--"]),
     ],
 )
 def test_mode_attached_auto_sentinel(field, argv):
-    # On Python 3.9, argparse strips an attached "--" to [] BEFORE any
-    # converter runs; EntryArgs maps it, so the 3.9 [] artifact and the
-    # 3.14 literal "--" both arrive as AUTO.
+    # An attached "--" is the value, on every supported Python.
     parser = EntryArgs._parser_()
     ns = parser.parse_args(argv)
     assert getattr(ns, field) == AUTO
+
+
+@pytest.mark.parametrize(
+    "argv", [["--type=--", "src", "/dst"], ["-t--", "src", "/dst"]]
+)
+def test_install_attached_type_sentinel(argv):
+    from pkgforge.cli.install import Install
+
+    ns = Install._parser_().parse_args(argv)
+    assert ns.type == AUTO
+
+
+def test_meta_pairs_merge_and_split_on_the_first_equals():
+    ns = EntryArgs._parser_().parse_args(["-O", "a=b", "--meta", "c=d=e", "-O", "a=z"])
+    assert ns.meta == {"a": "z", "c": "d=e"}
+
+
+def test_scan_attached_dir_mode_sentinel():
+    from pkgforge.cli.scan import ScanCmd
+
+    ns = ScanCmd._parser_().parse_args(["--dir-mode=--", "/path"])
+    assert ns.dir_mode == AUTO
 
 
 def test_detached_mode_sentinel_exits_2():

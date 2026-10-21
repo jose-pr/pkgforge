@@ -2,20 +2,18 @@
 
 from __future__ import annotations
 
-import argparse
 import typing
 from pathlib import Path
 
 import duho
 
 from ..entry import (
-    AUTO,
     DEFAULT,
     FileType,
     _filetype,
     _is_auto,
+    normalize_caps,
 )
-from ..exceptions import UsageError
 from ..project import _INSTALL_METHODS
 from ._common import (
     EntryArgs,
@@ -23,7 +21,6 @@ from ._common import (
     KindArgs,
     PackageArgs,
     ProjectCmd,
-    _parse_caps,
     _refuse_mcp_stdin,
 )
 
@@ -37,14 +34,6 @@ def _env_method(value: str) -> str:
     value as unset, where a bare ``str`` field would keep it as a value.
     """
     return value if value else "copy"
-
-
-def _parse_filetype(text: str) -> typing.Union[FileType, str]:
-    """The ``type=`` converter of ``--type``."""
-    try:
-        return _filetype(text)
-    except UsageError as exc:
-        raise argparse.ArgumentTypeError(str(exc)) from None
 
 
 def _source(text: str) -> typing.Union[str, Path]:
@@ -96,14 +85,14 @@ class Install(EntryArgs, KindArgs, PackageArgs, ExcludeArgs, ProjectCmd):
     type: duho.Arg[
         typing.Union[FileType, str],
         duho.Meta(
-            type=_parse_filetype,
+            type=_filetype,
             metavar="{file,directory,symlink}",
             conflicts="type",
         ),
     ] = DEFAULT
     "file, directory or symlink, in any case (auto-detected from the source if unset, or given as '--')"
     ("--type", "-t")
-    caps: duho.Arg[str, duho.Meta(type=_parse_caps)] = DEFAULT
+    caps: duho.Arg[str, duho.Meta(type=normalize_caps)] = DEFAULT
     (
         "file capabilities (setcap text, one clause, e.g. "
         "cap_net_bind_service=ep) the package sets on install; '-' for none"
@@ -152,8 +141,6 @@ class Install(EntryArgs, KindArgs, PackageArgs, ExcludeArgs, ProjectCmd):
         if decompress is None or decompress == DEFAULT:
             kwargs["decompress"] = True
         super().__init__(**kwargs)
-        if self.type == []:  # argparse before 3.12 strips an attached "--"
-            self.type = AUTO
 
     def _decompress(self) -> typing.Optional[str]:
         """``--decompress`` as the library spells it: ``None``, ``"auto"`` or a kind."""
