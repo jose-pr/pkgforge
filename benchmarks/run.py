@@ -61,6 +61,11 @@ DB_SIZE = 1000
 SCAN_TREE_SIZE = 250
 #: Number of files in the tree install.tree_* stages with each --method.
 INSTALL_TREE_SIZE = 50
+#: Files in the build root package.* builds a package of, and the bytes in each.
+PACKAGE_TREE_SIZE = 2000
+PACKAGE_FILE_BYTES = 256
+#: A package.* call builds a whole package, so each sample times a few calls.
+PACKAGE_INNER = 3
 
 
 def _make_db(n: int) -> dict:
@@ -274,6 +279,56 @@ def measure():
             setup=_install_setup("copy", record_db_path, record_tree=True),
         )
 
+    metrics.update(measure_package())
+    return metrics
+
+
+def measure_package() -> dict:
+    """``package.tar`` and ``package.deb``: ``Project.package`` end to end over
+    a build root of ``PACKAGE_TREE_SIZE`` small files, gzip-compressed.
+
+    Each call writes a fresh output directory, so the timing includes reading
+    the tree, the tar writer, compression and the all-or-nothing rename.
+    """
+    metrics = {}
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td) / "root"
+        tree = root / "usr" / "share" / "app"
+        tree.mkdir(parents=True)
+        payload = b"x" * PACKAGE_FILE_BYTES
+        for i in range(PACKAGE_TREE_SIZE):
+            (tree / f"file{i:04d}.dat").write_bytes(payload)
+        db_path = Path(td) / "package.jsonl"
+        provider = open_db(db_path, "jsonl")
+        provider.init()
+        for path, entry in _make_db(PACKAGE_TREE_SIZE).items():
+            provider.add(path, entry)
+        config = ProjectConfig(
+            package=PackageInfo(
+                name="bench",
+                version="1.0",
+                summary="Benchmark package",
+                maintainer="Bench <bench@example.org>",
+                arch="all",
+            )
+        )
+        project = Project(root, db_path, db_format="jsonl", config=config)
+
+        def _package_setup(
+            fmt: str,
+        ) -> typing.Callable[[], typing.Callable[[], object]]:
+            outputs = iter(range(10**6))
+
+            def _setup() -> typing.Callable[[], object]:
+                out = Path(td) / f"{fmt}{next(outputs)}"
+                return lambda: project.package(fmt, out, compression="gz")
+
+            return _setup
+
+        for fmt in ("tar", "deb"):
+            metrics[f"package.{fmt}"] = sample(
+                lambda call: call(), PACKAGE_INNER, setup=_package_setup(fmt)
+            )
     return metrics
 
 

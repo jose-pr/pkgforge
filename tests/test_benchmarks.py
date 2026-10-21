@@ -48,6 +48,8 @@ _EXPECTED_METRICS = {
     "install.tree_link",
     "install.tree_move",
     "install.tree_record",
+    "package.tar",
+    "package.deb",
 }
 
 _EXPECTED_ITERATIONS = {
@@ -84,6 +86,8 @@ def run_module(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(module, "SCAN_CMD_INNER", 1, raising=False)
     monkeypatch.setattr(module, "INSTALL_TREE_SIZE", 3, raising=False)
     monkeypatch.setattr(module, "INSTALL_TREE_INNER", 1, raising=False)
+    monkeypatch.setattr(module, "PACKAGE_TREE_SIZE", 3)
+    monkeypatch.setattr(module, "PACKAGE_INNER", 1)
     monkeypatch.setattr(module, "REPEAT", 1)
     return module
 

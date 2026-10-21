@@ -35,6 +35,8 @@ measure against a real, on-disk build-root tree.
 | `install.tree_link` | The same tree staged with `--method link` (hardlink, falling back to a copy per file it can't span) |
 | `install.tree_move` | The same tree staged with `--method move` (whole-tree rename fast path) |
 | `install.tree_record` | The same tree staged with the plain `copy` method and `--record-tree` set, so every child is also walked and recorded -- compare against `install.tree_copy` (same run) for the walk's own added cost |
+| `package.tar` | `Project.package("tar", compression="gz")` over a `PACKAGE_TREE_SIZE`-file build root: read the tree, write and compress the tar, rename it into place |
+| `package.deb` | The same build as a `.deb` (`control.tar` and `data.tar` in an ar archive, gzip) |
 
 Compare two results on **median**, not mean or min -- a single `timeit`
 average hides real run-to-run noise, median does not.
