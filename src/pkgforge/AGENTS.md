@@ -321,8 +321,8 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   (a `d PATH MODE OWNER GROUP -` line per ghost directory in the file DB,
   sorted). A file with no lines is not written, and one recorded earlier is
   removed with its entry (`(path, None)` in the result). `UsageError` for lines
-  but no `[package] name`, or a ghost directory path with whitespace, `"`, a
-  backslash or a control character. Why payload files: rpm 4.19+ creates the
+  but no `[package] name`, or a ghost directory path with whitespace, `"`, `'`,
+  a backslash or a control character. Why payload files: rpm 4.19+ creates the
   accounts of a shipped sysusers file by itself, and `dh_installsysusers` and
   `dh_installtmpfiles` find them in the package. Logs `wrote PATH` or `removed
   PATH` under `pkgforge.sysfiles` (INFO). `stage` runs it.

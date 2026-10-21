@@ -116,7 +116,9 @@ def test_tmpfiles_text_doubles_percent():
     assert "d /run/100%%" in tmpfiles_text([("/run/100%", ghost_dir())])
 
 
-@pytest.mark.parametrize("path", ["/run/a b", '/run/a"b', "/run/a\\b", "/run/a\tb"])
+@pytest.mark.parametrize(
+    "path", ["/run/a b", '/run/a"b', "/run/a'b", "/run/a\\b", "/run/a\tb"]
+)
 def test_tmpfiles_text_refuses_a_path_it_cannot_spell(path):
     with pytest.raises(UsageError, match="a ghost directory path tmpfiles.d cannot"):
         tmpfiles_text([(path, ghost_dir())])

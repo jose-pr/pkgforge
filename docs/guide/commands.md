@@ -390,8 +390,8 @@ pkgforge --config pkgforge.cfg sysfiles
 ```
 
 It takes no options. Writing a file without `[package] name` is exit 2, and so
-is a ghost directory whose path `tmpfiles.d` cannot spell (whitespace, `"`, a
-backslash or a control character). It logs one INFO line per file on
+is a ghost directory whose path `tmpfiles.d` cannot spell (whitespace, `"`, `'`,
+a backslash or a control character). It logs one INFO line per file on
 `pkgforge.sysfiles`; with no file DB the records are printed to standard output
 as JSON Lines.
 
