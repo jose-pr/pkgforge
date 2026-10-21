@@ -19,6 +19,7 @@ from pathlib import Path, PurePath, PurePosixPath
 from . import dbdump
 from ._install import _Installer
 from ._scan import scan as _scan
+from ._sysfiles import SYSUSERS_DIR, TMPFILES_DIR, sysusers_text, tmpfiles_text
 from .config import (
     EntryDefaults,
     EntryRule,
@@ -58,6 +59,7 @@ _DUMP_LOGGER = logging.getLogger("pkgforge.dbdump")
 _MKDIR_LOGGER = logging.getLogger("pkgforge.mkdir")
 _SYMLINK_LOGGER = logging.getLogger("pkgforge.symlink")
 _STAGE_LOGGER = logging.getLogger("pkgforge.stage")
+_SYSFILES_LOGGER = logging.getLogger("pkgforge.sysfiles")
 
 
 def _path(value: object, what: str) -> Path:
@@ -976,7 +978,87 @@ class Project:
                 step.dest or step.dir or step.file or step.symlink,
             )
             records.extend(self._stage_step(step))
+        live = dict(self.entries()) if self.db is not None else {}
+        live.update({path: entry for path, entry in records if entry is not None})
+        generated = self._sysfiles(sorted(live.items()), _STAGE_LOGGER)
+        records.extend(generated)
+        _STAGE_LOGGER.info(
+            "generated %d system file(s)",
+            sum(1 for _path, entry in generated if entry is not None),
+        )
         _STAGE_LOGGER.info("staged %d step(s), %d record(s)", len(steps), len(records))
+        return records
+
+    def sysfiles(self) -> FileRecords:
+        """Write the ``sysusers.d`` and ``tmpfiles.d`` files the package needs
+        under the build root and record them.
+
+        ``/usr/lib/sysusers.d/NAME.conf`` holds the accounts ``[[users]]`` and
+        ``[[groups]]`` create; ``/usr/lib/tmpfiles.d/NAME.conf`` creates each
+        ghost directory in the file DB at install time. NAME is ``[package]
+        name``. A file with nothing to say is not written, and one recorded
+        earlier is removed with its entry. :meth:`stage` runs this after its
+        steps.
+
+        Returns:
+            What was written: the entry of each file, or ``None`` for a file
+            removed.
+
+        Raises:
+            UsageError: there is something to write and no ``[package]
+                name``, or a ghost directory's path cannot be spelled in
+                ``tmpfiles.d``.
+            DbError: the file DB cannot be read.
+            OSError: the file system refused.
+        """
+        self._begin_operation()
+        return self._sysfiles(self.entries(), _SYSFILES_LOGGER)
+
+    def _sysfiles(self, entries: FileEntries, logger: logging.Logger) -> FileRecords:
+        """:meth:`sysfiles` over ``entries``, the live entries of the DB, in
+        the running operation."""
+        package = self.config.package
+        held = {path for path, _entry in entries}
+        records: FileRecords = []
+        for directory, text in (
+            (SYSUSERS_DIR, sysusers_text(self.config)),
+            (TMPFILES_DIR, tmpfiles_text(entries)),
+        ):
+            if package is None and text:
+                raise UsageError(
+                    f"generating {directory}/NAME.conf needs [package] name"
+                )
+            path = f"{directory}/{package.name if package else ''}.conf"
+            if not text:
+                if package is not None and path in held:
+                    local = self._rootpath(path)
+                    with contextlib.suppress(FileNotFoundError):
+                        local.unlink()
+                    self._write(path, None, records)
+                    records.append((path, None))
+                    logger.info("removed %s", path)
+                continue
+            local = self._rootpath(path)
+            local.parent.mkdir(parents=True, exist_ok=True)
+            with contextlib.suppress(FileNotFoundError):
+                local.unlink()
+            local.write_bytes(text.encode("utf-8"))
+            os.chmod(local, 0o644)
+            entry = self._write(
+                path,
+                {
+                    "mode": "644",
+                    "owner": "root",
+                    "group": "root",
+                    "type": FileType.File.value,
+                    "kind": "file",
+                    "caps": DEFAULT,
+                    "meta": {},
+                },
+                records,
+            )
+            records.append((path, entry))
+            logger.info("wrote %s", path)
         return records
 
     def _stage_step(self, step: StageStep) -> FileRecords:

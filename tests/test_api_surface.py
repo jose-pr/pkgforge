@@ -21,6 +21,7 @@ from pkgforge.cli.mkdir import Mkdir
 from pkgforge.cli.scan import ScanCmd
 from pkgforge.cli.stage import Stage
 from pkgforge.cli.symlink import Symlink
+from pkgforge.cli.sysfiles import Sysfiles
 
 SRC = str(Path(__file__).resolve().parents[1] / "src")
 #: The names of the root package: the library API, nothing of the command line.
@@ -75,8 +76,9 @@ def _keywords(method: typing.Callable[..., object]) -> typing.Set[str]:
         (Stage, Project.stage),
         (Mkdir, Project.mkdir),
         (Symlink, Project.symlink),
+        (Sysfiles, Project.sysfiles),
     ],
-    ids=["install", "scan", "dbdump", "stage", "mkdir", "symlink"],
+    ids=["install", "scan", "dbdump", "stage", "mkdir", "symlink", "sysfiles"],
 )
 def test_command_fields_match_library_keywords(command, method):
     assert _command_fields(command) == _keywords(method)

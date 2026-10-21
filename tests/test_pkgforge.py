@@ -44,6 +44,7 @@ def test_all_commands_registered():
         "stage",
         "mkdir",
         "symlink",
+        "sysfiles",
     }
 
 
