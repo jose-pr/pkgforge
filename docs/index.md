@@ -30,6 +30,8 @@ and emit that record for the packager.
 
 ```bash
 pip install pkgforge
+pip install 'pkgforge[yaml]'   # also the YAML DB backend (PyYAML)
+pip install 'pkgforge[zstd]'   # also zstd packages below Python 3.14 (zstandard)
 ```
 
 Requires Python 3.9+. Runtime targets Linux (it uses POSIX `chmod`/`chown` and
