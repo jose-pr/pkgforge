@@ -43,6 +43,7 @@ from .entry import (
 )
 from .exceptions import UsageError
 from .exclude import PathMatch, _statements
+from .package import build as _build_packages
 
 __all__ = ["Project", "VerifyIssue"]
 
@@ -1329,6 +1330,60 @@ class Project:
             config_path=self.config_path,
             skeleton=skeleton,
             force=force,
+        )
+
+    def package(
+        self,
+        fmt: str,
+        output: StrPath = ".",
+        *,
+        arch: typing.Optional[str] = None,
+        compression: typing.Optional[str] = None,
+    ) -> typing.List[Path]:
+        """Build one package per declared package, in the format ``fmt``, from
+        the file DB and the build root (see :func:`pkgforge.package.build`).
+
+        Nothing is staged: every live entry that is not a ghost must already be
+        in the build root with its recorded type, and files the DB does not
+        record are not shipped. Owners and modes come from the DB, so a package
+        built from a build root owned by anyone holds the same bytes. The
+        packages go into the directory ``output`` (created if missing); ``arch``
+        names the architecture of an ``any`` package in the format's own
+        spelling (default: this machine's) and ``compression`` is one the format
+        offers (default: its first).
+
+        Returns:
+            The paths written, the main package first, then each
+            ``[[packages]]`` element in order.
+
+        Raises:
+            UsageError: there is no file DB or its file is missing, the build
+                root does not exist, ``fmt`` is unknown, ``arch`` or
+                ``compression`` does not fit the format, the format needs a
+                ``[package]`` key the configuration lacks, ``SOURCE_DATE_EPOCH``
+                is not a number, an entry ships in a package the configuration
+                does not declare, a recorded path is missing from the build root
+                or has another type there, or ``zstd`` is asked for with
+                neither Python 3.14 nor the ``zstd`` extra.
+            InvalidEntryError: an entry no format can represent.
+            DumpError: an entry ``fmt`` cannot represent (a user or group name
+                longer than a tar header holds).
+            PkgForgeError: a tool the format runs failed.
+            OSError: a file could not be read or written.
+        """
+        self._existing_db()
+        root = self._rootpath("/")
+        if not root.exists():
+            raise UsageError(f"build root {root} does not exist")
+        return _build_packages(
+            self.load(),
+            fmt,
+            output,
+            buildroot=root,
+            config=self.config,
+            config_path=self.config_path,
+            arch=arch,
+            compression=compression,
         )
 
     def verify(self, *, exclude: typing.Sequence[str] = ()) -> typing.List[VerifyIssue]:

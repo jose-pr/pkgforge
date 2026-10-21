@@ -20,6 +20,7 @@ from .exceptions import (
     UnsupportedOutputError,
     UsageError,
 )
+from .package import PackageFormat
 from .project import Project, VerifyIssue
 
 try:  # resolve the installed distribution version, if any
@@ -38,6 +39,7 @@ __all__ = [
     "FileRecords",
     "FileType",
     "InvalidEntryError",
+    "PackageFormat",
     "PkgForgeError",
     "Project",
     "StrPath",

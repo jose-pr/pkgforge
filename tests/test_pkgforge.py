@@ -46,6 +46,7 @@ def test_all_commands_registered():
         "symlink",
         "sysfiles",
         "verify",
+        "package",
     }
 
 

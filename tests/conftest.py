@@ -282,19 +282,22 @@ def package_cfg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 @pytest.fixture
 def restore_registries():
     """Snapshot/restore the pluggable-class registries around a test that
-    registers a throwaway :class:`~pkgforge.db.DbProvider` or
-    :class:`~pkgforge.dbdump.DumpFormat` subclass.
+    registers a throwaway :class:`~pkgforge.db.DbProvider`,
+    :class:`~pkgforge.dbdump.DumpFormat` or
+    :class:`~pkgforge.package.PackageFormat` subclass.
 
-    Both registries are plain ``{name-or-alias: class}`` dicts populated by
+    The registries are plain ``{name-or-alias: class}`` dicts populated by
     :class:`pkgforge._registry.Registered.__init_subclass__`; a test-only
     subclass registered without this fixture would leak into every test that
     runs afterward in the same process.
     """
     from pkgforge.db import DbProvider
     from pkgforge.dbdump import DumpFormat
+    from pkgforge.package import PackageFormat
 
     db_before = dict(DbProvider._registry)
     dump_before = dict(DumpFormat._registry)
+    package_before = dict(PackageFormat._registry)
     try:
         yield
     finally:
@@ -302,6 +305,8 @@ def restore_registries():
         DbProvider._registry.update(db_before)
         DumpFormat._registry.clear()
         DumpFormat._registry.update(dump_before)
+        PackageFormat._registry.clear()
+        PackageFormat._registry.update(package_before)
         assert "tsv" not in DbProvider._registry
         assert "custom" not in DumpFormat._registry
 

@@ -7,7 +7,7 @@ API. For the CLI overview see the shipped `README.md` or <https://github.com/jos
 
 `pkgforge.__all__`: `DbError`, `DbProvider`, `DumpError`, `DumpFormat`,
 `ExcludeSyntaxError`, `FileEntries`, `FileEntry`, `FileRecords`, `FileType`,
-`InvalidEntryError`, `PkgForgeError`, `Project`, `StrPath`,
+`InvalidEntryError`, `PackageFormat`, `PkgForgeError`, `Project`, `StrPath`,
 `UnsupportedOutputError`, `UsageError`, `VerifyIssue`, `__version__`,
 `open_db`. `FileKind` and
 the entry functions (`apply_entry`, `entry_from_path`, `normalize_caps`,
@@ -214,7 +214,7 @@ The Python API for build scripts; the `pkgforge` command line is a wrapper
 over it. Nothing in it prints, exits or reads `sys.argv`; it logs under the
 operation loggers `pkgforge.install`, `pkgforge.scan`, `pkgforge.initdb`,
 `pkgforge.compact`, `pkgforge.dbdump`, `pkgforge.mkdir`, `pkgforge.symlink`,
-`pkgforge.sysfiles`, `pkgforge.stage` and `pkgforge.verify`. DB paths (`dest`, a scan `path`, a
+`pkgforge.sysfiles`, `pkgforge.stage`, `pkgforge.verify` and `pkgforge.package`. DB paths (`dest`, a scan `path`, a
 DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
 
 - **`Project(buildroot: StrPath, db: StrPath | DbProvider | None = None, *,
@@ -383,6 +383,19 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   a missing file DB or a missing build root; `ExcludeSyntaxError` for a bad
   statement. Logs `verified N entries: M issue(s)` under `pkgforge.verify`
   (INFO).
+- **`package(fmt: str, output: StrPath = ".", *, arch: str | None = None,
+  compression: str | None = None) -> list[Path]`** — build one package per
+  declared package (the main first, then each `[[packages]]` element) in the
+  format `fmt` into the directory `output` (created if missing) and return the
+  paths written; see [Package formats](#package-formats-package). Nothing is
+  staged: every live non-ghost entry must exist in the build root with its
+  recorded type, and files the DB does not record are not shipped. `UsageError`
+  for no file DB, a missing DB file or build root, an unknown `fmt`, an `arch`
+  or `compression` the format cannot take, a `[package]` key the format needs,
+  an entry of an undeclared package, or a recorded path that is missing or of
+  another type (naming the path and `pkgforge verify`); `InvalidEntryError`;
+  `DumpError` for an entry the format cannot represent; `PkgForgeError` for a
+  failed tool; `OSError`.
 - **`VerifyIssue(path: str, problem: str, recorded: str | None, found: str |
   None)`** — a `typing.NamedTuple`: `path` a DB path, `problem` one of
   `unrecorded`, `missing`, `type`, `target`. `recorded` is the entry's type (or
@@ -869,6 +882,74 @@ whole file is validated before any command runs: a problem is one
   separator, which split a path containing one (e.g. a source named
   `back\slash`) in the wrong place on Windows.
 
+## Package formats (`package/`)
+
+Importing `pkgforge.package` loads no optional dependency.
+
+- **`build(db: Mapping[str, FileEntry | None], fmt: str, output: StrPath, *,
+  buildroot: StrPath, config: ProjectConfig | None = None, config_path:
+  StrPath | None = None, arch: str | None = None, compression: str | None =
+  None) -> list[Path]`** — what `Project.package` calls with the loaded DB: look
+  up `fmt`, check `compression` (default: the format's first; `UsageError("FMT
+  takes --compression a, b")`, or `"FMT takes no --compression"`) and `arch`
+  (`[a-z0-9_]+`), check the `[package]` keys the format needs (`UsageError("tar
+  needs [package] version")`), read `SOURCE_DATE_EPOCH` (an integer, else
+  `UsageError`), drop removed entries, validate (`InvalidEntryError`), group the
+  entries per package and call the format. Logs `Wrote PATH` per file and `built
+  N package(s) with FMT` (INFO) under `pkgforge.package`.
+- **`PackageFormat(pkgforge._registry.Registered, abc.ABC)`** — a package
+  format, selected by `package -f NAME`. A subclass registers by declaring its
+  own `NAME`/`ALIASES`, or is advertised in the `pkgforge.package_formats`
+  entry-point group (same rule as `DumpFormat`). ClassVars: `COMPRESSIONS:
+  tuple[str, ...]` (the payload compressions it offers, the default first;
+  empty refuses `--compression`), `REQUIRED` (the `[package]` keys it needs
+  besides `name`), `SUB_REQUIRED` (the keys of each `[[packages]]` element),
+  `ALL_ARCH: str = "all"` (its name for an architecture-independent package)
+  and `MACHINES: Mapping[str, str]` (`platform.machine()` in lowercase to its
+  architecture name). `build(self, payloads: Sequence[PackagePayload], context:
+  BuildContext) -> list[Path]` (abstract) writes one file per payload into
+  `context.output` and returns the paths in payload order. `arch_name(self,
+  payload, context) -> str`: `ALL_ARCH` for an `all` package, else
+  `context.arch` verbatim, else `MACHINES[platform.machine().lower()]`;
+  `UsageError("FMT: no architecture name for machine 'm': pass --arch")` for a
+  machine the table lacks.
+- **`BuildContext(config, buildroot, output, compression, arch, epoch,
+  config_path=None)`** — frozen dataclass: the project configuration, the build
+  root, the output directory, the chosen compression (`None` when the format
+  offers none), `--arch`, the `SOURCE_DATE_EPOCH` seconds (`None` when unset) and
+  the configuration file.
+- **`PackagePayload(name, main, info, arch, entries)`** — a `NamedTuple`: the
+  package name, the `[package]` table (`PackageInfo`, which holds the version and
+  release), the package's own table (`PackageInfo` or `SubPackageInfo`), its
+  architecture (`"all"` or `"any"`: its own, else the main's, else `"any"`) and
+  its live entries sorted by DB path.
+- **`TarFormat`** — `NAME = "tar"`, `COMPRESSIONS = ("gz", "xz", "zst",
+  "none")`, `REQUIRED = ("version",)`. One `NAME-VERSION[-RELEASE].tar[.gz|.xz|
+  .zst]` per package (the main package's version and release, the package's own
+  name). GNU tar, names without `./` and no entry for the root, so extracting
+  over `/` touches nothing it does not ship; ghost entries are left out. A
+  file capability cannot be stored: each caps entry logs a WARNING (`PATH: a tar
+  carries no file capability; run setcap CAPS PATH after extracting`).
+
+Every format shares one payload writer. A path ships when its entry is live and
+not a `ghost`; it is read from the build root (`os.lstat`, never followed), and a
+recorded path that is missing, or of another type than recorded, is a
+`UsageError` naming the path and `pkgforge verify`. Headers carry the DB's user
+and group names (`-` is `root`; a name over 32 UTF-8 bytes is `DumpError`, since a
+GNU header would cut it) and uid and gid 0. The mode is the entry's; `-` is the
+staged file's permission bits, and a symlink is `0777`. The time is the staged
+mtime, at most `SOURCE_DATE_EPOCH` when it is set; with it set, every
+build-time stamp is that value too and gzip headers carry no time, so two builds
+of one build root are byte-identical (for one Python and one zstd library). Every
+ancestor directory a package does not record is added as `755 root:root`. Members
+are sorted by DB path.
+
+Compression: `gz` is gzip level 9, `xz` is preset 6 with a CRC64 check, `zst` is
+zstd level 19, `none` is the bare tar. zstd is `compression.zstd` on Python 3.14,
+else the `zstandard` package of the optional `zstd` extra (`pip install
+'pkgforge[zstd]'`); with neither, `UsageError` naming the extra and
+`--compression xz`.
+
 ## Contract suite (`testing.py`)
 
 - **`check_db_provider(cls: type[DbProvider], directory: StrPath) -> None`**
@@ -927,7 +1008,7 @@ once the operation has succeeded.
 Each subcommand logs under `pkgforge.<command>` (`pkgforge.install`,
 `pkgforge.scan`, `pkgforge.dbdump`, `pkgforge.initdb`, `pkgforge.compact`,
 `pkgforge.stage`, `pkgforge.mkdir`, `pkgforge.symlink`, `pkgforge.sysfiles`,
-`pkgforge.verify`): control one with `--loglevel pkgforge.<command>:LEVEL`, or the running command
+`pkgforge.verify`, `pkgforge.package`): control one with `--loglevel pkgforge.<command>:LEVEL`, or the running command
 with `--loglevel LEVEL`. A bare `--loglevel pkgforge:LEVEL` has no effect on a
 CLI-dispatched command, whose own logger always has an explicit level (INFO by
 default).
@@ -1234,6 +1315,17 @@ there with a `UsageError`. See [Environment variables](#environment-variables).
   "recorded", "found"}]}` and a newline instead. `-X` takes DB paths, as in
   `dbdump`. Exit `2` for no file DB (`--db` unset or `-`), a missing DB file or
   a missing build root.
+
+- **`pkgforge package -f FORMAT [-o DIR] [--arch NAME] [--compression KIND]`** —
+  `Project.package`: build one package per declared package from the file DB and
+  the build root. `-f` is `tar`; `-o` defaults to `.` and is created when
+  missing. Prints each path written on stdout, one per line, the main package
+  first. `--arch` names the architecture of an `any` package in the format's own
+  spelling (default: this machine's); `--compression` is one the format offers.
+  Exit `2` for `--db -`, no file DB, a missing DB file or build root, an unknown
+  format, a bad `--arch` or `--compression`, a missing `[package]` key, a missing
+  `zstd` library, or a recorded path missing from the build root; `1` for a
+  file problem or an entry the format cannot represent.
 
 ## Environment variables
 

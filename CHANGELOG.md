@@ -7,6 +7,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `pkgforge package -f tar` (`Project.package`, `pkgforge.package.build`) builds
+  one archive per declared package straight from the file DB and the build
+  root, named `NAME-VERSION[-RELEASE].tar[.gz|.xz|.zst]`: user and group names
+  and modes come from the DB, and two builds of one build root are
+  byte-identical with `SOURCE_DATE_EPOCH` set. `-o` picks the directory,
+  `--compression` one of `gz`, `xz`, `zst` and `none`. A format is a
+  `PackageFormat` subclass, selected by `NAME` or advertised in the
+  `pkgforge.package_formats` entry-point group.
+- A `zstd` extra (`pip install "pkgforge[zstd]"`) provides zstd compression below
+  Python 3.14, which has `compression.zstd`.
 - A guide page, "From pkgforge.cfg to .rpm and .deb", walks the `hello` example
   from `pkgforge stage` and `pkgforge verify` through `dbdump -f rpmspec` and
   `rpmbuild`, and `dbdump -f debian --skeleton` and `dpkg-buildpackage`, to two

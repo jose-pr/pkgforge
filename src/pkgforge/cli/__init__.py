@@ -22,6 +22,7 @@ from .dbdump import DbDump
 from .initdb import InitDb
 from .install import Install
 from .mkdir import Mkdir
+from .package import Package
 from .scan import ScanCmd
 from .stage import Stage
 from .symlink import Symlink
@@ -34,7 +35,8 @@ __all__ = ["PkgForge", "main"]
 class PkgForge(ConfigArgs, ProjectCmd, Cli):
     """Stage files into a build root and record their intended install
     metadata (mode, owner, group, type) in a file DB. Dump that DB into
-    packaging manifests (RPM %files, Debian install/dirs/fixperms).
+    packaging manifests (RPM %files, Debian install/dirs/fixperms), or build
+    packages from it directly.
     """
 
     # The project file: --config, else PKGFORGE_CONFIG (must exist; empty
@@ -60,6 +62,7 @@ class PkgForge(ConfigArgs, ProjectCmd, Cli):
         Symlink,
         Sysfiles,
         Verify,
+        Package,
     )
     # First match wins: a usage mistake is listed before the class it belongs to.
     _errors_ = {

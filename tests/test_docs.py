@@ -107,6 +107,11 @@ REQUIRED_API_TARGETS = (
     "pkgforge.dbdump.RPMSpec",
     "pkgforge.dbdump.RPMSpecPre419",
     "pkgforge.dbdump.DebianFiles",
+    "pkgforge.package.PackageFormat",
+    "pkgforge.package.BuildContext",
+    "pkgforge.package.PackagePayload",
+    "pkgforge.package.build",
+    "pkgforge.package.TarFormat",
     "pkgforge.testing.check_db_provider",
     "pkgforge.testing.check_dump_format",
 )

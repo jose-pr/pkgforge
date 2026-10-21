@@ -18,6 +18,7 @@ from pkgforge.cli._common import ProjectCmd
 from pkgforge.cli.dbdump import DbDump
 from pkgforge.cli.install import Install
 from pkgforge.cli.mkdir import Mkdir
+from pkgforge.cli.package import Package
 from pkgforge.cli.scan import ScanCmd
 from pkgforge.cli.stage import Stage
 from pkgforge.cli.symlink import Symlink
@@ -37,6 +38,7 @@ ROOT_ALL = (
     "FileRecords",
     "FileType",
     "InvalidEntryError",
+    "PackageFormat",
     "PkgForgeError",
     "Project",
     "StrPath",
@@ -85,6 +87,7 @@ def _keywords(method: typing.Callable[..., object]) -> typing.Set[str]:
         (Symlink, Project.symlink),
         (Sysfiles, Project.sysfiles),
         (Verify, Project.verify),
+        (Package, Project.package),
     ],
     ids=[
         "install",
@@ -95,6 +98,7 @@ def _keywords(method: typing.Callable[..., object]) -> typing.Set[str]:
         "symlink",
         "sysfiles",
         "verify",
+        "package",
     ],
 )
 def test_command_fields_match_library_keywords(command, method):

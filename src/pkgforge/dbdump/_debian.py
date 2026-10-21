@@ -32,6 +32,7 @@ from . import (
     _packages,
     _reject_control,
     _require_keys,
+    _source_date_epoch,
     _write_files,
 )
 
@@ -300,17 +301,12 @@ def _control(context: DumpContext) -> str:
 def _changelog(context: DumpContext) -> str:
     main = context.config.package
     assert main is not None
-    epoch = os.environ.get("SOURCE_DATE_EPOCH")
-    try:
-        moment = (
-            datetime.datetime.fromtimestamp(int(epoch), datetime.timezone.utc)
-            if epoch
-            else datetime.datetime.now(datetime.timezone.utc)
-        )
-    except (ValueError, OverflowError, OSError):
-        raise UsageError(
-            f"SOURCE_DATE_EPOCH={epoch!r} is not a number of seconds"
-        ) from None
+    epoch = _source_date_epoch()
+    moment = (
+        datetime.datetime.fromtimestamp(epoch, datetime.timezone.utc)
+        if epoch is not None
+        else datetime.datetime.now(datetime.timezone.utc)
+    )
     version = f"{main.version}-{main.release}" if main.release else main.version
     return (
         f"{main.name} ({version}) unstable; urgency=medium\n\n"

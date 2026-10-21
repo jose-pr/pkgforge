@@ -31,6 +31,7 @@ from __future__ import annotations
 import abc
 import contextlib
 import dataclasses
+import datetime
 import logging
 import os
 import re
@@ -192,6 +193,26 @@ def _validate_entries(entries: FileEntries) -> None:
     ):
         for path, entry in entries:
             _check_entry(path, entry)
+
+
+def _source_date_epoch() -> typing.Optional[int]:
+    """``SOURCE_DATE_EPOCH`` as whole seconds, or ``None`` when it is unset or
+    empty.
+
+    Raises :class:`~pkgforge.exceptions.UsageError` for a value that is not a
+    number of seconds a timestamp can hold.
+    """
+    text = os.environ.get("SOURCE_DATE_EPOCH")
+    if not text:
+        return None
+    try:
+        seconds = int(text)
+        datetime.datetime.fromtimestamp(seconds, datetime.timezone.utc)
+    except (ValueError, OverflowError, OSError):
+        raise UsageError(
+            f"SOURCE_DATE_EPOCH={text!r} is not a number of seconds"
+        ) from None
+    return seconds
 
 
 def _write_files(files: typing.Dict[Path, bytes]) -> None:

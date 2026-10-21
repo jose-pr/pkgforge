@@ -48,7 +48,8 @@ pkgforge --config pkgforge.cfg stage --init
 
 Every command logs under its own logger, `pkgforge.<command>` (`pkgforge.install`,
 `pkgforge.scan`, `pkgforge.dbdump`, `pkgforge.initdb`, `pkgforge.compact`,
-`pkgforge.stage`, `pkgforge.mkdir`, `pkgforge.symlink`, `pkgforge.verify`), so
+`pkgforge.stage`, `pkgforge.mkdir`, `pkgforge.symlink`, `pkgforge.verify`,
+`pkgforge.package`), so
 `logging.getLogger("pkgforge")` controls all of them from Python.
 
 - `-v, --verbose` (repeatable) raises the running command's own log level;

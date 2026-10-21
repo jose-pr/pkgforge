@@ -44,6 +44,7 @@ nav:
       - DB backends: api/db.md
       - Exclude grammar: api/exclude.md
       - Dump formats: api/dbdump.md
+      - Package formats: api/package.md
       - Contract suite: api/testing.md
   - Changelog: changelog.md
 
