@@ -14,7 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from pkgforge import Project
+from pkgforge import DumpError, Project
+from pkgforge.package._deb import _ar_member
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 EPOCH = 1_500_000_000
@@ -491,3 +492,12 @@ def test_deb_hardlinks(work, cli, tmp_path):
     assert int(values["Installed-Size"]) == _kib(
         member for member in payload.values() if not member.islnk()
     )
+
+
+def test_deb_ar_member_longer_than_the_header_holds_is_refused():
+    out = io.BytesIO()
+    with pytest.raises(DumpError, match=r"data\.tar\.xz is 10000000000 bytes"):
+        with _ar_member(out, "data.tar.xz", 0) as member:
+            # Seeking past the end stands in for writing ten billion bytes.
+            member.seek(member.tell() + 10_000_000_000)
+    assert out.getvalue()[48:58] == b" " * 10

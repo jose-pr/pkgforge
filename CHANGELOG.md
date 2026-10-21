@@ -49,7 +49,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `setcap`). `--compression` is `xz` (the default), `gz`, `zst` or `none`;
   `--arch` names the architecture of an `any` package. It needs `[package]`
   `version`, `summary` and `maintainer`, and a `summary` per `[[packages]]`
-  element.
+  element. A compressed `control.tar` or `data.tar` over 9999999999 bytes, more
+  than an ar header holds, exits 1, as `dpkg-deb` refuses it.
 - `pkgforge package -f tar` (`Project.package`, `pkgforge.package.build`) builds
   one archive per declared package straight from the file DB and the build
   root, named `NAME-VERSION[-RELEASE].tar[.gz|.xz|.zst]`: user and group names

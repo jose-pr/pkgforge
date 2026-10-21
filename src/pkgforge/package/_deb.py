@@ -18,7 +18,7 @@ from ..dbdump._debian import (
     _package_lines,
 )
 from ..entry import DEFAULT, FileType, _or_default
-from ..exceptions import UsageError
+from ..exceptions import DumpError, UsageError
 from . import BuildContext, PackageFormat, PackagePayload
 from ._compress import SUFFIXES
 from ._payload import (
@@ -38,6 +38,9 @@ _SHEBANG = "#!/bin/sh\nset -e\n"
 _SYSTEMD_UP = '[ -z "$DPKG_ROOT" ] && [ "$1" = remove ] && [ -d /run/systemd/system ]'
 _ROOT_OPTION = '${DPKG_ROOT:+--root="$DPKG_ROOT"}'
 _AR_MAGIC = b"!<arch>\n"
+#: The largest size the ten decimal digits of an ar header hold; dpkg-deb
+#: refuses a larger member too.
+_AR_MAX_SIZE = 9_999_999_999
 
 
 @contextlib.contextmanager
@@ -46,13 +49,22 @@ def _ar_member(
 ) -> typing.Iterator[typing.BinaryIO]:
     """One ar member of ``out``, which must be seekable: a 60-byte header whose
     size is filled in when the block ends, the data written inside the block,
-    then a newline when the size is odd."""
+    then a newline when the size is odd.
+
+    Raises:
+        DumpError: the member is longer than the header's ten size digits hold.
+    """
     out.write(f"{name:<16}{when:<12}{0:<6}{0:<6}{0o100644:<8o}".encode("ascii"))
     size_at = out.tell()
     out.write(b" " * 10 + b"`\n")
     start = out.tell()
     yield out
     end = out.tell()
+    if end - start > _AR_MAX_SIZE:
+        raise DumpError(
+            f"deb: {name} is {end - start} bytes, more than an ar member holds "
+            f"({_AR_MAX_SIZE})"
+        )
     out.seek(size_at)
     out.write(f"{end - start:<10}".encode("ascii"))
     out.seek(end)

@@ -1039,8 +1039,9 @@ Importing `pkgforge.package` loads no optional dependency.
   `NAME_VERSION[-RELEASE]_ARCH.deb` per package, written without `dpkg-deb`,
   debhelper or fakeroot: an ar archive of `debian-binary` (`2.0`),
   `control.tar` and `data.tar` (GNU tar with a `./` root, compressed as
-  `--compression`, default `xz`; dpkg refuses pax headers). Headers carry the
-  DB's names, except an entry owned by an account the package creates at install
+  `--compression`, default `xz`; dpkg refuses pax headers); a member longer than
+  the ar header's 9999999999 bytes is `DumpError`, as dpkg-deb refuses it.
+  Headers carry the DB's names, except an entry owned by an account the package creates at install
   time (outside the base-passwd set), which is `root:root` with its recorded mode
   and `postinst` applies it with `dpkg-statoverride`, as the debhelper recipe
   does. `control` holds `Package`, `Source` (a subpackage), `Version`
