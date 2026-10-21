@@ -325,9 +325,16 @@ def _rules(context: DumpContext) -> str:
     if context.config_path is None:
         raise UsageError(_NO_CFG)
     cfg = context.config_path.resolve()
-    root = context.output.resolve().parent if context.output is not None else None
+    output = context.output
+    assert output is not None  # _skeleton: a skeleton needs a directory OUTPUT
+    # The source root is OUTPUT's parent. Resolving that existing directory, not
+    # the OUTPUT that may not exist yet, spells it as `cfg` is spelled.
+    if output.name in ("", ".", ".."):
+        root = output.resolve().parent
+    else:
+        root = output.parent.resolve()
     try:
-        ref = cfg.relative_to(root).as_posix() if root is not None else cfg.as_posix()
+        ref = cfg.relative_to(root).as_posix()
     except ValueError:
         ref = cfg.as_posix()
     # `$` is make's escape character; the shell sees the quoted name.
