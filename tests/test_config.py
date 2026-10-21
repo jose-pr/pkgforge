@@ -5,11 +5,14 @@ from __future__ import annotations
 
 import dataclasses
 import re
+import typing
 from pathlib import Path
 
+import duho
 import pytest
 
 from pkgforge import Project
+from pkgforge.cli import PkgForge
 from pkgforge.config import (
     ApkInfo,
     EntryDefaults,
@@ -22,6 +25,7 @@ from pkgforge.config import (
     ProjectConfig,
     StageStep,
     UserAccount,
+    _read,
     load,
 )
 from pkgforge.exceptions import UsageError
@@ -692,6 +696,58 @@ def test_a_full_file_leaves_a_command_working(cli, tmp_path, monkeypatch):
     result = cli("--config", str(path), "-q", "install", "-D", "", "/x")
     assert result.rc == 0, result.err
     assert (tmp_path / "root" / "x").is_file()
+
+
+#: The fields the top-level keys of the file fill on every command, by design.
+LAYERED_FIELDS = {"buildroot", "db", "db_format", "own"}
+
+#: A command line per command that parses without running anything.
+COMMAND_ARGV = {
+    "install": ("install", "src", "/dest"),
+    "scan": ("scan", "/"),
+    "initdb": ("initdb",),
+    "compact": ("compact",),
+    "dbdump": ("dbdump", "-f", "rpmspecfiles"),
+    "stage": ("stage",),
+    "mkdir": ("mkdir", "/dir"),
+    "symlink": ("symlink", "target", "/link"),
+    "sysfiles": ("sysfiles",),
+    "verify": ("verify",),
+    "package": ("package", "-f", "tar"),
+}
+
+
+def test_no_table_key_fills_a_command_field(tmp_path):
+    """duho layers a table named like a subcommand onto that command, so a key
+    of such a table that shares a field's name would fill the flag silently
+    (as ``[package] arch`` would fill ``package --arch``)."""
+    commands = {cmd._parsername_ for cmd in PkgForge._subcommands_}
+    assert set(COMMAND_ARGV) == commands
+    hints = typing.get_type_hints(ProjectConfig)
+    # [[stage]] is an array of tables, which duho does not layer.
+    tables = {
+        name
+        for name in commands & set(hints)
+        if typing.get_origin(hints[name]) is not tuple
+        and any(dataclasses.is_dataclass(arg) for arg in typing.get_args(hints[name]))
+    }
+    assert tables == {"package"}
+    text = FULL.replace(
+        'license = "MIT"\n', 'license = "MIT"\nhomepage = "https://example.org"\n'
+    )
+    path = write(tmp_path, text + '\n[[packages]]\nname = "hello-doc"\n')
+    assert set(_read(path)["package"]) == {
+        item.name for item in dataclasses.fields(PackageInfo)
+    }
+    for name, argv in COMMAND_ARGV.items():
+        plain = vars(duho.parse(PkgForge, list(argv)))
+        layered = vars(duho.parse(PkgForge, ["--config", str(path), *argv]))
+        changed = {
+            key
+            for key, value in layered.items()
+            if not key.startswith("_") and key != "config" and plain.get(key) != value
+        }
+        assert changed == LAYERED_FIELDS, (name, changed)
 
 
 # -- the library -------------------------------------------------------------
