@@ -301,13 +301,17 @@ def test_packaging_walkthrough(tmp_path):
     for fence in _fences(text, langs=("sh",)):
         if "rpmbuild" in fence:
             if not have_rpm:
-                continue
-            version = subprocess.run(
-                ["rpmbuild", "--version"], capture_output=True, text=True
-            ).stdout
-            m = re.search(r"(\d+)\.(\d+)", version)
-            if m and (int(m.group(1)), int(m.group(2))) < (4, 19):
-                fence = fence.replace("-f rpmspec ", "-f rpmspec-pre419 ")
+                # The spec is still written; only the build needs rpm.
+                fence = "\n".join(
+                    line for line in fence.splitlines() if "rpmbuild" not in line
+                )
+            else:
+                version = subprocess.run(
+                    ["rpmbuild", "--version"], capture_output=True, text=True
+                ).stdout
+                m = re.search(r"(\d+)\.(\d+)", version)
+                if m and (int(m.group(1)), int(m.group(2))) < (4, 19):
+                    fence = fence.replace("-f rpmspec ", "-f rpmspec-pre419 ")
         elif "dpkg-buildpackage" in fence:
             if not have_deb:
                 continue
