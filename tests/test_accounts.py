@@ -78,6 +78,26 @@ BAD_TABLES = [
         PACKAGE + '[[users]]\nname = "hi"\ndescription = "a\\u0007b"\n',
         "description",
     ),
+    (
+        "a backslash in the description",
+        PACKAGE + '[[users]]\nname = "hi"\ndescription = "a\\\\b"\n',
+        "description",
+    ),
+    (
+        "a backslash in the home",
+        PACKAGE + '[[users]]\nname = "hi"\nhome = "/var/a\\\\b"\n',
+        "home",
+    ),
+    (
+        "a description for an existing user",
+        PACKAGE + '[[users]]\nname = "hi"\ncreate = false\ndescription = "x"\n',
+        "description: only valid with create = true",
+    ),
+    (
+        "groups for an existing user",
+        PACKAGE + '[[users]]\nname = "hi"\ncreate = false\ngroups = ["adm"]\n',
+        "groups: only valid with create = true",
+    ),
     ("a relative home", PACKAGE + '[[users]]\nname = "hi"\nhome = "var/hi"\n', "home"),
     (
         "a space in the shell",

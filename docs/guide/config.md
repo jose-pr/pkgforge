@@ -136,8 +136,8 @@ read from disk with `--` included.
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `name` | text | required | the account name. A created name matches `[a-z_][a-z0-9_-]{0,30}` and is not a base-passwd name |
-| `description` | text | none | `[[users]]` only: no control character and no `"` |
-| `home`, `shell` | text | none | `[[users]]` only: absolute, with no whitespace |
+| `description` | text | none | `[[users]]` only: no control character, `"` or `\` |
+| `home`, `shell` | text | none | `[[users]]` only: absolute, with no whitespace or `\` |
 | `groups` | list of text | none | `[[users]]` only: supplementary groups, base-passwd or declared |
 | `create` | boolean | `true` | `false` when the account already exists on the target |
 
@@ -162,7 +162,8 @@ project file only base names pass.
 
 `create = true` (the default) makes the package create the account at install
 time; `create = false` names one a dependency creates, which writes no line but
-still owns files at install time. A created name must match
+still owns files at install time, and takes no `description`, `home`, `shell` or
+`groups` (the account is not changed). A created name must match
 `[a-z_][a-z0-9_-]{0,30}`; a base-passwd name is refused as a declaration.
 
 ```toml

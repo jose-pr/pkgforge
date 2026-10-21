@@ -84,7 +84,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   package's files belong to (`UserAccount`, `GroupAccount` in `pkgforge.config`;
   `ProjectConfig.users` and `.groups`): `name`, and for a user `description`,
   `home`, `shell` and supplementary `groups`; `create = false` marks an account
-  that already exists on the target. `pkgforge.entry.BASE_USERS` and
+  that already exists on the target and takes `name` only. `pkgforge.entry.BASE_USERS` and
   `BASE_GROUPS` are Debian's base-passwd names, which need no declaration.
 - `pkgforge sysfiles` (and `Project.sysfiles`) writes `/usr/lib/sysusers.d/NAME.conf`
   for the accounts `[[users]]` and `[[groups]]` create and

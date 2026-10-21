@@ -309,7 +309,6 @@ class StageStep:
 
 #: The names a package may create: what ``systemd-sysusers`` accepts.
 _CREATED_NAME = re.compile(r"[a-z_][a-z0-9_-]{0,30}")
-_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 
 
 def _declared_name(value: str, created: bool, base: typing.FrozenSet[str]) -> str:
@@ -330,13 +329,14 @@ def _declared_name(value: str, created: bool, base: typing.FrozenSet[str]) -> st
 def _absolute_word(
     value: typing.Optional[str], field_name: str
 ) -> typing.Optional[str]:
-    """``value`` when it is an absolute path with no whitespace or control
-    character."""
+    """``value`` when it is an absolute path with no whitespace, backslash or
+    control character (``systemd-sysusers`` drops an unquoted backslash)."""
     if value is None:
         return None
-    if not value.startswith("/") or re.search(r"[\s\x00-\x1f\x7f]", value):
+    if not value.startswith("/") or re.search(r"[\s\\\x00-\x1f\x7f]", value):
         raise UsageError(
-            f"{field_name}: {value!r} must be an absolute path with no whitespace"
+            f"{field_name}: {value!r} must be an absolute path with no "
+            "whitespace or backslash"
         )
     return value
 
@@ -350,8 +350,8 @@ class UserAccount:
     name) with ``description`` as its GECOS text, ``home`` and ``shell``, and
     adds it to the supplementary ``groups``. With ``create = false`` the
     account exists on the target already, made by a dependency: no line is
-    written, but its files are still owned by it at install time. Either way
-    the name may own recorded files.
+    written and only ``name`` may be set, but its files are still owned by it
+    at install time. Either way the name may own recorded files.
     """
 
     name: _Text
@@ -369,11 +369,22 @@ class UserAccount:
                 "would clash with"
             )
         _set(self, "name", name)
-        if self.description is not None and (
-            _CONTROL.search(self.description) or '"' in self.description
+        if not self.create:
+            # No sysusers line is written for an existing account, so these
+            # would change nothing.
+            for field_name in ("description", "home", "shell", "groups"):
+                if getattr(self, field_name):
+                    raise UsageError(
+                        f"{field_name}: only valid with create = true: an "
+                        "existing account is not changed"
+                    )
+        if self.description is not None and re.search(
+            r'["\\\x00-\x1f\x7f]', self.description
         ):
+            # systemd-sysusers ends the quoted text at `"` and drops a backslash.
             raise UsageError(
-                "description: must hold no control character and no double quote"
+                "description: must hold no control character, double quote or "
+                "backslash"
             )
         _set(self, "home", _absolute_word(self.home, "home"))
         _set(self, "shell", _absolute_word(self.shell, "shell"))

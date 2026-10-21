@@ -386,7 +386,7 @@ Tables, all optional (`ProjectConfig` fields in this order):
 | `[package]` | `PackageInfo` | `name` (required), `version`, `release`, `arch`, `summary`, `license`, `maintainer`, `description`, `depends` (list); values to name once and reuse as `${package.KEY}` |
 | `[defaults]` | `EntryDefaults` | `owner`, `group`, `file_mode`, `exec_mode`, `dir_mode` |
 | `[[rules]]` | `EntryRule` | `match` (non-empty list of `-X` statements), `mode`, `owner`, `group`, `kind`, `caps` |
-| `[[users]]` | `UserAccount` | `name` (required), `description`, `home`, `shell` (absolute, no whitespace), `groups` (list of supplementary groups), `create` (boolean, default `true`) |
+| `[[users]]` | `UserAccount` | `name` (required), `description`, `home`, `shell` (absolute, no whitespace or `\`), `groups` (list of supplementary groups), `create` (boolean, default `true`; `false` takes `name` only) |
 | `[[groups]]` | `GroupAccount` | `name` (required), `create` (boolean, default `true`) |
 | `[[stage]]` | `StageStep` | `src` + `dest`, or `dir`, or `file`, or `symlink` + `target`; `mode`, `owner`, `group`, `kind`, `meta` (table); `caps` with `src` or `file` only; with `src` only: `type`, `into`, `decompress`, `method`, `exclude`, `record_tree` (the `install` options) |
 
@@ -417,8 +417,9 @@ name matches `[a-z_][a-z0-9_-]{0,30}`, a created user's group of the same name i
 implied, and a created account needs `[package] name`. Refused when the file is
 read: a base-passwd name, a duplicate, a `[[groups]]` element named like a
 created user, a supplementary group nothing defines, a `description` with a
-control character or `"`, a `home` or `shell` that is not absolute or holds
-whitespace, and an owner or group named by `[defaults]`, `[[rules]]` or
+control character, `"` or `\`, a `home` or `shell` that is not absolute or holds
+whitespace or `\`, `description`/`home`/`shell`/`groups` on a `create = false`
+user, and an owner or group named by `[defaults]`, `[[rules]]` or
 `[[stage]]` that is neither base-passwd nor declared.
 
 Which file the command line reads: `--config/-c FILE`, else `PKGFORGE_CONFIG`
