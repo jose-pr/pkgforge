@@ -103,8 +103,8 @@ def test_main_oserror_exits_1(tmp_path, cli):
 
 def test_main_broken_pipe_is_silent(monkeypatch, capsys):
     # capsys (not the fd-capturing `cli` fixture): sys.stdout here has no
-    # real file descriptor, so _silence_broken_pipe()'s dup2 is a no-op (its
-    # own guard) instead of fighting pytest's fd-level capture machinery.
+    # real file descriptor, so silencing the closed pipe cannot fight pytest's
+    # fd-level capture machinery.
     def _raise(*_a, **_kw):
         raise BrokenPipeError()
 

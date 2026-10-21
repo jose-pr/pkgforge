@@ -7,7 +7,7 @@ pip install 'pkgforge[zstd]'   # adds zstd compression below Python 3.14
 ```
 
 pkgforge requires **Python 3.9+**. Its one runtime dependency, as declared in
-`pyproject.toml`, is [duho](https://pypi.org/project/duho/)`>=0.7.7,<0.8`
+`pyproject.toml`, is [duho](https://pypi.org/project/duho/)`>=0.7.8,<0.8`
 (the CLI framework). The `yaml` extra adds
 [PyYAML](https://pypi.org/project/pyyaml/)`>=6.0,<7`, which the `yaml` DB
 backend needs; without it, `--db-format yaml` (or a `.yaml` `--db`) exits 1 with

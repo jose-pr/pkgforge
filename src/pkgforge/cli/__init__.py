@@ -16,7 +16,7 @@ from duho import Cli, ConfigArgs
 from duho.text import BOOL_TRUE
 
 from ..exceptions import PkgForgeError, UsageError
-from ._common import ProjectCmd, _load_config, _silence_broken_pipe
+from ._common import ProjectCmd, _load_config
 from .compact import Compact
 from .dbdump import DbDump
 from .initdb import InitDb
@@ -110,20 +110,4 @@ def main(argv: typing.Optional[typing.Sequence[str]] = None) -> int:
     ``--debug`` or ``PKGFORGE_TRACEBACK`` (``1``, ``true``, ``yes``, ``on``)
     prints the traceback before the error line.
     """
-    try:
-        rc = duho.run(PkgForge, None if argv is None else list(argv), exit="parse")
-        # A broken downstream pipe (`pkgforge dbdump ... | head -1`) can
-        # surface only on this final flush, after the command returned.
-        sys.stdout.flush()
-        return rc
-    except BrokenPipeError:
-        _silence_broken_pipe()
-        return 1
-    except tuple(PkgForge._errors_) as exc:
-        # Choosing or reading the configuration file raises before duho
-        # applies _errors_, so the same mapping is applied here.
-        status = next(
-            code for kind, code in PkgForge._errors_.items() if isinstance(exc, kind)
-        )
-        PkgForge._report_error_(str(exc), status, exc, None)
-        return status
+    return duho.run(PkgForge, None if argv is None else list(argv), exit="parse")

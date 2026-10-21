@@ -24,9 +24,10 @@ classifiers = [
     "Topic :: System :: Software Distribution",
     "Typing :: Typed",
 ]
-# duho 0.7.7 is the first release whose error-hook semantics the error boundary relies on;
+# duho 0.7.8 is the first release whose run() owns the closed-pipe and config-error paths
+# and that offers config_source, _traceback_env_ and Meta(literal_value=);
 # anycfg reads pkgforge.cfg (0.15.1 is the release the schema is verified against).
-dependencies = ["anycfg>=0.15.1,<0.16", "duho>=0.7.7,<0.8"]
+dependencies = ["anycfg>=0.15.1,<0.16", "duho>=0.7.8,<0.8"]
 
 [project.optional-dependencies]
 yaml = ["pyyaml>=6.0,<7"]

@@ -6,7 +6,6 @@ import argparse
 import contextlib
 import contextvars
 import dataclasses
-import os
 import sys
 import typing
 from pathlib import Path
@@ -32,23 +31,6 @@ if typing.TYPE_CHECKING:
     from ..project import Project
 
 __all__: typing.List[str] = []
-
-
-def _silence_broken_pipe() -> None:
-    """Point stdout at ``os.devnull`` so a later implicit flush or close does
-    not raise a second time (the recipe in the Python signal-handling docs).
-
-    Gives up quietly when stdout has no real file descriptor (a captured,
-    in-memory stream).
-    """
-    try:
-        devnull = os.open(os.devnull, os.O_WRONLY)
-        try:
-            os.dup2(devnull, sys.stdout.fileno())
-        finally:
-            os.close(devnull)
-    except (OSError, ValueError, AttributeError):
-        pass
 
 
 def _refuse_mcp_stdin(what: str) -> None:
