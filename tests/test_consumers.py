@@ -1930,3 +1930,212 @@ def test_rpmbuild_two_packages_file_lists(tmp_path, cli):
     assert listing("hello") == ["/usr/bin/tool"]
     assert listing("hello-doc") == ["/usr/share/doc/hello/README"]
     assert listing("hello-empty") == ["(contains no files)"]
+
+
+# --------------------------------------------------------------------------
+# package -f deb: the .deb pkgforge writes itself
+# --------------------------------------------------------------------------
+
+DPKG = shutil.which("dpkg")
+requires_dpkg_deb = pytest.mark.skipif(
+    DPKG_DEB is None, reason="dpkg-deb not installed"
+)
+requires_dpkg_root = pytest.mark.skipif(
+    DPKG_DEB is None or DPKG is None or FAKEROOT is None,
+    reason="dpkg, dpkg-deb or fakeroot not installed",
+)
+
+
+def _build_direct_debs(
+    base: Path, cfg: typing.Optional[str] = None
+) -> typing.Dict[str, Path]:
+    """Stage the example (or a cfg written from ``cfg``) under ``base`` and run
+    ``package -f deb`` on it; returns the .debs by package."""
+    base.mkdir(exist_ok=True)
+    tree = _example_source(base / "work")
+    if cfg is not None:
+        (tree / "pkgforge.cfg").write_bytes(cfg.encode("utf-8"))
+    project = Project.from_config(
+        tree / "pkgforge.cfg", buildroot=base / "root", db=base / "files.jsonl"
+    )
+    project.stage(init=True)
+    paths = project.package("deb", base / "out")
+    return {path.name.partition("_")[0]: path for path in paths}
+
+
+def _maybe_control(deb: Path, name: str) -> typing.Optional[str]:
+    """``name`` of ``deb``'s control archive, or ``None`` when it has none."""
+    try:
+        return _control_member(deb, name)
+    except KeyError:
+        return None
+
+
+def _dpkg_deb(*args: str) -> str:
+    return subprocess.run(
+        ["dpkg-deb", *args], capture_output=True, text=True, check=True
+    ).stdout
+
+
+@requires_dpkg_deb
+def test_dpkg_deb_reads_example(tmp_path):
+    """``dpkg-deb`` reads both packages and lists the owners and modes the DB
+    records."""
+    debs = _build_direct_debs(tmp_path)
+    assert sorted(debs) == ["hello", "hello-doc"]
+    for deb in debs.values():
+        assert "new Debian package, version 2.0." in _dpkg_deb("--info", str(deb))
+    assert _dpkg_deb("-f", str(debs["hello"]), "Package", "Version", "Depends") == (
+        "Package: hello\nVersion: 1.0-1\n"
+        "Depends: systemd | systemd-standalone-sysusers | systemd-sysusers, "
+        "libcap2-bin\n"
+    )
+    assert _dpkg_deb("-f", str(debs["hello-doc"]), "Source") == "hello\n"
+    rows = {
+        line.split()[5]: line.split()[:2]
+        for line in _dpkg_deb("--contents", str(debs["hello"])).splitlines()
+    }
+    assert rows["./etc/hello/hello.conf"] == ["-rw-r-----", "root/adm"]
+    assert rows["./var/lib/hello/"] == ["drwxr-x---", "root/root"]
+    assert rows["./usr/bin/hello"] == ["-rwxr-xr-x", "root/root"]
+    assert rows["./usr/bin/hi"] == ["lrwxrwxrwx", "root/root"]
+    assert "./run/hello/" not in rows
+    doc = _dpkg_deb("--contents", str(debs["hello-doc"]))
+    assert "./usr/share/doc/hello-doc/README" in doc
+
+
+_PARENT_DIRS = {"usr", "usr/share", "usr/share/doc"}
+
+
+@requires_dh_sequence
+def test_dpkg_deb_example_matches_dh_build(tmp_path):
+    """The .debs ``package -f deb`` writes match the ones debhelper builds from
+    the same pkgforge.cfg: control fields, conffiles, payload paths, modes and
+    owners (an entry owned by an account created at install time is root:root
+    in both), apart from debhelper's own changelog."""
+    direct = _build_direct_debs(tmp_path / "direct")
+    built = _build_example_debs(tmp_path / "dh")
+    assert sorted(direct) == sorted(built) == ["hello", "hello-doc"]
+    install_time = {"var/lib/hello"}
+    for package, deb in direct.items():
+        other = built[package]
+        for field in (
+            "Package",
+            "Version",
+            "Architecture",
+            "Depends",
+            "Section",
+            "Priority",
+            "Description",
+        ):
+            assert _dpkg_deb("-f", str(deb), field) == _dpkg_deb(
+                "-f", str(other), field
+            ), field
+        # debhelper keeps an empty conffiles file that the direct package omits.
+        assert (_maybe_control(deb, "conffiles") or "") == (
+            _maybe_control(other, "conffiles") or ""
+        )
+
+        ours, theirs = _payload(deb), _payload(other)
+        changelog = f"usr/share/doc/{package}/changelog.Debian.gz"
+        extra = set(theirs) - set(ours)
+        assert changelog in extra
+        assert extra <= {changelog, f"usr/share/doc/{package}"} | _PARENT_DIRS
+        assert set(ours) <= set(theirs)
+        for name, member in ours.items():
+            twin = theirs[name]
+            assert member.type == twin.type, name
+            assert (member.uname, member.gname) == (twin.uname, twin.gname), name
+            if name not in install_time:
+                assert stat.S_IMODE(member.mode) == stat.S_IMODE(twin.mode), name
+            assert member.linkname == twin.linkname, name
+    assert {"var/lib/hello"} <= set(_payload(direct["hello"]))
+
+
+_PLAIN_CFG = """\
+[package]
+name = "plain"
+version = "2.5"
+summary = "A plain package"
+license = "MIT"
+maintainer = "Example Maintainer <maintainer@example.org>"
+arch = "all"
+
+[[stage]]
+src = "src/hello"
+dest = "/usr/bin"
+mode = "755"
+
+[[stage]]
+symlink = "/usr/bin/pl"
+target = "hello"
+
+[[stage]]
+src = "src/hello.conf"
+dest = "/etc/plain"
+mode = "644"
+kind = "config-noreplace"
+
+[[stage]]
+src = "src/README"
+dest = "/usr/share/doc/plain"
+mode = "644"
+kind = "doc"
+"""
+
+
+@requires_dpkg_root
+def test_dpkg_deb_installs_into_scratch_root(tmp_path):
+    """dpkg installs a package with no account, unit or capability into a scratch
+    root as an unprivileged user, and ``--verify`` finds nothing altered."""
+    deb = _build_direct_debs(tmp_path, _PLAIN_CFG)["plain"]
+    root = tmp_path / "target"
+    (root / "var/lib/dpkg/info").mkdir(parents=True)
+    (root / "var/lib/dpkg/updates").mkdir()
+    (root / "var/lib/dpkg/status").write_bytes(b"")
+    (root / "var/lib/dpkg/available").write_bytes(b"")
+    dpkg = [
+        "dpkg",
+        f"--root={root}",
+        f"--log={tmp_path / 'dpkg.log'}",
+        "--force-script-chrootless",
+        "--force-not-root",
+    ]
+    install = subprocess.run(
+        ["fakeroot", *dpkg, "-i", str(deb)], capture_output=True, text=True
+    )
+    assert install.returncode == 0, install.stdout + install.stderr
+    assert (root / "usr/bin/hello").is_file()
+    assert os.readlink(root / "usr/bin/pl") == "hello"
+    assert (root / "etc/plain/hello.conf").is_file()
+    conffiles = (root / "var/lib/dpkg/info/plain.conffiles").read_text(encoding="utf-8")
+    assert conffiles.split()[0] == "/etc/plain/hello.conf"
+    verify = subprocess.run(
+        ["dpkg", f"--root={root}", "--verify", "plain"], capture_output=True, text=True
+    )
+    assert (verify.returncode, verify.stdout, verify.stderr) == (0, "", "")
+
+
+@requires_dpkg_root
+@requires_install
+def test_dpkg_deb_example_installs(tmp_path):
+    """Installing the direct .deb creates the account, owns ``/var/lib/hello``
+    by it through ``dpkg-statoverride``, sets the capability, and a purge
+    removes the override."""
+    deb = _build_direct_debs(tmp_path)["hello"]
+
+    def override() -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["dpkg-statoverride", "--list", "/var/lib/hello"],
+            capture_output=True,
+            text=True,
+        )
+
+    try:
+        _run_as_root("dpkg", "-i", str(deb))
+        _assert_installed_example_state()
+        assert override().stdout.strip() == "hello hello 750 /var/lib/hello"
+        _run_as_root("dpkg", "--purge", "hello")
+        assert override().returncode == 1
+    finally:
+        _run_as_root("dpkg", "--purge", "hello", check=False)

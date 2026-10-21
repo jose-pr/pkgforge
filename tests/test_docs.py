@@ -111,6 +111,7 @@ REQUIRED_API_TARGETS = (
     "pkgforge.package.BuildContext",
     "pkgforge.package.PackagePayload",
     "pkgforge.package.build",
+    "pkgforge.package.DebFormat",
     "pkgforge.package.TarFormat",
     "pkgforge.testing.check_db_provider",
     "pkgforge.testing.check_dump_format",

@@ -219,10 +219,12 @@ def build(
 # Built-in formats: importing each module registers its format class.
 # --------------------------------------------------------------------------
 
+from ._deb import DebFormat  # noqa: E402
 from ._tar import TarFormat  # noqa: E402
 
 __all__ = [
     "BuildContext",
+    "DebFormat",
     "PackageFormat",
     "PackagePayload",
     "TarFormat",

@@ -18,12 +18,14 @@ class Package(ProjectCmd):
     _logger_name_ = "pkgforge.package"
 
     format: str
-    "package format: tar"
+    "package format: deb or tar"
     ("--format", "-f")
     output: Path = Path(".")
     "directory the packages are written into, created if missing"
     ("--output", "-o")
-    arch: typing.Optional[str] = None
+    #: Not ``arch``: duho layers the ``[package]`` table of pkgforge.cfg onto this
+    #: command, and its ``arch`` (``all`` or ``any``) would fill the flag.
+    arch_name: typing.Optional[str] = None
     (
         "architecture name of an 'any' package, in the format's own spelling; "
         "default: this machine's"
@@ -39,7 +41,7 @@ class Package(ProjectCmd):
                 "package reads the build root and the file DB; --db - has no build root"
             )
         paths = self._project().package(
-            self.format, self.output, arch=self.arch, compression=self.compression
+            self.format, self.output, arch=self.arch_name, compression=self.compression
         )
         with _open_stdout() as out:
             for path in paths:

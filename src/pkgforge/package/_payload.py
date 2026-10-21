@@ -161,6 +161,23 @@ def members(
     return [result[path] for path in sorted(result)]
 
 
+def installed_kib(items: typing.Iterable[Member]) -> int:
+    """The ``Installed-Size`` dpkg computes for ``items``, in KiB: each
+    regular file and symlink rounds up to whole KiB (a symlink is as long as
+    its target), every other object counts 1, and so does the package root."""
+    total = 1
+    for item in items:
+        if item.type == FileType.File:
+            total += -(-item.size // 1024)
+        elif item.type == FileType.Symlink:
+            total += -(
+                -len((item.target or "").encode("utf-8", "surrogateescape")) // 1024
+            )
+        else:
+            total += 1
+    return total
+
+
 def tar_bytes(
     items: typing.Iterable[typing.Union[Member, Blob]],
     *,

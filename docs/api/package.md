@@ -25,6 +25,10 @@ every format.
 
 ## Built-in formats
 
+::: pkgforge.package.DebFormat
+    options:
+      show_root_heading: true
+
 ::: pkgforge.package.TarFormat
     options:
       show_root_heading: true

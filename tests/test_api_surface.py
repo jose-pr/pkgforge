@@ -56,6 +56,7 @@ RENAMED = {
     "source": "sources",
     "destination": "dest",
     "format": "fmt",
+    "arch_name": "arch",
 }
 #: Command-line spellings with no keyword of their own: -D and -d fold into
 #: other fields.

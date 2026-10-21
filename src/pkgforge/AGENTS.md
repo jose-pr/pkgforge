@@ -926,6 +926,39 @@ Importing `pkgforge.package` loads no optional dependency.
   release), the package's own table (`PackageInfo` or `SubPackageInfo`), its
   architecture (`"all"` or `"any"`: its own, else the main's, else `"any"`) and
   its live entries sorted by DB path.
+- **`DebFormat`** — `NAME = "deb"`, `COMPRESSIONS = ("xz", "gz", "zst",
+  "none")`, `REQUIRED = ("version", "summary", "maintainer")`, `SUB_REQUIRED =
+  ("summary",)`, `ALL_ARCH = "all"`, `MACHINES` mapping `x86_64`/`amd64` to
+  `amd64`, `aarch64`/`arm64` to `arm64`, `armv7l` to `armhf`, `i686`/`i386` to
+  `i386`, `riscv64`, `ppc64le` to `ppc64el` and `s390x`. One
+  `NAME_VERSION[-RELEASE]_ARCH.deb` per package, written without `dpkg-deb`,
+  debhelper or fakeroot: an ar archive of `debian-binary` (`2.0`),
+  `control.tar` and `data.tar` (GNU tar with a `./` root, compressed as
+  `--compression`, default `xz`; dpkg refuses pax headers). Headers carry the
+  DB's names, except an entry owned by an account the package creates at install
+  time (outside the base-passwd set), which is `root:root` with its recorded mode
+  and `postinst` applies it with `dpkg-statoverride`, as the debhelper recipe
+  does. `control` holds `Package`, `Source` (a subpackage), `Version`
+  (`VERSION-RELEASE`), `Architecture`, `Maintainer`, `Installed-Size`
+  (`ceil(size / 1024)` per file and symlink, 1 per directory and for the root),
+  `Depends`, `Section` and `Priority` (the package's `[package.debian]`, else
+  the main's, else `misc`/`optional`), `Homepage` (the main's) and the
+  description. `Depends` is `systemd | systemd-standalone-sysusers |
+  systemd-sysusers` when the package ships `/usr/lib/sysusers.d/NAME.conf`,
+  `libcap2-bin` with a `caps` entry, then the `[package.debian] depends` items
+  with `${binary:Version}` and `${source:Version}` replaced by the full version;
+  any other `${...}` is `UsageError` (write it as `$${...}` in the cfg).
+  `conffiles` lists the regular files below `/etc` and the config kinds elsewhere;
+  `md5sums` every other regular file. `postinst` (under `configure`:
+  `systemd-sysusers`, `systemd-tmpfiles --create` when the package ships
+  `NAME.conf` for them, `deb-systemd-helper` and `deb-systemd-invoke` for each
+  `*.service`/`*.socket`/`*.timer`/`*.path` directly in
+  `/usr/lib/systemd/system`, the `dpkg-statoverride` lines, then `setcap`),
+  `prerm` (stops the units on `remove`) and `postrm` (`daemon-reload` on
+  `remove`; on `purge`, `deb-systemd-helper purge` and the statoverride
+  removals) are written only with a command in them. A path with a control
+  character is `DumpError`, as is a conffile name with whitespace outside
+  `/etc`.
 - **`TarFormat`** — `NAME = "tar"`, `COMPRESSIONS = ("gz", "xz", "zst",
   "none")`, `REQUIRED = ("version",)`. One `NAME-VERSION[-RELEASE].tar[.gz|.xz|
   .zst]` per package (the main package's version and release, the package's own
@@ -1323,7 +1356,7 @@ there with a `UsageError`. See [Environment variables](#environment-variables).
 
 - **`pkgforge package -f FORMAT [-o DIR] [--arch NAME] [--compression KIND]`** —
   `Project.package`: build one package per declared package from the file DB and
-  the build root. `-f` is `tar`; `-o` defaults to `.` and is created when
+  the build root. `-f` is `deb` or `tar`; `-o` defaults to `.` and is created when
   missing. Prints each path written on stdout, one per line, the main package
   first. `--arch` names the architecture of an `any` package in the format's own
   spelling (default: this machine's); `--compression` is one the format offers.

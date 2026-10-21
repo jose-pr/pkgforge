@@ -7,6 +7,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `pkgforge package -f deb` builds each package as a `.deb` itself, with no
+  `dpkg-deb`, debhelper or fakeroot: `NAME_VERSION[-RELEASE]_ARCH.deb`, with the
+  control file, `conffiles`, `md5sums` and the `postinst`, `prerm` and `postrm`
+  scripts debhelper would build from the same `pkgforge.cfg` (sysusers, tmpfiles,
+  the systemd units, `dpkg-statoverride` for an account created at install time,
+  `setcap`). `--compression` is `xz` (the default), `gz`, `zst` or `none`;
+  `--arch` names the architecture of an `any` package. It needs `[package]`
+  `version`, `summary` and `maintainer`, and a `summary` per `[[packages]]`
+  element.
 - `pkgforge package -f tar` (`Project.package`, `pkgforge.package.build`) builds
   one archive per declared package straight from the file DB and the build
   root, named `NAME-VERSION[-RELEASE].tar[.gz|.xz|.zst]`: user and group names

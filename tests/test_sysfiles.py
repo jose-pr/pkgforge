@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from pkgforge import Project, UsageError
-from pkgforge._sysfiles import sysusers_text, tmpfiles_text
+from pkgforge._sysfiles import sysusers_text, tmpfiles_text, unit_names
 from pkgforge.config import GroupAccount, PackageInfo, ProjectConfig, UserAccount
 from pkgforge.db import open_db
 
@@ -292,3 +292,36 @@ def test_stage_generates_the_system_files(cli, tmp_path, caplog):
     messages = [r.getMessage() for r in caplog.records]
     assert "generated 2 system file(s)" in messages
     assert messages[-1] == "staged 2 step(s), 4 record(s)"
+
+
+# -- systemd units
+
+
+def _unit_entries(make_entry, paths, **over):
+    return [(path, make_entry(**over)) for path in paths]
+
+
+def test_unit_names_are_the_system_unit_files(make_entry):
+    entries = _unit_entries(
+        make_entry,
+        [
+            "/usr/lib/systemd/system/b.timer",
+            "/usr/lib/systemd/system/a.service",
+            "/usr/lib/systemd/system/c.socket",
+            "/usr/lib/systemd/system/d.path",
+            "/usr/lib/systemd/system/e@.service",
+            "/usr/lib/systemd/system/f.mount",
+            "/usr/lib/systemd/system/sub/g.service",
+            "/usr/lib/systemd/user/h.service",
+            "/usr/lib/systemd/system/i.service.d",
+        ],
+    )
+    assert unit_names(entries) == ["a.service", "b.timer", "c.socket", "d.path"]
+
+
+def test_unit_names_skip_ghosts_and_non_files(make_entry):
+    path = "/usr/lib/systemd/system/a.service"
+    assert unit_names(_unit_entries(make_entry, [path], kind="ghost")) == []
+    assert unit_names(_unit_entries(make_entry, [path], type="symlink")) == []
+    assert unit_names(_unit_entries(make_entry, [path], type="directory")) == []
+    assert unit_names([]) == []
