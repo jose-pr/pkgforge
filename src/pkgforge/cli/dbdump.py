@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import os
 import stat
 import sys
@@ -15,33 +14,9 @@ from ..db import Db, parse_jsonl
 from ..dbdump import DumpFormat, dump
 from ..entry import DEFAULT
 from ..exceptions import DbError, UsageError
-from ._common import ExcludeArgs, ProjectCmd, _refuse_mcp_stdin
+from ._common import ExcludeArgs, ProjectCmd, _open_stdout, _refuse_mcp_stdin
 
 __all__ = ["DbDump"]
-
-
-@contextlib.contextmanager
-def _open_stdout() -> typing.Iterator[typing.Any]:
-    """A binary stream onto the process's stdout, never closing it.
-
-    Flushes ``sys.stdout`` and writes through its ``.buffer``, so output stays
-    in order with text already printed and works where stdout has no file
-    descriptor (pytest capture, ``redirect_stdout``). Without a ``.buffer`` the
-    bytes are decoded with ``surrogateescape`` and written as text.
-    """
-    sys.stdout.flush()
-    buf = getattr(sys.stdout, "buffer", None)
-    if buf is None:
-
-        class _TextAdapter:
-            def write(self, data: bytes) -> None:
-                sys.stdout.write(data.decode("utf-8", "surrogateescape"))
-
-        buf = _TextAdapter()
-    try:
-        yield buf
-    finally:
-        sys.stdout.flush()
 
 
 class DbDump(ExcludeArgs, ProjectCmd):

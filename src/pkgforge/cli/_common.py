@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import dataclasses
 import os
 import sys
@@ -55,6 +56,30 @@ def _refuse_mcp_stdin(what: str) -> None:
         raise UsageError(
             f"reading {what} from standard input is not available in an MCP tool call"
         )
+
+
+@contextlib.contextmanager
+def _open_stdout() -> typing.Iterator[typing.Any]:
+    """A binary stream onto the process's stdout, never closing it.
+
+    Flushes ``sys.stdout`` and writes through its ``.buffer``, so output stays
+    in order with text already printed and works where stdout has no file
+    descriptor (pytest capture, ``redirect_stdout``). Without a ``.buffer`` the
+    bytes are decoded with ``surrogateescape`` and written as text.
+    """
+    sys.stdout.flush()
+    buf = getattr(sys.stdout, "buffer", None)
+    if buf is None:
+
+        class _TextAdapter:
+            def write(self, data: bytes) -> None:
+                sys.stdout.write(data.decode("utf-8", "surrogateescape"))
+
+        buf = _TextAdapter()
+    try:
+        yield buf
+    finally:
+        sys.stdout.flush()
 
 
 def _env_path(value: str) -> typing.Optional[Path]:

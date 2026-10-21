@@ -97,6 +97,7 @@ owned directories.
 | `symlink [opts] TARGET LINK` | create a symbolic link and record its entry |
 | `sysfiles` | write the `sysusers.d` and `tmpfiles.d` files for the declared accounts and ghost directories, and record them |
 | `dbdump -f FORMAT [OUT]` | render the DB into a packaging manifest |
+| `verify [-f {text,json}]` | check the build root against the DB: unrecorded, missing and changed paths (exit 1 when there are any) |
 
 `install --method {copy,link,move}` (env `PKGFORGE_INSTALL_METHOD`) stages a
 file or directory source by hardlinking or moving it instead of the default

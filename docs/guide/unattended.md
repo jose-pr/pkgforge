@@ -46,7 +46,7 @@ pkgforge --config pkgforge.cfg stage --init
 
 Every command logs under its own logger, `pkgforge.<command>` (`pkgforge.install`,
 `pkgforge.scan`, `pkgforge.dbdump`, `pkgforge.initdb`, `pkgforge.compact`,
-`pkgforge.stage`, `pkgforge.mkdir`, `pkgforge.symlink`), so
+`pkgforge.stage`, `pkgforge.mkdir`, `pkgforge.symlink`, `pkgforge.verify`), so
 `logging.getLogger("pkgforge")` controls all of them from Python.
 
 - `-v, --verbose` (repeatable) raises the running command's own log level;
@@ -72,7 +72,8 @@ other failure, including a closed output pipe (e.g. `pkgforge dbdump ... |
 head`); `130` Ctrl-C. On a `1` or `2`, one `pkgforge: error: ...` line goes to
 stderr, no traceback. Set `PKGFORGE_TRACEBACK=1` (`1`/`true`/`yes`/`on`;
 `0`/`false`/`no`/`off`/`n`/`f` are off) to also print the traceback before that
-line. A closed pipe and Ctrl-C print nothing.
+line. A closed pipe and Ctrl-C print nothing. `pkgforge verify` also exits `1` when
+it finds a difference, with the differences on stdout and no error line.
 
 Install shell completion by writing `pkgforge --print-completion <shell>`
 where the shell looks for it:

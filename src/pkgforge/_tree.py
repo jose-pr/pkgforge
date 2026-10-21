@@ -28,7 +28,74 @@ if typing.TYPE_CHECKING:
     from .project import Project
 
 
-class TreeRecorder:
+class _TreeWalk:
+    """Walk a real on-disk tree, calling :meth:`record` for every directory
+    and file below the top and skipping the project's own file DB.
+
+    A subclass implements :meth:`record`, which starts with
+    :meth:`_skips_db`. ``matcher`` is ``None`` when there is nothing to
+    filter; ``logger`` receives the skip messages.
+    """
+
+    def __init__(
+        self,
+        project: "Project",
+        matcher: typing.Optional[PathMatch],
+        *,
+        logger: logging.Logger,
+    ) -> None:
+        self.project = project
+        self.matcher = matcher
+        self.logger = logger
+        # Precomputed once (never per walked path): the file DB's own
+        # directory (realpath) and the basenames that matter -- the DB file
+        # itself, and a sqlite backend's -journal/-wal/-shm sidecars, which
+        # exist only transiently during a write but cost nothing to name
+        # here too.
+        self._db_skip_dir: typing.Optional[str] = None
+        self._db_skip_names: typing.Optional[typing.Set[str]] = None
+        if project.db is not None:
+            db_path = Path(project.db.path)
+            self._db_skip_dir = os.path.realpath(db_path.parent)
+            self._db_skip_names = {
+                db_path.name + suffix for suffix in ("", "-journal", "-wal", "-shm")
+            }
+        self._warned_db_skip = False
+
+    def _skips_db(self, path: Path) -> bool:
+        """Whether ``path`` is the file DB (or a sidecar of it) found inside
+        the walked tree: one WARNING the first time, DEBUG after."""
+        if self._db_skip_names is None or path.name not in self._db_skip_names:
+            return False
+        if os.path.realpath(path.parent) != self._db_skip_dir:
+            return False
+        if self._warned_db_skip:
+            self.logger.debug("Skipping the file DB %s", path)
+        else:
+            self.logger.warning(
+                "Skipping the file DB %s found inside the "
+                "recorded tree; keep --db (and dbdump output) "
+                "outside --buildroot",
+                path,
+            )
+            self._warned_db_skip = True
+        return True
+
+    def record(self, path: Path) -> bool:
+        """Handle ``path``; ``False`` prunes a directory's subtree."""
+        raise NotImplementedError
+
+    def walk(self, top: Path) -> None:
+        """Visit every path under ``top`` -- never ``top`` itself."""
+        for base, dirs, files in os.walk(top):
+            # Prune in place: os.walk only descends into names still left
+            # in `dirs` after this line runs.
+            dirs[:] = [d for d in dirs if self.record(Path(base, d))]
+            for name in files:
+                self.record(Path(base, name))
+
+
+class TreeRecorder(_TreeWalk):
     """Walk a real, already-on-disk tree and record each path's
     :class:`~pkgforge.entry.FileEntry` through ``write``.
 
@@ -66,32 +133,16 @@ class TreeRecorder:
         fallback: typing.Mapping[str, str] = {},
         apply_mode: bool = False,
     ) -> None:
-        self.project = project
+        super().__init__(project, matcher, logger=logger)
         self.bases = bases
-        self.matcher = matcher
         self.meta = meta
         self.known = known
-        self.logger = logger
         self.write = write
         self.fallback = fallback
         self.apply_mode = apply_mode
         #: Paths actually written this run -- never a path skipped by -X,
         #: the file-DB skip, or a key `known` already holds.
         self.recorded = 0
-        # Precomputed once (never per walked path): the file DB's own
-        # directory (realpath) and the basenames that matter -- the DB file
-        # itself, and a sqlite backend's -journal/-wal/-shm sidecars, which
-        # exist only transiently during a write but cost nothing to name
-        # here too.
-        self._db_skip_dir: typing.Optional[str] = None
-        self._db_skip_names: typing.Optional[typing.Set[str]] = None
-        if project.db is not None:
-            db_path = Path(project.db.path)
-            self._db_skip_dir = os.path.realpath(db_path.parent)
-            self._db_skip_names = {
-                db_path.name + suffix for suffix in ("", "-journal", "-wal", "-shm")
-            }
-        self._warned_db_skip = False
 
     def record(self, path: Path) -> bool:
         """Record ``path``'s entry (unless already known, or excluded).
@@ -102,18 +153,7 @@ class TreeRecorder:
         matching a directory copy's/archive prune's own ``-X`` behavior.
         """
         try:
-            if self._db_skip_names is not None and path.name in self._db_skip_names:
-                if os.path.realpath(path.parent) == self._db_skip_dir:
-                    if self._warned_db_skip:
-                        self.logger.debug("Skipping the file DB %s", path)
-                    else:
-                        self.logger.warning(
-                            "Skipping the file DB %s found inside the "
-                            "recorded tree; keep --db (and dbdump output) "
-                            "outside --buildroot",
-                            path,
-                        )
-                        self._warned_db_skip = True
+            if self._skips_db(path):
                 return True
             if self.matcher is not None and self.matcher.match(path, meta=self.meta):
                 self.logger.debug("Excluding %s", path)
@@ -154,12 +194,3 @@ class TreeRecorder:
                 f"{path}: unsupported file type (not a file, directory "
                 "or symlink); exclude it with -X"
             ) from exc
-
-    def walk(self, top: Path) -> None:
-        """Record every path under ``top`` -- never ``top`` itself."""
-        for base, dirs, files in os.walk(top):
-            # Prune in place: os.walk only descends into names still left
-            # in `dirs` after this line runs.
-            dirs[:] = [d for d in dirs if self.record(Path(base, d))]
-            for name in files:
-                self.record(Path(base, name))

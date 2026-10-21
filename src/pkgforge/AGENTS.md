@@ -8,7 +8,8 @@ API. For the CLI overview see the shipped `README.md` or <https://github.com/jos
 `pkgforge.__all__`: `DbError`, `DbProvider`, `DumpError`, `DumpFormat`,
 `ExcludeSyntaxError`, `FileEntries`, `FileEntry`, `FileRecords`, `FileType`,
 `InvalidEntryError`, `PkgForgeError`, `Project`, `StrPath`,
-`UnsupportedOutputError`, `UsageError`, `__version__`, `open_db`. `FileKind` and
+`UnsupportedOutputError`, `UsageError`, `VerifyIssue`, `__version__`,
+`open_db`. `FileKind` and
 the entry functions (`apply_entry`, `entry_from_path`, `normalize_caps`,
 `normalize_kind`, `normalize_mode`, `normalize_name`, `resolve_entry`) are in
 `pkgforge.entry`. `import pkgforge`
@@ -38,6 +39,9 @@ under [Configuration](#configuration-configpy) and the command line under
 | `1` | a runtime failure (`PkgForgeError`, `OSError`), reported as one `pkgforge: error: ...` line on stderr; a closed output pipe also returns `1`, silently |
 | `2` | a usage mistake (`UsageError`), reported as one `pkgforge: error: ...` line |
 | `130` | Ctrl-C, silently |
+
+`pkgforge verify` also returns `1` when it found a difference, printing the
+issues on stdout and no `pkgforge: error:` line.
 
 Anything else propagates with its traceback. Pass `--debug`, or set
 `PKGFORGE_TRACEBACK` to a true value (`1`/`true`/`yes`/`on`;
@@ -205,7 +209,7 @@ The Python API for build scripts; the `pkgforge` command line is a wrapper
 over it. Nothing in it prints, exits or reads `sys.argv`; it logs under the
 operation loggers `pkgforge.install`, `pkgforge.scan`, `pkgforge.initdb`,
 `pkgforge.compact`, `pkgforge.dbdump`, `pkgforge.mkdir`, `pkgforge.symlink`,
-`pkgforge.sysfiles` and `pkgforge.stage`. DB paths (`dest`, a scan `path`, a
+`pkgforge.sysfiles`, `pkgforge.stage` and `pkgforge.verify`. DB paths (`dest`, a scan `path`, a
 DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
 
 - **`Project(buildroot: StrPath, db: StrPath | DbProvider | None = None, *,
@@ -344,6 +348,28 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   exist (`UsageError` for `db=None` or a missing file); with `output` the
   result is also written whole (a file, or a directory for a multi-artifact
   format). See `dbdump.dump` for the rest and the errors.
+- **`verify(*, exclude: Sequence[str] = ()) -> list[VerifyIssue]`** — compare
+  the build root with the live entries of the file DB, as `rpmbuild` and
+  `dh_missing` will see them. `unrecorded`: a file or symlink on disk with no
+  entry (an unrecorded directory is not reported: the package owns only the
+  directories it records); `missing`: an entry whose path does not exist (a
+  `ghost` is never expected); `type`: the on-disk type differs from the
+  recorded one; `target`: a symlink points elsewhere than `meta["target"]`.
+  Mode, owner and group are not compared: the DB's values are what every dump
+  format ships, and owned parents and `scan` entries keep their disk mode by
+  design. The file DB found inside the build root is skipped (one WARNING).
+  `exclude` is matched against DB paths, as `dump` does; a matching path is
+  dropped from both sides and a matching directory is not descended. Sorted by
+  path, then problem; `[]` when the tree matches. `UsageError` for `db=None`,
+  a missing file DB or a missing build root; `ExcludeSyntaxError` for a bad
+  statement. Logs `verified N entries: M issue(s)` under `pkgforge.verify`
+  (INFO).
+- **`VerifyIssue(path: str, problem: str, recorded: str | None, found: str |
+  None)`** — a `typing.NamedTuple`: `path` a DB path, `problem` one of
+  `unrecorded`, `missing`, `type`, `target`. `recorded` is the entry's type (or
+  the recorded symlink target for `target`), `None` for `unrecorded`; `found`
+  is the on-disk type (`special` for a fifo, socket or device) or the symlink's
+  actual target, `None` for `missing`.
 - A `dest` (`install`) or `path` (`scan`) must resolve inside the build root:
   a `..` that climbs above it, or a symlinked component that leads outside
   it, raises `UsageError` before anything is written or recorded. A relative
@@ -787,8 +813,8 @@ once the operation has succeeded.
 
 Each subcommand logs under `pkgforge.<command>` (`pkgforge.install`,
 `pkgforge.scan`, `pkgforge.dbdump`, `pkgforge.initdb`, `pkgforge.compact`,
-`pkgforge.stage`, `pkgforge.mkdir`, `pkgforge.symlink`, `pkgforge.sysfiles`):
-control one with `--loglevel pkgforge.<command>:LEVEL`, or the running command
+`pkgforge.stage`, `pkgforge.mkdir`, `pkgforge.symlink`, `pkgforge.sysfiles`,
+`pkgforge.verify`): control one with `--loglevel pkgforge.<command>:LEVEL`, or the running command
 with `--loglevel LEVEL`. A bare `--loglevel pkgforge:LEVEL` has no effect on a
 CLI-dispatched command, whose own logger always has an explicit level (INFO by
 default).
@@ -1076,6 +1102,15 @@ there with a `UsageError`. See [Environment variables](#environment-variables).
   Raises `UsageError` (exit 2) for an unset `--db`, for `--db -` (no file to
   rewrite) and for a file that does not exist (nothing is created, for every
   backend).
+- **`pkgforge verify [-X STMT]... [-f {text,json}]`** — `Project.verify`: check
+  the build root against the file DB. Exit `0` with no issue and no output,
+  `1` with any, printing one line per issue sorted by path, then problem:
+  `PROBLEM PATH`, or `PROBLEM PATH: recorded R, found F` for `type` and
+  `target`. `-f json` prints one document `{"issues": [{"path", "problem",
+  "recorded", "found"}]}` and a newline instead. `-X` takes DB paths, as in
+  `dbdump`. Exit `2` for no file DB (`--db` unset or `-`), a missing DB file or
+  a missing build root.
+
 ## Environment variables
 
 Read when `pkgforge.cli.main()` runs (CLI wins over env, which wins over

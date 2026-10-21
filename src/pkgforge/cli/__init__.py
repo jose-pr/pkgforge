@@ -26,6 +26,7 @@ from .scan import ScanCmd
 from .stage import Stage
 from .symlink import Symlink
 from .sysfiles import Sysfiles
+from .verify import Verify
 
 __all__ = ["PkgForge", "main"]
 
@@ -58,6 +59,7 @@ class PkgForge(ConfigArgs, ProjectCmd, Cli):
         Mkdir,
         Symlink,
         Sysfiles,
+        Verify,
     )
     # First match wins: a usage mistake is listed before the class it belongs to.
     _errors_ = {

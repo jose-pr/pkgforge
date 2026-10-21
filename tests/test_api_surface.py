@@ -22,6 +22,7 @@ from pkgforge.cli.scan import ScanCmd
 from pkgforge.cli.stage import Stage
 from pkgforge.cli.symlink import Symlink
 from pkgforge.cli.sysfiles import Sysfiles
+from pkgforge.cli.verify import Verify
 
 SRC = str(Path(__file__).resolve().parents[1] / "src")
 #: The names of the root package: the library API, nothing of the command line.
@@ -41,6 +42,7 @@ ROOT_ALL = (
     "StrPath",
     "UnsupportedOutputError",
     "UsageError",
+    "VerifyIssue",
     "__version__",
     "open_db",
 )
@@ -56,11 +58,16 @@ RENAMED = {
 #: Command-line spellings with no keyword of their own: -D and -d fold into
 #: other fields.
 CLI_ONLY = {"D", "d"}
+#: Command fields with no keyword because only the command line has them.
+COMMAND_ONLY = {Verify: {"format"}}
 
 
 def _command_fields(cls: type) -> typing.Set[str]:
     own = set(typing.get_type_hints(cls)) - set(typing.get_type_hints(ProjectCmd))
-    return {RENAMED.get(name, name) for name in own - CLI_ONLY}
+    return {
+        RENAMED.get(name, name)
+        for name in own - CLI_ONLY - COMMAND_ONLY.get(cls, set())
+    }
 
 
 def _keywords(method: typing.Callable[..., object]) -> typing.Set[str]:
@@ -77,8 +84,18 @@ def _keywords(method: typing.Callable[..., object]) -> typing.Set[str]:
         (Mkdir, Project.mkdir),
         (Symlink, Project.symlink),
         (Sysfiles, Project.sysfiles),
+        (Verify, Project.verify),
     ],
-    ids=["install", "scan", "dbdump", "stage", "mkdir", "symlink", "sysfiles"],
+    ids=[
+        "install",
+        "scan",
+        "dbdump",
+        "stage",
+        "mkdir",
+        "symlink",
+        "sysfiles",
+        "verify",
+    ],
 )
 def test_command_fields_match_library_keywords(command, method):
     assert _command_fields(command) == _keywords(method)

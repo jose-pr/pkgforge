@@ -20,7 +20,7 @@ from .exceptions import (
     UnsupportedOutputError,
     UsageError,
 )
-from .project import Project
+from .project import Project, VerifyIssue
 
 try:  # resolve the installed distribution version, if any
     __version__ = _version("pkgforge")
@@ -43,6 +43,7 @@ __all__ = [
     "StrPath",
     "UnsupportedOutputError",
     "UsageError",
+    "VerifyIssue",
     "__version__",
     "open_db",
 ]

@@ -7,6 +7,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `pkgforge verify [-X STMT]... [-f text|json]` (and `Project.verify`, returning
+  `VerifyIssue` tuples) checks the build root against the file DB before
+  `rpmbuild` or `dh_missing` runs: a file or symlink no entry records
+  (`unrecorded`), an entry whose path is gone (`missing`, never for a `ghost`), a
+  changed type (`type`) and a retargeted symlink (`target`). It exits 1 when it
+  finds any, 2 for no file DB or no build root, and logs under `pkgforge.verify`.
 - `pkgforge stage [--init]` (and `Project.stage`) runs the `[[stage]]` steps of
   `pkgforge.cfg` in order: install a source at a destination, or record a
   directory, an empty file or a symlink. It replaces a hand-written staging

@@ -17,3 +17,7 @@ project.dump("rpm", "build/files.txt")
 ::: pkgforge.project.Project
     options:
       show_root_heading: true
+
+::: pkgforge.project.VerifyIssue
+    options:
+      show_root_heading: true

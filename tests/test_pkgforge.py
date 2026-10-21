@@ -45,6 +45,7 @@ def test_all_commands_registered():
         "mkdir",
         "symlink",
         "sysfiles",
+        "verify",
     }
 
 

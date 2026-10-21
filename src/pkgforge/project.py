@@ -20,6 +20,7 @@ from . import dbdump
 from ._install import _Installer
 from ._scan import scan as _scan
 from ._sysfiles import SYSUSERS_DIR, TMPFILES_DIR, sysusers_text, tmpfiles_text
+from ._verify import verify as _verify
 from .config import (
     EntryDefaults,
     EntryRule,
@@ -43,7 +44,7 @@ from .entry import (
 from .exceptions import UsageError
 from .exclude import PathMatch, _statements
 
-__all__ = ["Project"]
+__all__ = ["Project", "VerifyIssue"]
 
 #: Recognized ``method`` values of :meth:`Project.install`.
 _INSTALL_METHODS = ("copy", "link", "move")
@@ -60,6 +61,7 @@ _MKDIR_LOGGER = logging.getLogger("pkgforge.mkdir")
 _SYMLINK_LOGGER = logging.getLogger("pkgforge.symlink")
 _STAGE_LOGGER = logging.getLogger("pkgforge.stage")
 _SYSFILES_LOGGER = logging.getLogger("pkgforge.sysfiles")
+_VERIFY_LOGGER = logging.getLogger("pkgforge.verify")
 
 
 def _path(value: object, what: str) -> Path:
@@ -79,6 +81,24 @@ def _check_db_format(value: typing.Optional[str]) -> typing.Optional[str]:
     if not value:
         return None
     return DbProvider.get(value).NAME
+
+
+class VerifyIssue(typing.NamedTuple):
+    """One difference :meth:`Project.verify` found between the build root and
+    the file DB."""
+
+    #: The DB path (``/``-rooted POSIX text).
+    path: str
+    #: ``"unrecorded"`` (on disk, not in the DB), ``"missing"`` (in the DB, not
+    #: on disk), ``"type"`` (the on-disk type differs) or ``"target"`` (a
+    #: symlink points elsewhere than the recorded ``target``).
+    problem: str
+    #: What the DB holds: the entry's type, or the symlink target; ``None`` for
+    #: ``"unrecorded"``.
+    recorded: typing.Optional[str]
+    #: What the disk holds: the type (``"special"`` for a fifo, socket or
+    #: device), or the symlink target; ``None`` for ``"missing"``.
+    found: typing.Optional[str]
 
 
 class Project:
@@ -1222,6 +1242,48 @@ class Project:
                 "DB %s holds no entries; dumping an empty manifest", db.path
             )
         return dbdump.dump(loaded, fmt_cls.NAME, target, exclude=exclude, own=own)
+
+    def verify(self, *, exclude: typing.Sequence[str] = ()) -> typing.List[VerifyIssue]:
+        """Compare the build root with the file DB, the way a packaging tool
+        will see them.
+
+        Reports a file or symlink on disk with no live entry (``unrecorded``),
+        a live entry whose path does not exist (``missing``; a ``ghost`` is
+        never expected on disk), an on-disk type that differs from the recorded
+        one (``type``) and a symlink whose target differs from the recorded
+        ``target`` (``target``). A directory with no entry is not reported: the
+        package owns only the directories it records. Mode, owner and group are
+        not compared, since the DB's values are what every dump format ships
+        (owned parents and scanned entries keep their on-disk mode by design).
+
+        The file DB inside the build root is skipped. ``exclude`` holds
+        ``--exclude`` statements matched against DB paths, as ``dump`` does; a
+        matching path is dropped from both sides and a matching directory is
+        not descended.
+
+        Returns:
+            The issues sorted by path, then problem; empty when the tree
+            matches the DB.
+
+        Raises:
+            UsageError: there is no file DB or its file is missing, or the
+                build root does not exist.
+            ExcludeSyntaxError: an ``exclude`` statement is invalid.
+        """
+        self._existing_db()
+        stmts = _statements(exclude)
+        root = self._rootpath("/")
+        if not root.exists():
+            raise UsageError(f"build root {root} does not exist")
+        live = {path: entry for path, entry in self.entries()}
+        issues = [
+            VerifyIssue(path, problem, recorded, found)
+            for problem, path, recorded, found in _verify(
+                self, live, stmts, logger=_VERIFY_LOGGER
+            )
+        ]
+        _VERIFY_LOGGER.info("verified %d entries: %d issue(s)", len(live), len(issues))
+        return issues
 
     def _dump_own(self, dirs: str) -> typing.Optional[typing.Tuple[str, ...]]:
         """The prefixes ``dump(dirs=...)`` filters directories by: ``None``

@@ -371,3 +371,38 @@ is a ghost directory whose path `tmpfiles.d` cannot spell (whitespace, `"`, a
 backslash or a control character). It logs one INFO line per file on
 `pkgforge.sysfiles`; with no file DB the records are printed to standard output
 as JSON Lines.
+
+## `verify`
+
+Check the build root against the file DB, the way `rpmbuild` and `dh_missing`
+will see them, before either runs.
+
+```bash
+pkgforge verify [-X PATTERN]... [-f {text,json}]
+```
+
+It reports a file or symlink on disk that no entry records (`unrecorded`), an
+entry whose path does not exist (`missing`; a `ghost` entry is never expected
+on disk), a path whose on-disk type differs from the recorded one (`type`) and
+a symlink that points elsewhere than its recorded `target` (`target`). A
+directory with no entry is not reported, since a package owns only the
+directories it records. Mode, owner and group are not compared: the DB's values
+are what every [dump format](formats.md) ships, and owned parents and `scan`
+entries keep their on-disk mode by design. The file DB found inside the build
+root is skipped with one WARNING.
+
+Text output is one line per issue, sorted by path then problem: `PROBLEM PATH`,
+or `PROBLEM PATH: recorded R, found F` for `type` and `target`. `-f json` prints
+one document instead, with the four keys `path`, `problem`, `recorded` and
+`found` per issue:
+
+```bash
+pkgforge verify -f json
+```
+
+`-X` takes DB paths, as for `dbdump`; a matching path is dropped from both
+sides, and a matching directory is not descended. The exit status is `0` for a
+clean tree, `1` when there is any issue (the issues are the output; no
+`pkgforge: error:` line is printed) and `2` for no file DB (`--db` unset or
+`-`), a DB file that does not exist or a build root that does not exist. It logs
+one INFO line, `verified N entries: M issue(s)`, on `pkgforge.verify`.
