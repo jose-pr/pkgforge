@@ -2225,3 +2225,87 @@ def test_rpmbuild_package_example_installs(tmp_path):
         assert os.stat("/run/hello").st_uid == pwd.getpwnam("hello").pw_uid
     finally:
         _run_as_root("rpm", "-e", "hello", check=False)
+
+
+# --------------------------------------------------------------------------
+# package -f arch: the pacman package pkgforge writes itself
+# --------------------------------------------------------------------------
+
+PACMAN = shutil.which("pacman")
+requires_pacman = pytest.mark.skipif(PACMAN is None, reason="pacman not installed")
+
+
+def _build_direct_arch(base: Path) -> typing.Dict[str, Path]:
+    """Stage the example under ``base`` and run ``package -f arch`` on it;
+    returns the packages by name."""
+    base.mkdir(exist_ok=True)
+    tree = _example_source(base / "work")
+    project = Project.from_config(
+        tree / "pkgforge.cfg", buildroot=base / "root", db=base / "files.jsonl"
+    )
+    project.stage(init=True)
+    paths = project.package("arch", base / "out")
+    return {path.name.rsplit("-", 3)[0]: path for path in paths}
+
+
+def _pacman_info(package: Path) -> typing.Dict[str, str]:
+    """``pacman -Qip`` of ``package`` as ``{field: value}``."""
+    out = subprocess.run(
+        ["pacman", "-Qip", str(package)], capture_output=True, text=True, check=True
+    ).stdout
+    fields = {}
+    for line in out.splitlines():
+        key, sep, value = line.partition(" : ")
+        if sep:
+            fields[key.strip()] = value.strip()
+    return fields
+
+
+@requires_pacman
+def test_pacman_reads_example(tmp_path):
+    """pacman reads both packages: name, version, architecture and the install
+    script of ``hello`` only."""
+    packages = _build_direct_arch(tmp_path)
+    assert sorted(packages) == ["hello", "hello-doc"]
+    hello = _pacman_info(packages["hello"])
+    assert (hello["Name"], hello["Version"], hello["Architecture"]) == (
+        "hello",
+        "1.0-1",
+        "any",
+    )
+    assert hello["Install Script"] == "Yes"
+    doc = _pacman_info(packages["hello-doc"])
+    assert (doc["Name"], doc["Version"], doc["Architecture"]) == (
+        "hello-doc",
+        "1.0-1",
+        "any",
+    )
+    assert doc["Install Script"] == "No"
+
+
+@requires_pacman
+@requires_install
+def test_pacman_example_installs(tmp_path):
+    """Installing the package creates the account, owns ``/var/lib/hello`` and
+    ``/run/hello`` by it, gives the config its group and sets the capability;
+    ``pacman -Qkk`` then warns only about the two owners pacman cannot store."""
+    package = _build_direct_arch(tmp_path)["hello"]
+    try:
+        _run_as_root("pacman", "-U", "--noconfirm", str(package))
+        _assert_installed_example_state()
+        assert os.stat("/run/hello").st_uid == pwd.getpwnam("hello").pw_uid
+        conf = os.stat("/etc/hello/hello.conf")
+        assert grp.getgrgid(conf.st_gid).gr_name == "adm"
+        check = _run_as_root("pacman", "-Qkk", "hello", check=False)
+        warned = {
+            match.group(1).lstrip("/"): match.group(2)
+            for match in re.finditer(
+                r"^warning: hello: (\S+) \((.*)\)$", check.stdout + check.stderr, re.M
+            )
+        }
+        assert set(warned) == {"var/lib/hello", "etc/hello/hello.conf"}, (
+            check.stdout + check.stderr
+        )
+        assert all("mismatch" in text for text in warned.values()), warned
+    finally:
+        _run_as_root("pacman", "-R", "--noconfirm", "hello", check=False)

@@ -42,6 +42,7 @@ __all__ = [
     "EntryRule",
     "GroupAccount",
     "PackageInfo",
+    "PacmanInfo",
     "ProjectConfig",
     "RpmInfo",
     "StageStep",
@@ -164,6 +165,7 @@ _RELEASE = re.compile(r"[A-Za-z0-9.+~]+")
 _MAINTAINER = re.compile(r"[^<>,\x00-\x1f\x7f]+ <[^<>\s]+@[^<>\s]+>")
 _SECTION = re.compile(r"[a-z0-9][a-z0-9/+.-]*")
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+_WHITESPACE = re.compile(r"\s")
 _DESCRIPTION_CONTROL = re.compile(r"[\x00-\x09\x0b-\x1f\x7f]")
 _PRIORITIES = ("required", "important", "standard", "optional", "extra")
 
@@ -247,12 +249,28 @@ class DebianInfo:
 
 
 @dataclass(frozen=True)
+class PacmanInfo:
+    """The ``pacman`` table of a package: facts for the Arch format only.
+    ``depends`` lists one ``depend`` item each, a single word such as
+    ``glibc`` or ``bash>=5``."""
+
+    depends: typing.Tuple[_Text, ...] = ()
+
+    def __post_init__(self) -> None:
+        items = _items(self.depends, "depends")
+        for item in items:
+            if _WHITESPACE.search(item):
+                raise UsageError(f"depends: {item!r} must be one word")
+        _set(self, "depends", items)
+
+
+@dataclass(frozen=True)
 class PackageInfo:
     """The ``[package]`` table: the main (and source) package, whose facts other
     values can name once with ``${package.KEY}``. ``name`` is required and a
     package name (``[a-z0-9][a-z0-9+.-]+``); ``arch`` is ``all`` or ``any``;
-    ``maintainer`` reads ``Name <address>``. ``rpm`` and ``debian`` hold the
-    facts only that format uses."""
+    ``maintainer`` reads ``Name <address>``. ``rpm``, ``debian`` and ``pacman``
+    hold the facts only that format uses."""
 
     name: _Text
     version: typing.Optional[_Text] = None
@@ -265,6 +283,7 @@ class PackageInfo:
     homepage: typing.Optional[_Text] = None
     rpm: RpmInfo = field(default_factory=RpmInfo)
     debian: DebianInfo = field(default_factory=DebianInfo)
+    pacman: PacmanInfo = field(default_factory=PacmanInfo)
 
     def __post_init__(self) -> None:
         _package_name(self.name)
@@ -289,6 +308,7 @@ class SubPackageInfo:
     arch: typing.Optional[_Text] = None
     rpm: RpmInfo = field(default_factory=RpmInfo)
     debian: DebianInfo = field(default_factory=DebianInfo)
+    pacman: PacmanInfo = field(default_factory=PacmanInfo)
 
     def __post_init__(self) -> None:
         _package_name(self.name)

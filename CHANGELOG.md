@@ -7,6 +7,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `pkgforge package -f arch` builds each package as a pacman package itself,
+  with no `makepkg` or fakeroot: `NAME-VERSION-PKGREL-ARCH.pkg.tar.zst` (or
+  `.xz`, `.gz` with `--compression`), holding `.PKGINFO`, `.MTREE` and, when it
+  has a command, `.INSTALL`. pacman ignores the owner names of a tar, so every
+  header is `root:root` and `.INSTALL` creates the configured accounts and
+  applies each other owner, group, setuid mode and file capability; `pacman
+  -Qkk` reports an owner mismatch for those paths. It needs `[package]`
+  `version` and `summary`, and a `summary` per `[[packages]]` element.
+- `[package.pacman] depends` (and the same table under `[[packages]]`) lists the
+  `depend` items of the Arch package.
 - `pkgforge package -f rpm` builds each package as an `.rpm` through `rpmbuild`,
   from the staged tree and the file DB, with no hand-written spec:
   `NAME-VERSION-RELEASE.ARCH.rpm` in the output directory. The spec is the one

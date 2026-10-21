@@ -16,6 +16,7 @@ from pkgforge.config import (
     GroupAccount,
     DebianInfo,
     PackageInfo,
+    PacmanInfo,
     RpmInfo,
     ProjectConfig,
     StageStep,
@@ -48,6 +49,9 @@ requires = ["glibc", "bash"]
 [package.debian]
 depends = ["libc6", "bash"]
 section = "utils"
+
+[package.pacman]
+depends = ["glibc", "bash>=5"]
 
 [defaults]
 owner = "root"
@@ -132,6 +136,7 @@ def test_full_document_loads_into_the_dataclasses(tmp_path):
             description="The hello program.",
             rpm=RpmInfo(requires=("glibc", "bash")),
             debian=DebianInfo(depends=("libc6", "bash"), section="utils"),
+            pacman=PacmanInfo(depends=("glibc", "bash>=5")),
         ),
         defaults=EntryDefaults(
             owner="root",
@@ -244,6 +249,20 @@ def test_a_yaml_include_exits_two(cli, tmp_path, yaml_module):
     assert lines[0].startswith("pkgforge: error: ") and "pkgforge.cfg" in lines[0]
 
 
+def test_pacman_tables_hydrate(tmp_path):
+    cfg = load(
+        write(
+            tmp_path,
+            '[package]\nname = "hello"\n[package.pacman]\ndepends = ["glibc"]\n'
+            '[[packages]]\nname = "hello-doc"\n[packages.pacman]\n'
+            'depends = ["hello=1.0", "bash>=5"]\n',
+        )
+    )
+    assert cfg.package.pacman == PacmanInfo(depends=("glibc",))
+    assert cfg.packages[0].pacman == PacmanInfo(depends=("hello=1.0", "bash>=5"))
+    assert PacmanInfo() == PackageInfo(name="hello").pacman
+
+
 def test_empty_file_is_all_defaults(tmp_path):
     assert load(write(tmp_path, "")) == ProjectConfig()
 
@@ -264,6 +283,25 @@ BAD_VALUES = [
     ({"own": ["/usr/../x"]}, "without '..'"),
     ({"own": ["/"]}, "'/' is not a package directory"),
     ({"package": {"version": "1"}}, "name"),
+    (
+        {"package": {"name": "xx", "pacman": {"depends": ["a b"]}}},
+        "depends: 'a b' must be one word",
+    ),
+    (
+        {"package": {"name": "xx", "pacman": {"depends": [""]}}},
+        "depends: an item must not be empty",
+    ),
+    (
+        {"package": {"name": "xx", "pacman": {"depends": ["a\tb"]}}},
+        "depends: must be one line",
+    ),
+    (
+        {
+            "package": {"name": "xx"},
+            "packages": [{"name": "xx-doc", "pacman": {"depends": ["a b"]}}],
+        },
+        "must be one word",
+    ),
     ({"stage": [{}]}, "step needs exactly one of src, dir, file, symlink"),
     (
         {"stage": [{"src": "a", "dest": "/a", "dir": "/d"}]},
@@ -573,6 +611,16 @@ BAD_FILES = [
         '[package]\nname = "a"\n[defaults]\nowner = "${package.nmae}"\n',
         "undefined reference",
         id="undefined-reference",
+    ),
+    pytest.param(
+        '[package]\nname = "a"\n[package.pacman]\ndepends = ["x y"]\n',
+        "depends: 'x y' must be one word",
+        id="pacman-two-words",
+    ),
+    pytest.param(
+        '[package]\nname = "a"\n[package.pacman]\nrequires = ["x"]\n',
+        "requires",
+        id="pacman-unknown-key",
     ),
 ]
 

@@ -440,8 +440,8 @@ Tables, all optional (`ProjectConfig` fields in this order):
 | --- | --- | --- |
 | `buildroot`, `db`, `db_format` | text | the options of the same name; `db = "-"` means no file DB |
 | `own` | list of text | `/`-rooted directory prefixes the package owns (no `..`, not `/`; stored normalized) |
-| `[package]` | `PackageInfo` | the main (and source) package: `name` (required, `[a-z0-9][a-z0-9+.-]+`), `version` (`[0-9][A-Za-z0-9.+~]*`), `release` (`[A-Za-z0-9.+~]+`), `arch` (`all` or `any`), `summary`, `license`, `homepage` (one line each), `maintainer` (`Name <address>`), `description` (no control character but newline), and the sub-tables `[package.rpm]` (`RpmInfo`: `requires`, a list) and `[package.debian]` (`DebianInfo`: `depends`, a list of items without `,`; `section`, lowercase; `priority`, one of `required`, `important`, `standard`, `optional`, `extra`); values to name once and reuse as `${package.KEY}` |
-| `[[packages]]` | `SubPackageInfo` | a subpackage: `name` (required, the full package name such as `hello-doc`, unique and not the `[package]` name; needs `[package]`), `summary`, `description`, `arch` (unset: the main's), `rpm`, `debian` as in `[package]` |
+| `[package]` | `PackageInfo` | the main (and source) package: `name` (required, `[a-z0-9][a-z0-9+.-]+`), `version` (`[0-9][A-Za-z0-9.+~]*`), `release` (`[A-Za-z0-9.+~]+`), `arch` (`all` or `any`), `summary`, `license`, `homepage` (one line each), `maintainer` (`Name <address>`), `description` (no control character but newline), and the sub-tables `[package.rpm]` (`RpmInfo`: `requires`, a list) and `[package.debian]` (`DebianInfo`: `depends`, a list of items without `,`; `section`, lowercase; `priority`, one of `required`, `important`, `standard`, `optional`, `extra`) and `[package.pacman]` (`PacmanInfo`: `depends`, a list of one-word items such as `glibc` or `bash>=5`; named for the manager because `arch` is already a key); values to name once and reuse as `${package.KEY}` |
+| `[[packages]]` | `SubPackageInfo` | a subpackage: `name` (required, the full package name such as `hello-doc`, unique and not the `[package]` name; needs `[package]`), `summary`, `description`, `arch` (unset: the main's), `rpm`, `debian`, `pacman` as in `[package]` |
 | `[defaults]` | `EntryDefaults` | `owner`, `group`, `file_mode`, `exec_mode`, `dir_mode` |
 | `[[rules]]` | `EntryRule` | `match` (non-empty list of `-X` statements), `mode`, `owner`, `group`, `kind`, `caps`, `package` (the `[package]` name or a `[[packages]]` name) |
 | `[[users]]` | `UserAccount` | `name` (required), `description`, `home`, `shell` (absolute, no whitespace or `\`), `groups` (list of supplementary groups), `create` (boolean, default `true`; `false` takes `name` only) |
@@ -933,6 +933,35 @@ Importing `pkgforge.package` loads no optional dependency.
   release), the package's own table (`PackageInfo` or `SubPackageInfo`), its
   architecture (`"all"` or `"any"`: its own, else the main's, else `"any"`) and
   its live entries sorted by DB path.
+- **`ArchFormat`** — `NAME = "arch"`, `COMPRESSIONS = ("zst", "xz", "gz")`,
+  `REQUIRED = ("version", "summary")`, `SUB_REQUIRED = ("summary",)`,
+  `ALL_ARCH = "any"`, `MACHINES` mapping `x86_64`/`amd64` to `x86_64`,
+  `aarch64`/`arm64` to `aarch64`, `armv7l` to `armv7h`, `i686`/`i386` to `i686`
+  and `riscv64`. One `NAME-VERSION-PKGREL-ARCH.pkg.tar.{zst,xz,gz}` per package,
+  written without makepkg or fakeroot; PKGREL is `[package] release` or `1` and
+  must read `N` or `N.M` (`UsageError`). GNU tar with `.PKGINFO`, `.MTREE` and,
+  only when it has a command, `.INSTALL`, then the payload with no `./` and no
+  root entry. `.PKGINFO` (`key = value` lines): `pkgname`, `pkgbase` (the main
+  name), `xdata = pkgtype=pkg` (`split` for a subpackage), `pkgver`
+  (`VERSION-PKGREL`), `pkgdesc` (the summary), `url` (the main's `homepage`),
+  `builddate`, `packager` (the main's `maintainer`, else `Unknown Packager`),
+  `size` (bytes of files and symlink targets), `arch`, `license` (the main's),
+  then `depend`: the `[package.pacman] depends` items, `systemd` when `.INSTALL`
+  creates accounts or runs tmpfiles, `libcap` with a `caps` entry, each once.
+  `.MTREE` is gzip (no time) of `#mtree` and one line per other member
+  (`./PATH time=E.0 mode=M uid=0 gid=0 type=file|dir|link`, plus `size`,
+  `md5digest`, `sha256digest` or `link=`; bytes outside `!`-`~`, and `\` and `#`,
+  are written `\ooo`). pacman ignores the owner names of a tar, so
+  every header is `root:root` with uid and gid 0 and `.INSTALL` applies the
+  rest in `post_install` (`post_upgrade` calls it): `systemd-sysusers -` over a
+  heredoc of the `sysusers.d` text when the package ships
+  `/usr/lib/sysusers.d/NAME.conf` or holds an entry owned by an account the
+  configuration creates, `systemd-tmpfiles --create NAME.conf` when it ships
+  that file, `chown -h -- OWNER:GROUP PATH` (`chgrp -h -- GROUP PATH` when only
+  the group is not root) per entry, `chmod` again for a setuid or setgid mode
+  (chown drops it), then `setcap CAPS PATH`. `pacman -Qkk` therefore reports
+  `UID mismatch`/`GID mismatch` for the paths `.INSTALL` re-owns. Units are not
+  enabled (Arch packages leave that to the administrator).
 - **`DebFormat`** — `NAME = "deb"`, `COMPRESSIONS = ("xz", "gz", "zst",
   "none")`, `REQUIRED = ("version", "summary", "maintainer")`, `SUB_REQUIRED =
   ("summary",)`, `ALL_ARCH = "all"`, `MACHINES` mapping `x86_64`/`amd64` to
@@ -1383,7 +1412,7 @@ there with a `UsageError`. See [Environment variables](#environment-variables).
 
 - **`pkgforge package -f FORMAT [-o DIR] [--arch NAME] [--compression KIND]`** —
   `Project.package`: build one package per declared package from the file DB and
-  the build root. `-f` is `deb`, `rpm` or `tar`; `-o` defaults to `.` and is created when
+  the build root. `-f` is `arch`, `deb`, `rpm` or `tar`; `-o` defaults to `.` and is created when
   missing. Prints each path written on stdout, one per line, the main package
   first. `--arch` names the architecture of an `any` package in the format's own
   spelling (default: this machine's); `--compression` is one the format offers.

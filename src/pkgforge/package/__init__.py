@@ -219,11 +219,13 @@ def build(
 # Built-in formats: importing each module registers its format class.
 # --------------------------------------------------------------------------
 
+from ._arch import ArchFormat  # noqa: E402
 from ._deb import DebFormat  # noqa: E402
 from ._rpm import RpmFormat  # noqa: E402
 from ._tar import TarFormat  # noqa: E402
 
 __all__ = [
+    "ArchFormat",
     "BuildContext",
     "DebFormat",
     "PackageFormat",

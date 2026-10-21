@@ -178,6 +178,18 @@ def installed_kib(items: typing.Iterable[Member]) -> int:
     return total
 
 
+def payload_bytes(items: typing.Iterable[Member]) -> int:
+    """The bytes ``items`` occupy: each regular file's size plus the length of
+    each symlink's target."""
+    total = 0
+    for item in items:
+        if item.type == FileType.File:
+            total += item.size
+        elif item.type == FileType.Symlink:
+            total += len((item.target or "").encode("utf-8", "surrogateescape"))
+    return total
+
+
 def tar_bytes(
     items: typing.Iterable[typing.Union[Member, Blob]],
     *,
