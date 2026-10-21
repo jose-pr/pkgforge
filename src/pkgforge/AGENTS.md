@@ -705,7 +705,8 @@ whole file is validated before any command runs: a problem is one
   account does not exist yet. `fixperms` leaves it alone (dh_fixperms keeps it
   root-owned) and `postinst` applies it: `if ! dpkg-statoverride --list PATH
   >/dev/null; then ...; fi`, so an administrator's override survives an
-  upgrade, with `root` for an unset owner or group. A symlink of that kind, or
+  upgrade, with `root` for an unset owner or group (`--list` reads a glob, so
+  `\ * ? [` in PATH are backslash-escaped there). A symlink of that kind, or
   one with mode `-`, is `DumpError` (an override follows a symlink and needs a
   mode). The accounts come from the generated sysusers.d file, so the Debian
   build must run `dh $@ --with installsysusers` (debhelper 13.10+; the

@@ -93,6 +93,10 @@ _SCRIPT_HEADER = f"#!/bin/sh\n{_MARKER}\nset -e\n\n#DEBHELPER#\n"
 _GHOST = FileKind.Ghost.value
 _CONFIG_KINDS = frozenset((FileKind.Config.value, FileKind.ConfigNoReplace.value))
 _WHITESPACE_RE = re.compile(r"\s")
+#: ``dpkg-statoverride --list`` matches its argument with fnmatch(3), so these
+#: characters of a path are backslash-escaped there; ``--add`` and ``--remove``
+#: take the path as written.
+_FNMATCH_SPECIAL_RE = re.compile(r"([\\*?[])")
 
 
 def _sh_word(value: str) -> str:
@@ -265,15 +269,16 @@ class DebianFiles(MultiArtifactFormat):
                         "creates and needs a recorded mode for dpkg-statoverride"
                     )
                 word = _sh_word(path)
+                pattern = _sh_word(_FNMATCH_SPECIAL_RE.sub(r"\\\1", path))
                 override_lines.append(
-                    f"  if ! dpkg-statoverride --list {word} >/dev/null; then "
+                    f"  if ! dpkg-statoverride --list {pattern} >/dev/null; then "
                     f"dpkg-statoverride --update --add "
                     f"{_sh_word_cached(owner if owner != DEFAULT else 'root')} "
                     f"{_sh_word_cached(group if group != DEFAULT else 'root')} "
                     f"{_sh_word_cached(mode)} {word}; fi"
                 )
                 purge_lines.append(
-                    f"  if dpkg-statoverride --list {word} >/dev/null; then "
+                    f"  if dpkg-statoverride --list {pattern} >/dev/null; then "
                     f"dpkg-statoverride --remove {word}; fi"
                 )
             caps = entry["caps"]

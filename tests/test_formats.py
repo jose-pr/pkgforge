@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import shutil
 import stat
 import subprocess
 import tarfile
@@ -1621,6 +1622,69 @@ def test_debian_postinst_and_postrm_apply_and_remove_overrides():
         b"dpkg-statoverride --remove /var/log/svc.log; fi\n"
         b"fi\n"
     )
+
+
+def test_debian_statoverride_list_escapes_glob_characters():
+    # --list matches an fnmatch pattern; --add and --remove take the path.
+    arts = DebianFiles().render([_owned_entry("/srv/a[1]*?\\b")])
+    assert (
+        "  if ! dpkg-statoverride --list '/srv/a\\[1]\\*\\?\\\\b' >/dev/null; then "
+        "dpkg-statoverride --update --add svc svc 750 '/srv/a[1]*?\\b'; fi\n"
+    ) in arts["postinst"].decode()
+    assert (
+        "  if dpkg-statoverride --list '/srv/a\\[1]\\*\\?\\\\b' >/dev/null; then "
+        "dpkg-statoverride --remove '/srv/a[1]*?\\b'; fi\n"
+    ) in arts["postrm"].decode()
+
+
+def _host_group_outside_base():
+    """A group of this host that is not a base-passwd group, or None."""
+    from pkgforge.entry import BASE_GROUPS
+
+    for entry in grp.getgrall():
+        name = entry.gr_name
+        if name not in BASE_GROUPS and name.isascii() and name.isidentifier():
+            return name
+    return None
+
+
+@pytest.mark.posix
+@pytest.mark.skipif(
+    shutil.which("dpkg-statoverride") is None,
+    reason="dpkg-statoverride not installed",
+)
+def test_dh_install_postinst_overrides_run_twice_and_purge(tmp_path):
+    # An empty DPKG_ROOT leaves --update nothing to chown, so no root is needed.
+    group = _host_group_outside_base()
+    if group is None:
+        pytest.skip("no group outside the base-passwd set on this host")
+    paths = ["/srv/a b'c$d", "/srv/x[1]", "/srv/st*r"]
+    out = tmp_path / "debian"
+    _dump(DebianFiles(), [_owned_entry(p, "750", "root", group) for p in paths], out)
+    root = tmp_path / "root"
+    admin = tmp_path / "admin"
+    (admin / "updates").mkdir(parents=True)
+    root.mkdir()
+    # An administrator's override on a path the glob `st*r` would match.
+    (admin / "statoverride").write_bytes(f"root {group} 700 /srv/stXr\n".encode())
+    env = {**os.environ, "DPKG_ROOT": str(root), "DPKG_ADMINDIR": str(admin)}
+
+    def run(script, arg):
+        subprocess.run(
+            ["sh", str(out / script), arg], env=env, check=True, capture_output=True
+        )
+
+    def listed():
+        return sorted((admin / "statoverride").read_bytes().decode().splitlines())
+
+    run("postinst", "configure")
+    run("postinst", "configure")
+    assert listed() == sorted(
+        [f"root {group} 700 /srv/stXr"] + [f"root {group} 750 {p}" for p in paths]
+    )
+    run("postrm", "purge")
+    run("postrm", "purge")
+    assert listed() == [f"root {group} 700 /srv/stXr"]
 
 
 def test_debian_overrides_come_before_setcap():
