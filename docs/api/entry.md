@@ -6,6 +6,10 @@
     options:
       show_root_heading: true
 
+::: pkgforge.entry.FileKind
+    options:
+      show_root_heading: true
+
 ::: pkgforge.entry.FileEntry
     options:
       show_root_heading: true
@@ -23,6 +27,14 @@
       show_root_heading: true
 
 ::: pkgforge.entry.normalize_mode
+    options:
+      show_root_heading: true
+
+::: pkgforge.entry.normalize_kind
+    options:
+      show_root_heading: true
+
+::: pkgforge.entry.normalize_caps
     options:
       show_root_heading: true
 

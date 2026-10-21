@@ -183,6 +183,8 @@ def make_entry():
             "owner": owner,
             "group": group,
             "type": type,
+            "kind": "file",
+            "caps": "-",
             "meta": meta or {},
         }
         entry.update(over)

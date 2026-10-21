@@ -391,7 +391,7 @@ def test_rpmbuild_packages_pinned_attrs_config_and_symlink(tmp_path, cli):
     db = tmp_path / "files.jsonl"
     result = cli(
         "--db", str(db), "--buildroot", str(root), "install", "-p",
-        "-m", "640", "-o", "root", "-g", "adm", "-O", "rpmprefix=%config(noreplace)",
+        "-m", "640", "-o", "root", "-g", "adm", "-k", "config-noreplace",
         str(src), "/etc/t",
     )  # fmt: skip
     assert result.rc == 0, result.err
@@ -405,6 +405,8 @@ def test_rpmbuild_packages_pinned_attrs_config_and_symlink(tmp_path, cli):
                     "owner": "root",
                     "group": "root",
                     "type": "symlink",
+                    "kind": "file",
+                    "caps": "-",
                     "meta": {},
                 }
             )
@@ -985,6 +987,17 @@ def _run_dpkg_buildpackage(tmp_path: Path, pkgroot: Path):
     return result, members
 
 
+def _control_member(deb: Path, name: str) -> str:
+    """The text of the maintainer script or control file ``name`` in ``deb``."""
+    control = subprocess.run(
+        ["dpkg-deb", "--ctrl-tarfile", str(deb)], capture_output=True, check=True
+    ).stdout
+    with tarfile.open(fileobj=io.BytesIO(control)) as tf:
+        member = tf.extractfile(f"./{name}")
+        assert member is not None, name
+        return member.read().decode("utf-8")
+
+
 def _assert_full_sequence_pins(result, members, pkg: str):
     def pinned(name: str, mode: int, owner: str, group: str):
         member = members[name]
@@ -1024,6 +1037,118 @@ def test_dh_install_full_sequence_debian_tmp(tmp_path):
 
 
 # --------------------------------------------------------------------------
+# entry kinds and file capabilities
+# --------------------------------------------------------------------------
+
+
+def _stage_kinds_db(cli, root: Path, db: Path, src: Path) -> None:
+    """Record one entry of each kind, a ghost directory and a file with
+    capabilities: ``/etc/kc`` and ``/opt/kc`` configs (only the second needs a
+    ``conffiles`` line), a doc, a license, a ghost file and directory."""
+    src.mkdir()
+    (src / "f").write_text("x", encoding="utf-8")
+    base = ["--db", str(db), "--buildroot", str(root)]
+    rows = (
+        ("config-noreplace", "/etc/kc", ()),
+        ("config", "/opt/kc", ()),
+        ("doc", "/usr/share/doc/kc", ()),
+        ("license", "/usr/share/licenses/kc", ()),
+        ("ghost", "/var/log", ()),
+        ("file", "/usr/bin", ("--caps", "cap_net_raw=ep")),
+    )
+    for kind, dest, extra in rows:
+        # Distinct file names, so every row is its own path.
+        name = {"/var/log": "kc.log", "/usr/bin": "kc"}.get(dest, "kc.conf")
+        target = src / name
+        target.write_text("x", encoding="utf-8")
+        result = cli(
+            *base, "install", "-p", "-m", "644", "-k", kind, *extra, str(target), dest
+        )
+        assert result.rc == 0, result.err
+    result = cli(*base, "mkdir", "-p", "-k", "ghost", "/run/kc")
+    assert result.rc == 0, result.err
+
+
+@requires_rpmbuild
+def test_rpmbuild_kinds_and_caps(tmp_path, cli):
+    root = tmp_path / "root"
+    db = tmp_path / "files.jsonl"
+    _stage_kinds_db(cli, root, db, tmp_path / "src")
+    manifest = tmp_path / "files.txt"
+    assert cli("--db", str(db), "dbdump", "-f", _HOST_FORMAT, str(manifest)).rc == 0
+    rpm_path = _build_rpm(tmp_path / "build", root, manifest, "pf-kinds")
+    listing = subprocess.run(
+        [
+            "rpm", "-qp", "--qf", "[%{FILENAMES}|%{FILEFLAGS}|%{FILECAPS}\\n]",
+            str(rpm_path),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()  # fmt: skip
+    rows = {path: (int(flags), caps) for path, flags, caps in map(_split3, listing)}
+    assert rows["/etc/kc/kc.conf"][0] == 17  # config(noreplace)
+    assert rows["/opt/kc/kc.conf"][0] == 1  # config
+    assert rows["/usr/share/doc/kc/kc.conf"][0] == 2  # doc
+    assert rows["/usr/share/licenses/kc/kc.conf"][0] & 128  # license
+    assert rows["/var/log/kc.log"][0] == 64  # ghost
+    assert rows["/run/kc"][0] == 64  # ghost directory
+    assert rows["/usr/bin/kc"] == (0, "cap_net_raw=ep")
+    assert all(caps == "" for path, (_f, caps) in rows.items() if path != "/usr/bin/kc")
+
+
+def _split3(row: str) -> typing.Tuple[str, str, str]:
+    path, flags, caps = row.split("|")
+    return path, flags, caps
+
+
+@requires_dh_sequence
+def test_dh_install_kinds_and_caps(tmp_path, cli):
+    """Ghosts stay out of the payload (``dh_missing --fail-missing`` accepts
+    the staged ghost file through ``not-installed``), a config outside ``/etc``
+    is listed in ``conffiles`` once, and ``postinst`` sets the capability."""
+    pkg = "pf-kinds"
+    pkgroot = tmp_path / "work" / pkg
+    debian_dir = pkgroot / "debian"
+    (debian_dir / "source").mkdir(parents=True)
+    _write_debian_control_and_changelog(debian_dir, pkg)
+    (debian_dir / "source" / "format").write_text("3.0 (native)\n", encoding="utf-8")
+    stage = tmp_path / "stage"
+    # dh clean removes debian/tmp, so the staged tree is copied in at the
+    # point a recipe would stage into it.
+    (debian_dir / "rules").write_text(
+        "#!/usr/bin/make -f\n"
+        "%:\n"
+        "\tdh $@\n"
+        "\n"
+        "override_dh_auto_install:\n"
+        "\tmkdir -p debian/tmp\n"
+        f"\tcp -a {stage}/. debian/tmp/\n"
+        "\n"
+        "override_dh_strip_nondeterminism:\n",
+        encoding="utf-8",
+    )
+    (debian_dir / "rules").chmod(0o755)
+
+    db = tmp_path / "files.jsonl"
+    _stage_kinds_db(cli, stage, db, tmp_path / "src")
+    assert cli("--db", str(db), "dbdump", "-f", "debian", str(debian_dir)).rc == 0
+
+    _result, members = _run_dpkg_buildpackage(tmp_path, pkgroot)
+    assert "etc/kc/kc.conf" in members and "opt/kc/kc.conf" in members
+    assert "var/log/kc.log" not in members
+    assert "run/kc" not in members
+
+    deb = next((tmp_path / "work").glob("*.deb"))
+    conffiles = _control_member(deb, "conffiles").split()
+    assert sorted(conffiles) == ["/etc/kc/kc.conf", "/opt/kc/kc.conf"]
+    postinst = _control_member(deb, "postinst")
+    assert "#DEBHELPER#" not in postinst
+    setcap = 'setcap -- cap_net_raw=ep "$DPKG_ROOT"/usr/bin/kc'
+    assert setcap in postinst
+
+
+# --------------------------------------------------------------------------
 # examples/: the packages a user starts from must build
 # --------------------------------------------------------------------------
 
@@ -1049,10 +1174,19 @@ def test_dh_install_example_debian_builds(tmp_path):
         assert (member.uname, member.gname) == (owner, group), name
 
     pinned("usr/bin/hello", 0o755, "root", "root")
-    pinned("usr/libexec/hello/helper", 0o4755, "root", "root")
+    pinned("usr/libexec/hello/helper", 0o755, "root", "root")
     pinned("etc/hello/hello.conf", 0o640, "root", "adm")
     pinned("var/lib/hello", 0o750, "root", "adm")
     assert members["usr/bin/hi"].issym()
+    # The ghost log is neither shipped nor reported as missing, and the
+    # capability is set by the maintainer script.
+    assert "var/log/hello.log" not in members
+    deb = next((tmp_path / "work").glob("*.deb"))
+    postinst = _control_member(deb, "postinst")
+    assert (
+        'setcap -- cap_net_bind_service=ep "$DPKG_ROOT"/usr/libexec/hello/helper'
+        in (postinst)
+    )
 
 
 @requires_rpmbuild
@@ -1108,7 +1242,14 @@ def test_rpmbuild_example_hello_spec(tmp_path):
         for line in dbs[0].read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    assert packaged["/usr/libexec/hello/helper"][0] == 0o4755
+    assert packaged["/usr/libexec/hello/helper"][0] == 0o755
+    caps = subprocess.run(
+        ["rpm", "-qp", "--qf", "[%{FILENAMES} %{FILECAPS}\\n]", str(rpms[0])],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    assert "/usr/libexec/hello/helper cap_net_bind_service=ep" in caps
     for entry in recorded:
         path = entry["path"]
         assert path in packaged, path
@@ -1139,12 +1280,12 @@ rmdir "$E"
 
 pf install -p -m 755 -o root -g root "$S/hello" /usr/bin
 pf install -D -t symlink -O target=hello - /usr/bin/hi
-pf install -p -m 4755 -o root -g root "$S/helper" /usr/libexec/hello
-pf install -p -m 640 -o root -g adm -O 'rpmprefix=%config(noreplace)' "$S/hello.conf" /etc/hello
+pf install -p -m 755 -o root -g root --caps cap_net_bind_service=ep "$S/helper" /usr/libexec/hello
+pf install -p -m 640 -o root -g adm -k config-noreplace "$S/hello.conf" /etc/hello
 pf install -p -m 644 -o root -g root "$S/hello.service" /usr/lib/systemd/system
-pf install -p -m 644 -o root -g root -O rpmprefix=%license "$S/LICENSE" /usr/share/licenses/hello
-pf install -p -m 644 -o root -g root -O rpmprefix=%doc "$S/README" /usr/share/doc/hello
-pf install -D -m 640 -o root -g adm -O rpmprefix=%ghost - /var/log/hello.log < /dev/null
+pf install -p -m 644 -o root -g root -k license "$S/LICENSE" /usr/share/licenses/hello
+pf install -p -m 644 -o root -g root -k doc "$S/README" /usr/share/doc/hello
+pf install -D -m 640 -o root -g adm -k ghost - /var/log/hello.log < /dev/null
 """
 
 _STAGE_ONLY_SPEC = "pkgforge -q --config %{proj}/pkgforge.cfg stage --init\n"
@@ -1172,7 +1313,7 @@ def _example_tree(dest: Path, *, shell: bool) -> Path:
 
 _RPM_ROWS = (
     "[%{FILENAMES}|%{FILEMODES:octal}|%{FILEUSERNAME}|%{FILEGROUPNAME}"
-    "|%{FILEFLAGS}|%{FILELINKTOS}\\n]"
+    "|%{FILEFLAGS}|%{FILELINKTOS}|%{FILECAPS}\\n]"
 )
 
 

@@ -37,8 +37,8 @@ undecodable file name, or a `pwd`/`grp` entry with one) is rejected with
 
 ```jsonl
 # jsonl
-{"group": "root", "meta": {}, "mode": "755", "owner": "root", "path": "/usr/bin/tool", "type": "file"}
-{"group": "adm", "meta": {"rpmprefix": "%config(noreplace)"}, "mode": "640", "owner": "root", "path": "/etc/tool/config", "type": "file"}
+{"caps": "cap_net_bind_service=ep", "group": "root", "kind": "file", "meta": {}, "mode": "755", "owner": "root", "path": "/usr/bin/tool", "type": "file"}
+{"caps": "-", "group": "adm", "kind": "config-noreplace", "meta": {}, "mode": "640", "owner": "root", "path": "/etc/tool/config", "type": "file"}
 ```
 
 The JSON Lines default is fast to write and parse and stays greppable —
@@ -126,10 +126,15 @@ either way).
 | `mode` | octal permission string, e.g. `"644"` |
 | `owner` / `group` | user / group name |
 | `type` | `file`, `directory`, or `symlink` |
-| `meta` | free-form string map (e.g. `rpmprefix`, a symlink `target`), set with [`-O/--meta KEY=VALUE`](commands.md#install) |
+| `kind` | how packaging treats the entry: `file`, `config`, `config-noreplace`, `doc`, `license` or `ghost`; set with `-k/--kind` or a rule, never `-` in a DB |
+| `caps` | file capabilities for the package to set on install (one `setcap` clause), or `-` for none; set with `--caps` or a rule |
+| `meta` | free-form string map (e.g. a symlink `target`), set with [`-O/--meta KEY=VALUE`](commands.md#install) |
 
-A `yaml` DB's scalars load as strings (`mode: 0755` is `"0755"`); a missing
-`meta` loads as `{}`, a missing `mode`/`owner`/`group` as `-`.
+A `yaml` DB's scalars load as strings (`mode: 0755` is `"0755"`).
+
+A record has exactly these seven fields. A DB written before `kind` and `caps`
+existed fails to load with an error ending `this DB predates kind/caps: run
+initdb and record again`; there is no migration.
 
 ## Sentinels
 

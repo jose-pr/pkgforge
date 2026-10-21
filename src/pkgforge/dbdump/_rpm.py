@@ -12,6 +12,15 @@ from . import PerEntryFormat, _has_control, _reject_control
 #: entry than a ``FileType`` member comparison, and equal to the members.
 _DIRECTORY = FileType.Directory.value
 _SYMLINK = FileType.Symlink.value
+#: The ``%files`` directive each entry kind starts its line with.
+_RPM_KIND = {
+    "file": "",
+    "config": "%config ",
+    "config-noreplace": "%config(noreplace) ",
+    "doc": "%doc ",
+    "license": "%license ",
+    "ghost": "%ghost ",
+}
 
 
 def _rpm_reject(path: str) -> None:
@@ -92,7 +101,10 @@ def _rpm_reject_pre419(path: str) -> None:
 
 class RPMSpecFiles(PerEntryFormat):
     """RPM ``%files`` lines: ``%attr(mode,owner,group) "path"``, a ``%dir``
-    prefix for directories, ``meta["rpmprefix"]`` prepended if set.
+    prefix for directories, ``%caps(CAPS)`` for an entry with file
+    capabilities, and the entry kind's directive first (``%config``,
+    ``%config(noreplace)``, ``%doc``, ``%license`` or ``%ghost``; none for
+    ``file``).
 
     The path is quoted for rpm's ``%files -f`` parser (targets rpm 4.19+):
     a backslash and a double quote are escaped, and the whole line is
@@ -142,16 +154,18 @@ class RPMSpecFiles(PerEntryFormat):
         skips the extra call).
         """
         escape = self._escape
+        kinds = _RPM_KIND
         lines = []
         paths = []
         for path, entry in entries:
             paths.append(path)
-            prefix = entry["meta"].get("rpmprefix") or ""
-            if prefix:
-                prefix += " "
+            prefix = kinds[entry["kind"]]
             kind = entry["type"]
             if kind == _DIRECTORY:
                 prefix += "%dir "
+            caps = entry["caps"]
+            if caps != DEFAULT:
+                prefix += f"%caps({caps}) "
             # rpm warns on an explicit mode for a symlink, which it ignores.
             if kind == _SYMLINK:
                 mode = DEFAULT
@@ -182,7 +196,7 @@ class RPMSpecFilesPre419(RPMSpecFiles):
     """RPM ``%files`` lines for rpm older than 4.19 (measured against real
     rpmbuild runs on 4.14.3, 4.16.1 and 4.18.2).
 
-    Inherits :class:`RPMSpecFiles`'s ``%attr``/``%dir``/``rpmprefix``
+    Inherits :class:`RPMSpecFiles`'s ``%attr``/``%dir``/kind/caps
     rendering and batch-then-per-entry validation, overriding only the
     escaping/rejection hooks: the path is written completely unquoted, and a
     path containing a space, a glob character (``* ? [ ] { }``), ``%`` (in

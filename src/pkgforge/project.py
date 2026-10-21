@@ -29,6 +29,7 @@ from .entry import (
     FileRecords,
     FileType,
     StrPath,
+    _check_kind_caps,
 )
 from .exceptions import UsageError
 from .exclude import PathMatch, _statements
@@ -38,8 +39,9 @@ __all__ = ["Project"]
 #: Recognized ``method`` values of :meth:`Project.install`.
 _INSTALL_METHODS = ("copy", "link", "move")
 
-#: The entry fields ``[[rules]]`` and ``[defaults]`` fill when they are unset.
-_RESOLVED = ("mode", "owner", "group")
+#: The entry fields ``[[rules]]`` fill when they are unset (``[defaults]`` has no
+#: ``kind`` or ``caps``).
+_RESOLVED = ("mode", "owner", "group", "kind", "caps")
 
 _INIT_LOGGER = logging.getLogger("pkgforge.initdb")
 _COMPACT_LOGGER = logging.getLogger("pkgforge.compact")
@@ -318,16 +320,17 @@ class Project:
     def _configured(
         self, dbpath: str, entry: FileEntry, local: typing.Optional[Path] = None
     ) -> FileEntry:
-        """``entry`` with the ``mode``, ``owner`` and ``group`` it leaves at
-        ``"-"`` filled in from the configuration; ``entry`` itself is never
-        changed.
+        """``entry`` with the ``mode``, ``owner``, ``group``, ``kind`` and
+        ``caps`` it leaves at ``"-"`` filled in from the configuration;
+        ``entry`` itself is never changed.
 
         A field that is not ``"-"`` is a flag and stays. The others come from
         the first ``[[rules]]`` element whose ``match`` fits ``dbpath``, then
-        from ``[defaults]`` (``dir_mode`` for a directory, ``exec_mode`` for a
-        file with an execute bit on ``local``, else ``file_mode``). A symlink
-        never takes a mode. ``local`` is the file to test for the execute bit;
-        by default its place under the build root.
+        (mode, owner and group only) from ``[defaults]`` (``dir_mode`` for a
+        directory, ``exec_mode`` for a file with an execute bit on ``local``,
+        else ``file_mode``). A symlink never takes a mode. ``local`` is the
+        file to test for the execute bit; by default its place under the
+        build root.
         """
         rules, active = self._matchers()
         if not active:
@@ -397,21 +400,37 @@ class Project:
                 }
             if parent in self._held:
                 continue
-            entry = self._configured(
+            entry = self._resolved_kind(
                 parent,
-                {
-                    "mode": DEFAULT,
-                    "owner": DEFAULT,
-                    "group": DEFAULT,
-                    "type": FileType.Directory.value,
-                    "meta": {},
-                },
+                self._configured(
+                    parent,
+                    {
+                        "mode": DEFAULT,
+                        "owner": DEFAULT,
+                        "group": DEFAULT,
+                        "type": FileType.Directory.value,
+                        "kind": DEFAULT,
+                        "caps": DEFAULT,
+                        "meta": {},
+                    },
+                ),
             )
             if self.db is not None:
                 (self._batch_provider or self.db).add(parent, entry)
             self._written.add(parent)
             if records is not None:
                 records.append((parent, entry))
+
+    @staticmethod
+    def _resolved_kind(dbpath: str, entry: FileEntry) -> FileEntry:
+        """``entry`` with an unset ``kind`` made ``file``, after checking that
+        its kind and caps fit its type."""
+        kind = entry["kind"]
+        if kind == DEFAULT:
+            kind = "file"
+            entry = {**entry, "kind": kind}
+        _check_kind_caps(dbpath, kind, entry["caps"], entry["type"])
+        return entry
 
     def _record(
         self,
@@ -421,8 +440,12 @@ class Project:
     ) -> FileEntry:
         """The entry actually recorded for ``dbpath``; every write goes
         through here. The owned parents of ``dbpath`` are written first and
-        appended to ``records``."""
+        appended to ``records``.
+
+        A ``kind`` still unset becomes ``file``; a kind or caps that does not
+        fit the entry's type is a :class:`UsageError`."""
         entry = self._configured(dbpath, entry)
+        entry = self._resolved_kind(dbpath, entry)
         if self.config.own:
             self._record_parents(dbpath, records)
         return entry
@@ -517,6 +540,8 @@ class Project:
         owner: str = DEFAULT,
         group: str = DEFAULT,
         type: typing.Optional[FileType] = None,
+        kind: str = DEFAULT,
+        caps: str = DEFAULT,
         meta: typing.Optional[typing.Mapping[str, str]] = None,
         into: bool = True,
         parents: bool = False,
@@ -543,6 +568,14 @@ class Project:
             owner: an account name, ``"-"`` or ``"--"`` as for ``mode``.
             group: a group name, ``"-"`` or ``"--"`` as for ``mode``.
             type: the entry's type; detected from each source when ``None``.
+            kind: how packaging treats the entry: ``"file"``, ``"config"``,
+                ``"config-noreplace"``, ``"doc"``, ``"license"`` or
+                ``"ghost"``; ``"-"`` takes a matching rule's kind, else
+                ``"file"``. All but ``file`` and ``ghost`` need a regular file.
+            caps: file capabilities the package sets on install, one
+                ``setcap`` clause such as ``"cap_net_bind_service=ep"``;
+                ``"-"`` takes a matching rule's, else none. Regular files
+                that are not ghosts only.
             meta: extra ``{key: value}`` metadata recorded with the entry.
             into: install into the directory ``dest`` (False: ``dest`` is the
                 final path).
@@ -584,6 +617,8 @@ class Project:
             owner=owner,
             group=group,
             type=type,
+            kind=kind,
+            caps=caps,
             meta=meta,
             into=into,
             parents=parents,
@@ -605,6 +640,8 @@ class Project:
         owner: str = DEFAULT,
         group: str = DEFAULT,
         type: typing.Optional[FileType] = None,
+        kind: str = DEFAULT,
+        caps: str = DEFAULT,
         meta: typing.Optional[typing.Mapping[str, str]] = None,
         into: bool = True,
         parents: bool = False,
@@ -657,6 +694,8 @@ class Project:
                 owner=owner,
                 group=group,
                 type=type,
+                kind=kind,
+                caps=caps,
                 meta=meta,
                 into=into,
                 parents=parents,
@@ -703,6 +742,7 @@ class Project:
         mode: str = DEFAULT,
         owner: str = DEFAULT,
         group: str = DEFAULT,
+        kind: str = DEFAULT,
         meta: typing.Optional[typing.Mapping[str, str]] = None,
         parents: bool = False,
     ) -> FileRecords:
@@ -711,8 +751,9 @@ class Project:
 
         Nothing is read from a source, so this is how a directory with no
         files of its own is packaged. Running it again changes nothing.
-        ``mode``, ``owner``, ``group`` and ``meta`` are as for :meth:`install`;
-        ``parents`` creates the missing parent directories.
+        ``mode``, ``owner``, ``group``, ``kind`` (``file`` or ``ghost`` fit a
+        directory) and ``meta`` are as for :meth:`install`; ``parents``
+        creates the missing parent directories.
 
         Returns:
             What was written, in write order.
@@ -728,6 +769,7 @@ class Project:
             mode=mode,
             owner=owner,
             group=group,
+            kind=kind,
             meta=meta,
             parents=parents,
             logger=_MKDIR_LOGGER,
@@ -741,6 +783,7 @@ class Project:
         mode: str,
         owner: str,
         group: str,
+        kind: str,
         meta: typing.Optional[typing.Mapping[str, str]],
         parents: bool,
         logger: logging.Logger,
@@ -762,6 +805,7 @@ class Project:
                     owner=owner,
                     group=group,
                     type=FileType.Directory,
+                    kind=kind,
                     meta=meta,
                     into=False,
                     parents=parents,
@@ -778,6 +822,7 @@ class Project:
         *,
         owner: str = DEFAULT,
         group: str = DEFAULT,
+        kind: str = DEFAULT,
         meta: typing.Optional[typing.Mapping[str, str]] = None,
         parents: bool = False,
     ) -> FileRecords:
@@ -785,8 +830,9 @@ class Project:
         ``target`` and create it under the build root.
 
         ``target`` is stored as written, relative or absolute, and may name
-        nothing. A symlink has no mode. ``owner``, ``group`` and ``meta`` are as
-        for :meth:`install`; ``parents`` creates the missing parent directories.
+        nothing. A symlink has no mode. ``owner``, ``group``, ``kind`` (``file``
+        or ``ghost`` fit a link) and ``meta`` are as for :meth:`install`;
+        ``parents`` creates the missing parent directories.
 
         Returns:
             What was written, in write order.
@@ -803,6 +849,7 @@ class Project:
             link,
             owner=owner,
             group=group,
+            kind=kind,
             meta=meta,
             parents=parents,
             logger=_SYMLINK_LOGGER,
@@ -816,6 +863,7 @@ class Project:
         *,
         owner: str,
         group: str,
+        kind: str,
         meta: typing.Optional[typing.Mapping[str, str]],
         parents: bool,
         logger: logging.Logger,
@@ -835,6 +883,7 @@ class Project:
             owner=owner,
             group=group,
             type=FileType.Symlink,
+            kind=kind,
             meta={**(meta or {}), "target": target},
             into=False,
             parents=parents,
@@ -900,6 +949,8 @@ class Project:
         mode = DEFAULT if step.mode is None else step.mode
         owner = DEFAULT if step.owner is None else step.owner
         group = DEFAULT if step.group is None else step.group
+        kind = DEFAULT if step.kind is None else step.kind
+        caps = DEFAULT if step.caps is None else step.caps
         meta = dict(step.meta)
         if step.symlink is not None:
             return self._symlink(
@@ -907,6 +958,7 @@ class Project:
                 step.symlink,
                 owner=owner,
                 group=group,
+                kind=kind,
                 meta=meta,
                 parents=True,
                 logger=_STAGE_LOGGER,
@@ -918,6 +970,7 @@ class Project:
                 mode=mode,
                 owner=owner,
                 group=group,
+                kind=kind,
                 meta=meta,
                 parents=True,
                 logger=_STAGE_LOGGER,
@@ -930,6 +983,8 @@ class Project:
                 mode=mode,
                 owner=owner,
                 group=group,
+                kind=kind,
+                caps=caps,
                 meta=meta,
                 into=False,
                 parents=True,
@@ -943,6 +998,8 @@ class Project:
             owner=owner,
             group=group,
             type=None if step.type is None else FileType(step.type),
+            kind=kind,
+            caps=caps,
             meta=meta,
             into=step.into,
             parents=True,

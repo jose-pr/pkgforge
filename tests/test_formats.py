@@ -157,12 +157,22 @@ def _entries():
                 "owner": "root",
                 "group": "root",
                 "type": "file",
+                "kind": "file",
+                "caps": "-",
                 "meta": {},
             },
         ),
         (
             "/etc/tool",
-            {"mode": "-", "owner": "-", "group": "-", "type": "directory", "meta": {}},
+            {
+                "mode": "-",
+                "owner": "-",
+                "group": "-",
+                "type": "directory",
+                "kind": "file",
+                "caps": "-",
+                "meta": {},
+            },
         ),
         (
             "/etc/tool/conf",
@@ -171,6 +181,8 @@ def _entries():
                 "owner": "root",
                 "group": "adm",
                 "type": "file",
+                "kind": "file",
+                "caps": "-",
                 "meta": {},
             },
         ),
@@ -191,7 +203,15 @@ def _one_entry(path, mode="644", owner="root", group="root"):
     return [
         (
             path,
-            {"mode": mode, "owner": owner, "group": group, "type": "file", "meta": {}},
+            {
+                "mode": mode,
+                "owner": owner,
+                "group": group,
+                "type": "file",
+                "kind": "file",
+                "caps": "-",
+                "meta": {},
+            },
         )
     ]
 
@@ -271,14 +291,30 @@ def test_debian_non_utf8_keeps_bytes():
     entries = [
         (
             "/opt/app/caf\udce9",
-            {"mode": "644", "owner": "-", "group": "-", "type": "file", "meta": {}},
+            {
+                "mode": "644",
+                "owner": "-",
+                "group": "-",
+                "type": "file",
+                "kind": "file",
+                "caps": "-",
+                "meta": {},
+            },
         )
     ]
     arts = DebianFiles().render(entries)
     assert b"opt/app/caf\xe9 opt/app\n" in arts["install"]
 
 
-_UNPINNED_FILE = {"mode": "-", "owner": "-", "group": "-", "type": "file", "meta": {}}
+_UNPINNED_FILE = {
+    "mode": "-",
+    "owner": "-",
+    "group": "-",
+    "type": "file",
+    "kind": "file",
+    "caps": "-",
+    "meta": {},
+}
 
 
 @pytest.mark.parametrize(
@@ -343,7 +379,15 @@ def test_rpmspecfiles_pre419_rejects(path):
 
 
 def test_rpmspecfile_non_utf8_keeps_bytes():
-    entry = {"mode": "-", "owner": "-", "group": "-", "type": "file", "meta": {}}
+    entry = {
+        "mode": "-",
+        "owner": "-",
+        "group": "-",
+        "type": "file",
+        "kind": "file",
+        "caps": "-",
+        "meta": {},
+    }
     line = RPMSpecFiles().render_entry("/opt/caf\udce9", entry)
     assert line == b'%attr(-,-,-) "/opt/caf\xe9"\n'
 
@@ -351,7 +395,15 @@ def test_rpmspecfile_non_utf8_keeps_bytes():
 def test_rpmspecfile_empty_fields_render_default():
     # An empty mode/owner/group renders as "-" (DEFAULT), not verbatim
     # (rpmbuild rejects "%attr(,-,-)" with "Bad syntax").
-    entry = {"mode": "", "owner": "", "group": "", "type": "file", "meta": {}}
+    entry = {
+        "mode": "",
+        "owner": "",
+        "group": "",
+        "type": "file",
+        "kind": "file",
+        "caps": "-",
+        "meta": {},
+    }
     assert RPMSpecFiles().render_entry("/x", entry) == b'%attr(-,-,-) "/x"\n'
 
 
@@ -377,7 +429,9 @@ def _rpm_corpus_entries():
                 "owner": "-",
                 "group": "-",
                 "type": "directory",
-                "meta": {"rpmprefix": "%{buildroot}"},
+                "kind": "ghost",
+                "caps": "-",
+                "meta": {},
             },
         ),
         (
@@ -387,16 +441,34 @@ def _rpm_corpus_entries():
                 "owner": "root",
                 "group": "root",
                 "type": "file",
+                "kind": "file",
+                "caps": "-",
                 "meta": {},
             },
         ),
         (
             '/usr/share/t/quo"te',
-            {"mode": "", "owner": "", "group": "", "type": "file", "meta": {}},
+            {
+                "mode": "",
+                "owner": "",
+                "group": "",
+                "type": "file",
+                "kind": "file",
+                "caps": "-",
+                "meta": {},
+            },
         ),
         (
             "/usr/share/t/star*br[a]?",
-            {"mode": "644", "owner": "-", "group": "-", "type": "file", "meta": {}},
+            {
+                "mode": "644",
+                "owner": "-",
+                "group": "-",
+                "type": "file",
+                "kind": "file",
+                "caps": "-",
+                "meta": {},
+            },
         ),
         (
             "/usr/share/t/with space",
@@ -405,19 +477,29 @@ def _rpm_corpus_entries():
                 "owner": "root",
                 "group": "root",
                 "type": "directory",
+                "kind": "file",
+                "caps": "-",
                 "meta": {},
             },
         ),
         (
             "/opt/app/caf\udce9",
-            {"mode": "640", "owner": "svc", "group": "svc", "type": "file", "meta": {}},
+            {
+                "mode": "640",
+                "owner": "svc",
+                "group": "svc",
+                "type": "file",
+                "kind": "file",
+                "caps": "-",
+                "meta": {},
+            },
         ),
     ]
 
 
 def test_rpm_render_pinned():
     expected = (
-        '%{buildroot} %dir %attr(-,-,-) "/etc/tool"\n'
+        '%ghost %dir %attr(-,-,-) "/etc/tool"\n'
         '%attr(755,root,root) "/usr/bin/back' + _bs(2) + 'slash"\n'
         '%attr(-,-,-) "/usr/share/t/quo' + _bs(1) + '"te"\n'
         '%attr(644,-,-) "/usr/share/t/star*br[a]?"\n'
@@ -449,7 +531,9 @@ def _rpm_pre419_corpus_entries():
                 "owner": "-",
                 "group": "-",
                 "type": "directory",
-                "meta": {"rpmprefix": "%{buildroot}"},
+                "kind": "ghost",
+                "caps": "-",
+                "meta": {},
             },
         ),
         (
@@ -459,23 +543,41 @@ def _rpm_pre419_corpus_entries():
                 "owner": "root",
                 "group": "root",
                 "type": "file",
+                "kind": "file",
+                "caps": "-",
                 "meta": {},
             },
         ),
         (
             '/usr/share/t/quo"te',
-            {"mode": "", "owner": "", "group": "", "type": "file", "meta": {}},
+            {
+                "mode": "",
+                "owner": "",
+                "group": "",
+                "type": "file",
+                "kind": "file",
+                "caps": "-",
+                "meta": {},
+            },
         ),
         (
             "/usr/share/t/plain",
-            {"mode": "644", "owner": "-", "group": "-", "type": "file", "meta": {}},
+            {
+                "mode": "644",
+                "owner": "-",
+                "group": "-",
+                "type": "file",
+                "kind": "file",
+                "caps": "-",
+                "meta": {},
+            },
         ),
     ]
 
 
 def test_rpm_pre419_render_pinned():
     expected = (
-        "%{buildroot} %dir %attr(-,-,-) /etc/tool\n"
+        "%ghost %dir %attr(-,-,-) /etc/tool\n"
         "%attr(755,root,root) /usr/bin/back" + _bs(1) + "slash\n"
         '%attr(-,-,-) /usr/share/t/quo"te\n'
         "%attr(644,-,-) /usr/share/t/plain\n"
@@ -502,13 +604,29 @@ def test_rpm_pre419_render_matches_render_entry():
 def test_rpm_render_first_error_wins(fmt_cls, bad_paths):
     good = (
         "/ok",
-        {"mode": "-", "owner": "-", "group": "-", "type": "file", "meta": {}},
+        {
+            "mode": "-",
+            "owner": "-",
+            "group": "-",
+            "type": "file",
+            "kind": "file",
+            "caps": "-",
+            "meta": {},
+        },
     )
 
     def entry_for(path):
         return (
             path,
-            {"mode": "-", "owner": "-", "group": "-", "type": "file", "meta": {}},
+            {
+                "mode": "-",
+                "owner": "-",
+                "group": "-",
+                "type": "file",
+                "kind": "file",
+                "caps": "-",
+                "meta": {},
+            },
         )
 
     for order in (bad_paths, list(reversed(bad_paths))):
@@ -525,7 +643,15 @@ def test_debian_fixperms_skips_empty_fields():
     entries = [
         (
             "/etc/tool",
-            {"mode": "", "owner": "", "group": "", "type": "file", "meta": {}},
+            {
+                "mode": "",
+                "owner": "",
+                "group": "",
+                "type": "file",
+                "kind": "file",
+                "caps": "-",
+                "meta": {},
+            },
         ),
     ]
     arts = DebianFiles().render(entries)
@@ -557,7 +683,15 @@ def line(path, cmds):
 def _dir_entry(path, mode="-", owner="-", group="-"):
     return (
         path,
-        {"mode": mode, "owner": owner, "group": group, "type": "directory", "meta": {}},
+        {
+            "mode": mode,
+            "owner": owner,
+            "group": group,
+            "type": "directory",
+            "kind": "file",
+            "caps": "-",
+            "meta": {},
+        },
     )
 
 
@@ -585,7 +719,15 @@ def _debian_corpus_entries():
     return [
         (
             "/usr/share/t/star*br[a]{x,y}",
-            {"mode": "-", "owner": "-", "group": "-", "type": "file", "meta": {}},
+            {
+                "mode": "-",
+                "owner": "-",
+                "group": "-",
+                "type": "file",
+                "kind": "file",
+                "caps": "-",
+                "meta": {},
+            },
         ),
         (
             "/usr/bin/tool",
@@ -594,6 +736,8 @@ def _debian_corpus_entries():
                 "owner": "root",
                 "group": "root",
                 "type": "file",
+                "kind": "file",
+                "caps": "-",
                 "meta": {},
             },
         ),
@@ -605,13 +749,23 @@ def _debian_corpus_entries():
                 "owner": "root",
                 "group": "adm",
                 "type": "file",
+                "kind": "file",
+                "caps": "-",
                 "meta": {},
             },
         ),
         _dir_entry("/#dirstate"),
         (
             "/usr/share/t/with space",
-            {"mode": "-", "owner": "svc", "group": "-", "type": "file", "meta": {}},
+            {
+                "mode": "-",
+                "owner": "svc",
+                "group": "-",
+                "type": "file",
+                "kind": "file",
+                "caps": "-",
+                "meta": {},
+            },
         ),
         (
             "/opt/app/caf\udce9",
@@ -620,16 +774,34 @@ def _debian_corpus_entries():
                 "owner": "svc",
                 "group": "-",
                 "type": "symlink",
+                "kind": "file",
+                "caps": "-",
                 "meta": {},
             },
         ),
         (
             "/usr/share/dol${y}dir/f",
-            {"mode": "-", "owner": "-", "group": "-", "type": "file", "meta": {}},
+            {
+                "mode": "-",
+                "owner": "-",
+                "group": "-",
+                "type": "file",
+                "kind": "file",
+                "caps": "-",
+                "meta": {},
+            },
         ),
         (
             "/x",
-            {"mode": "", "owner": "", "group": "", "type": "file", "meta": {}},
+            {
+                "mode": "",
+                "owner": "",
+                "group": "",
+                "type": "file",
+                "kind": "file",
+                "caps": "-",
+                "meta": {},
+            },
         ),
     ]
 
@@ -748,6 +920,8 @@ def _clean_entries(n):
                 "owner": "root",
                 "group": "root",
                 "type": "file",
+                "kind": "file",
+                "caps": "-",
                 "meta": {},
             },
         )
@@ -794,17 +968,35 @@ def test_debian_fixperms_bytes():
                 "owner": "root",
                 "group": "root",
                 "type": "file",
+                "kind": "file",
+                "caps": "-",
                 "meta": {},
             },
         ),
         _dir_entry("/var/lib/state", mode="750"),
         (
             "/opt/app/owner-only",
-            {"mode": "-", "owner": "svc", "group": "-", "type": "file", "meta": {}},
+            {
+                "mode": "-",
+                "owner": "svc",
+                "group": "-",
+                "type": "file",
+                "kind": "file",
+                "caps": "-",
+                "meta": {},
+            },
         ),
         (
             "/opt/app/group-only",
-            {"mode": "-", "owner": "-", "group": "adm", "type": "file", "meta": {}},
+            {
+                "mode": "-",
+                "owner": "-",
+                "group": "adm",
+                "type": "file",
+                "kind": "file",
+                "caps": "-",
+                "meta": {},
+            },
         ),
         (
             "/opt/app/link",
@@ -813,6 +1005,8 @@ def test_debian_fixperms_bytes():
                 "owner": "svc",
                 "group": "-",
                 "type": "symlink",
+                "kind": "file",
+                "caps": "-",
                 "meta": {},
             },
         ),
@@ -850,7 +1044,18 @@ def test_debian_fixperms_bytes():
 )
 def test_debian_fixperms_quotes(path, mode, owner, expected):
     entries = [
-        (path, {"mode": mode, "owner": owner, "group": "-", "type": "file", "meta": {}})
+        (
+            path,
+            {
+                "mode": mode,
+                "owner": owner,
+                "group": "-",
+                "type": "file",
+                "kind": "file",
+                "caps": "-",
+                "meta": {},
+            },
+        )
     ]
     arts = DebianFiles().render(entries)
     lines = arts["fixperms"].decode("utf-8", "surrogateescape").splitlines()
@@ -861,7 +1066,15 @@ def test_debian_fixperms_non_utf8_keeps_bytes():
     entries = [
         (
             "/opt/caf\udce9",
-            {"mode": "644", "owner": "-", "group": "-", "type": "file", "meta": {}},
+            {
+                "mode": "644",
+                "owner": "-",
+                "group": "-",
+                "type": "file",
+                "kind": "file",
+                "caps": "-",
+                "meta": {},
+            },
         )
     ]
     arts = DebianFiles().render(entries)
@@ -911,6 +1124,8 @@ def test_debian_fixperms_script_applies_pins(tmp_path):
                     "owner": user,
                     "group": group,
                     "type": "file",
+                    "kind": "file",
+                    "caps": "-",
                     "meta": {},
                 },
             )
@@ -921,7 +1136,15 @@ def test_debian_fixperms_script_applies_pins(tmp_path):
     entries.append(
         (
             "/" + nonutf8_name,
-            {"mode": "640", "owner": user, "group": group, "type": "file", "meta": {}},
+            {
+                "mode": "640",
+                "owner": user,
+                "group": group,
+                "type": "file",
+                "kind": "file",
+                "caps": "-",
+                "meta": {},
+            },
         )
     )
 
@@ -942,6 +1165,8 @@ def test_debian_fixperms_script_applies_pins(tmp_path):
                 "owner": user,
                 "group": group,
                 "type": "symlink",
+                "kind": "file",
+                "caps": "-",
                 "meta": {},
             },
         )
@@ -1001,6 +1226,8 @@ def _jsonl_row(path: str) -> str:
             "owner": "-",
             "group": "-",
             "type": "file",
+            "kind": "file",
+            "caps": "-",
             "meta": {},
         }
     )
@@ -1039,6 +1266,8 @@ def test_dbdump_debian_writes_directory(tmp_path, yaml_module):
                     "owner": "root",
                     "group": "root",
                     "type": "file",
+                    "kind": "file",
+                    "caps": "-",
                     "meta": {},
                 },
                 "/removed": None,
@@ -1066,7 +1295,16 @@ def test_dbdump_debian_writes_directory(tmp_path, yaml_module):
 # --------------------------------------------------------------------------
 
 
-def _row(path="/opt/a", mode="644", owner="root", group="root", type="file", meta=None):
+def _row(
+    path="/opt/a",
+    mode="644",
+    owner="root",
+    group="root",
+    type="file",
+    meta=None,
+    kind="file",
+    caps="-",
+):
     return json.dumps(
         {
             "path": path,
@@ -1074,6 +1312,8 @@ def _row(path="/opt/a", mode="644", owner="root", group="root", type="file", met
             "owner": owner,
             "group": group,
             "type": type,
+            "kind": kind,
+            "caps": caps,
             "meta": meta or {},
         }
     )
@@ -1093,9 +1333,10 @@ def _validate(*rows):
         _row(mode="-", owner="-", group="--"),
         _row(mode="0644", owner="_svc.a-b$", group="a1"),
         _row(mode="4755", type="directory"),
-        _row(type="symlink", meta={"rpmprefix": "%ghost"}),
+        _row(type="symlink", kind="ghost"),
+        _row(kind="config-noreplace", caps="cap_net_raw,cap_net_admin+ep"),
     ],
-    ids=["plain", "root", "sentinels", "names", "dir", "prefix"],
+    ids=["plain", "root", "sentinels", "names", "dir", "ghost-link", "config-caps"],
 )
 def test_validate_entries_accepts(row):
     _validate(row)
@@ -1128,10 +1369,16 @@ def test_validate_entries_accepts(row):
         (_row(owner="a$b"), "owner"),
         (_row(group="adm\t"), "group"),
         (_row(group="a:b"), "group"),
-        (_row(meta={"rpmprefix": "x\n%attr(4755,root,root) /z"}), "rpmprefix"),
-        (_row(meta={"rpmprefix": "%(touch PWNED)"}), "rpmprefix"),
-        (_row(meta={"rpmprefix": "%{lua:os.exit()}"}), "rpmprefix"),
-        (_row(meta={"rpmprefix": "%[1+1]"}), "rpmprefix"),
+        (_row(kind="bogus"), "kind"),
+        (_row(kind=None), "kind"),
+        (_row(type="directory", kind="config"), "kind for type"),
+        (_row(type="symlink", kind="doc"), "kind for type"),
+        (_row(caps="cap_x=ep cap_y=p"), "caps"),
+        (_row(caps="CAP_NET_RAW=ep"), "caps"),
+        (_row(caps=""), "caps"),
+        (_row(caps="cap_net_raw=ep\n"), "caps"),
+        (_row(type="directory", caps="cap_net_raw=ep"), "caps"),
+        (_row(kind="ghost", caps="cap_net_raw=ep"), "caps"),
     ],
 )
 def test_validate_entries_rejects(row, field):
@@ -1155,15 +1402,15 @@ def test_validate_entries_empty():
         _row("/opt/../../x"),
         _row(owner="root,root) %(touch PWNED)"),
         _row(owner="root\n%attr(4755,root"),
-        _row(meta={"rpmprefix": "a\nb"}),
-        _row(meta={"rpmprefix": "%(touch PWNED)"}),
+        _row(caps="cap_net_raw=ep\n"),
+        _row(caps="cap_net_raw=ep %(touch PWNED)"),
     ],
     ids=[
         "dotdot",
         "owner_macro",
         "owner_newline",
-        "prefix",
-        "prefix_shell",
+        "caps_newline",
+        "caps_macro",
     ],
 )
 def test_dbdump_refuses_invalid_entry(tmp_path, cli, fmt, row):
@@ -1206,6 +1453,8 @@ def _golden_debian_entries():
             "owner": ["root", "-", "svc"][i % 3],
             "group": ["root", "-", "adm"][(i // 3) % 3],
             "type": ["file", "directory", "symlink"][i % 3],
+            "kind": "file",
+            "caps": "-",
             "meta": {},
         }
         out.append((f"/opt/d{i % 7}/{names[i % len(names)]}{i}", entry))
@@ -1299,5 +1548,7 @@ def test_dump_leaves_no_temp_file_on_success(tmp_path):
     outdir = tmp_path / "debian"
     _dump(DebianFiles(), _one_entry("/opt/a"), outdir)
     _dump(RPMSpecFiles(), _one_entry("/opt/a"), tmp_path / "files.txt")
-    assert sorted(p.name for p in outdir.iterdir()) == ["dirs", "fixperms", "install"]
+    assert sorted(p.name for p in outdir.iterdir()) == sorted(
+        ["conffiles", "dirs", "fixperms", "install", "not-installed", "postinst"]
+    )
     assert sorted(p.name for p in tmp_path.iterdir()) == ["debian", "files.txt"]

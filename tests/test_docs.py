@@ -63,11 +63,14 @@ REQUIRED_API_TARGETS = (
     "pkgforge.exceptions.PkgForgeError",
     "pkgforge.exceptions.UsageError",
     "pkgforge.entry.FileType",
+    "pkgforge.entry.FileKind",
     "pkgforge.entry.FileEntry",
     "pkgforge.entry.entry_from_path",
     "pkgforge.entry.resolve_entry",
     "pkgforge.entry.apply_entry",
     "pkgforge.entry.normalize_mode",
+    "pkgforge.entry.normalize_kind",
+    "pkgforge.entry.normalize_caps",
     "pkgforge.entry.mode_to_octal",
     "pkgforge.exceptions.DbError",
     "pkgforge.db.DbProvider",
@@ -255,12 +258,12 @@ def test_doc_sequences_run(page, tmp_path, monkeypatch):
 
 
 @pytest.mark.posix
-def test_meta_rpmprefix_example(tmp_path, monkeypatch, cli):
-    text = COMMANDS.read_text(encoding="utf-8")
+def test_kind_example(tmp_path, monkeypatch, cli):
+    text = README.read_text(encoding="utf-8")
     line = next(
         line
         for line in _pkgforge_lines(text)
-        if "rpmprefix=" in line and "install" in line
+        if "-k config-noreplace" in line and "install" in line
     )
     argv = shlex.split(line, comments=True)[1:]  # drop "pkgforge"
 

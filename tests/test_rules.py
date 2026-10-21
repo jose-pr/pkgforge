@@ -15,7 +15,14 @@ import pytest
 from pkgforge import FileType, Project, UsageError
 from pkgforge.config import EntryDefaults, EntryRule, ProjectConfig
 
-UNSET = {"mode": "-", "owner": "-", "group": "-", "meta": {}}
+UNSET = {
+    "mode": "-",
+    "owner": "-",
+    "group": "-",
+    "kind": "-",
+    "caps": "-",
+    "meta": {},
+}
 
 
 def entry(kind: str = "directory", **over) -> typing.Dict[str, typing.Any]:
@@ -375,6 +382,8 @@ def db_with_dirs(tmp_path: Path) -> Path:
                 "owner": "-",
                 "group": "-",
                 "type": kind,
+                "kind": "file",
+                "caps": "-",
                 "meta": {},
             }
         )

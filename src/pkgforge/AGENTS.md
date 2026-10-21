@@ -8,9 +8,10 @@ API. For the CLI overview see the shipped `README.md` or <https://github.com/jos
 `pkgforge.__all__`: `DbError`, `DbProvider`, `DumpError`, `DumpFormat`,
 `ExcludeSyntaxError`, `FileEntries`, `FileEntry`, `FileRecords`, `FileType`,
 `InvalidEntryError`, `PkgForgeError`, `Project`, `StrPath`,
-`UnsupportedOutputError`, `UsageError`, `__version__`, `open_db`. The entry
-functions (`apply_entry`, `entry_from_path`, `normalize_mode`,
-`normalize_name`, `resolve_entry`) are in `pkgforge.entry`. `import pkgforge`
+`UnsupportedOutputError`, `UsageError`, `__version__`, `open_db`. `FileKind` and
+the entry functions (`apply_entry`, `entry_from_path`, `normalize_caps`,
+`normalize_kind`, `normalize_mode`, `normalize_name`, `resolve_entry`) are in
+`pkgforge.entry`. `import pkgforge`
 loads neither `duho`, `anycfg` nor `pkgforge.cli`; the project file is documented
 under [Configuration](#configuration-configpy) and the command line under
 [Command line](#command-line).
@@ -102,12 +103,12 @@ tool's last stderr line.
   the key is an absolute path with no empty, `.` or `..` segment and no
   control character; `type` is `file`, `directory` or `symlink`; `mode` is
   1-4 octal digits, `-` or `--`; `owner`/`group` are an account name
-  (`[A-Za-z_][A-Za-z0-9_.-]*`, optionally ending in `$`), `-` or `--`; and
-  `meta["rpmprefix"]` has no control character and no rpm expansion (`%(`,
-  `%{`, `%[`). `%`, whitespace and
-  control characters therefore cannot occur in mode/owner/group.
-  `meta["rpmprefix"]` is otherwise written verbatim, as an rpm directive
-  prefix. A format's `render()` called directly does not run this check; `dbdump.dump` does.
+  (`[A-Za-z_][A-Za-z0-9_.-]*`, optionally ending in `$`), `-` or `--`; `kind`
+  is one of the six `FileKind` values and fits `type` (all but `file` and
+  `ghost` need `file`); and `caps` is `-` or one lowercase `setcap` clause on a
+  regular file that is not a ghost. `%`, whitespace and
+  control characters therefore cannot occur in mode/owner/group/caps.
+  A format's `render()` called directly does not run this check; `dbdump.dump` does.
 - **`DumpError(PkgForgeError, ValueError)`** — a DB path that a dump
   format's own tooling cannot represent (a `%` or a control character for
   `rpmspecfiles`; a control character for `debian`).
@@ -121,9 +122,18 @@ tool's last stderr line.
   `FileType.from_path(path) -> FileType` inspects a real path (raises
   `TypeError` if it's none of the three — missing or a special file such as
   a FIFO or socket).
+- **`FileKind(str, enum.Enum)`** — how packaging treats an entry, whatever the
+  format: `File` (`"file"`, the default), `Config` (`"config"`),
+  `ConfigNoReplace` (`"config-noreplace"`), `Doc` (`"doc"`), `License`
+  (`"license"`) and `Ghost` (`"ghost"`, owned by the package, shipped by
+  nothing). `config`, `config-noreplace`, `doc` and `license` need type `file`;
+  `file` and `ghost` fit every type.
 - **`FileEntry(typing.TypedDict)`** — one DB record: `mode` (octal permission
   **string**, e.g. `"644"`, not a raw `st_mode` int), `owner`, `group`,
-  `type`, `meta: dict[str, str]`. A `FileEntry` value is a **plain dict** at
+  `type`, `kind` (a `FileKind` value; `"-"` only before the entry is
+  recorded), `caps` (one `setcap` clause such as `cap_net_bind_service=ep`, or
+  `"-"` for none; recorded only, never applied while staging),
+  `meta: dict[str, str]`. A DB record has exactly these seven keys. A `FileEntry` value is a **plain dict** at
   runtime (it is a `TypedDict`), so it carries no methods of its own; use the
   module functions below.
   - **`entry_from_path(path: Path, meta: Optional[dict[str, str]] = None) ->
@@ -163,9 +173,15 @@ tool's last stderr line.
     string is `DEFAULT`, and anything but an account name
     (`[A-Za-z_][A-Za-z0-9_.-]*`, optionally ending in `$`) or the `-`/`--`
     sentinels raises `UsageError`.
+  - **`normalize_kind(value: str) -> str`** — `-`/`""` are `DEFAULT`; a
+    `FileKind` value (or member) is returned as text; anything else is
+    `UsageError` (`choose from file, config, ...`).
+  - **`normalize_caps(value: str) -> str`** — `-`/`""` are `DEFAULT`; otherwise
+    one lowercase `setcap` clause without spaces (`cap_net_raw=ep`,
+    `cap_net_raw,cap_net_admin+ep`), else `UsageError`.
   - **`check_meta(meta: Mapping[str, str]) -> None`** — raises `UsageError`
-    for a control character or an rpm expansion (`%(`, `%{`, `%[`) in
-    `meta["rpmprefix"]`.
+    for the key `rpmprefix`, which nothing reads any more: use `kind` or
+    `caps`.
 - **`AUTO = "--"`** / **`DEFAULT = "-"`** — module-level sentinels: `AUTO`
   means "resolve from the file on disk" (used by `resolve_entry`); `DEFAULT`
   means "leave at the OS/system default, do not set explicitly" (used by
@@ -218,7 +234,7 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
 - **`compact() -> None`** — collapse the DB to one record per live path.
   `UsageError` when `db` is `None` or its file does not exist.
 - **`install(sources: Sequence[StrPath], dest: str, *, mode="-", owner="-",
-  group="-", type: FileType | None = None, meta: Mapping[str, str] | None = None,
+  group="-", type: FileType | None = None, kind="-", caps="-", meta: Mapping[str, str] | None = None,
   into=True, parents=False, decompress: str | None = None, method="copy",
   exclude: Sequence[str] = (), record=True, record_tree=False, chown=False,
   remove_source=False) -> FileRecords`** — stage each source under the build
@@ -231,7 +247,10 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   file, or with `type=FileType.Directory` an empty directory). `dest` is a
   `str` (`TypeError` otherwise): the directory to install into, or with
   `into=False` the final path. `mode`/`owner`/`group` take a value, `"-"` (leave
-  the default) or `"--"` (read it from the staged file). `decompress` is a kind
+  the default) or `"--"` (read it from the staged file). `kind` is a `FileKind`
+  value and `caps` a `setcap` clause; `"-"` takes the first matching rule's,
+  else `file` and none, and a kind or caps that does not fit the type is
+  `UsageError` before anything is staged. `decompress` is a kind
   (`gz`, `xz`, `bz2`, `zst`, `lzma`), `"auto"` (infer it from the source
   suffix) or `None`. `method` is `copy`, `link` or `move` (`UsageError`
   otherwise). `exclude` statements follow the exclude grammar below; an
@@ -242,15 +261,15 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   sources resolving to one non-directory destination leaves nothing on disk.
   Returns what was written, in write order. Raises `UsageError`,
   `PkgForgeError` and `OSError` exactly where the command exits 2 or 1.
-- **`mkdir(paths: Sequence[str], *, mode="-", owner="-", group="-", meta:
-  Mapping[str, str] | None = None, parents=False) -> FileRecords`** — record
+- **`mkdir(paths: Sequence[str], *, mode="-", owner="-", group="-", kind="-",
+  meta: Mapping[str, str] | None = None, parents=False) -> FileRecords`** — record
   each path as a directory and create it under the build root, in order, with
   no source: one `install([""], path, type=FileType.Directory, into=False)`
   each. Running it again changes nothing. `paths` is a sequence (a bare `str`
   is `TypeError`); a missing parent is `UsageError` unless `parents=True`.
   Logs under `pkgforge.mkdir`.
-- **`symlink(target: str, link: str, *, owner="-", group="-", meta:
-  Mapping[str, str] | None = None, parents=False) -> FileRecords`** — record
+- **`symlink(target: str, link: str, *, owner="-", group="-", kind="-",
+  meta: Mapping[str, str] | None = None, parents=False) -> FileRecords`** — record
   `link` as a symbolic link to `target` and create it. `target` is stored as
   written in `meta["target"]` (relative or absolute, and it may name nothing);
   an empty `target`, or a `meta` that already holds `target`, is `UsageError`.
@@ -259,7 +278,7 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   order, with missing parents created: `src` + `dest` is `install([src], dest,
   ...)` with the step's `type`, `into`, `decompress`, `method`, `exclude` and
   `record_tree`; `dir` is `mkdir`, `file` an empty file, `symlink` + `target` is
-  `symlink`; a step's `mode`/`owner`/`group`/`meta` are the call's. A step's
+  `symlink`; a step's `mode`/`owner`/`group`/`kind`/`caps`/`meta` are the call's. A step's
   `exclude` is relative to its source, as `install`'s. Every `src` must exist
   before the first step runs (`UsageError: [[stage]] #N: source PATH does not
   exist`), and no steps is `UsageError`. `init=True` first resets the file DB
@@ -275,10 +294,12 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   else `"-"`); a symlink's mode is always `"-"`. `drop_stale=True` needs a file
   DB (`UsageError`).
 - **Record-time resolution** — every entry `install` and `scan` write (and
-  `install --record-tree` children) has its `mode`, `owner` and `group` that
-  were left at `"-"` filled in, a value or flag never changed: first from the
-  first `[[rules]]` element whose `match` fits the DB path (only the fields
-  that rule sets), then from `[defaults]`, else they stay `"-"` (a
+  `install --record-tree` children) has its `mode`, `owner`, `group`, `kind` and
+  `caps` that were left at `"-"` filled in, a value or flag never changed: first
+  from the first `[[rules]]` element whose `match` fits the DB path (only the
+  fields that rule sets), then (mode, owner, group) from `[defaults]`, else
+  they stay `"-"` (`kind` becomes `file`; `-k`/`--caps` apply to the installed
+  entry only, never to `--record-tree` children or owned parents; a
   `--record-tree` child's mode is then read from disk). A symlink never gets a
   mode. `install` without `-m` also chmods the staged file to the mode it
   resolved to, and `--record-tree` chmods each child to its resolved mode (mode
@@ -338,8 +359,8 @@ Tables, all optional (`ProjectConfig` fields in this order):
 | `own` | list of text | `/`-rooted directory prefixes the package owns (no `..`, not `/`; stored normalized) |
 | `[package]` | `PackageInfo` | `name` (required), `version`, `release`, `arch`, `summary`, `license`, `maintainer`, `description`, `depends` (list); values to name once and reuse as `${package.KEY}` |
 | `[defaults]` | `EntryDefaults` | `owner`, `group`, `file_mode`, `exec_mode`, `dir_mode` |
-| `[[rules]]` | `EntryRule` | `match` (non-empty list of `-X` statements), `mode`, `owner`, `group` |
-| `[[stage]]` | `StageStep` | `src` + `dest`, or `dir`, or `file`, or `symlink` + `target`; `mode`, `owner`, `group`, `meta` (table); with `src` only: `type`, `into`, `decompress`, `method`, `exclude`, `record_tree` (the `install` options) |
+| `[[rules]]` | `EntryRule` | `match` (non-empty list of `-X` statements), `mode`, `owner`, `group`, `kind`, `caps` |
+| `[[stage]]` | `StageStep` | `src` + `dest`, or `dir`, or `file`, or `symlink` + `target`; `mode`, `owner`, `group`, `kind`, `meta` (table); `caps` with `src` or `file` only; with `src` only: `type`, `into`, `decompress`, `method`, `exclude`, `record_tree` (the `install` options) |
 
 A mode is 1-4 octal digits and an owner or group an account name (`-`, `--` and
 `auto` are refused: a file states values). A `[[stage]]` step names exactly one of
@@ -553,8 +574,10 @@ whole file is validated before any command runs: a problem is one
   `check_output` refuses an existing directory.
   Built in: **`RPMSpecFiles`** (`dbdump/_rpm.py`; `NAME = "rpmspecfiles"`,
   `ALIASES = ("rpm", "rpmspec")`) — RPM `%files` lines:
-  `%attr(mode,owner,group) "path"`, `%dir` prefix for directories,
-  `meta["rpmprefix"]` prepended if set. The path is quoted for rpm's
+  `%attr(mode,owner,group) "path"`, a `%dir` prefix for directories,
+  `%caps(CAPS)` for an entry with `caps`, and the entry's kind first
+  (`%config`, `%config(noreplace)`, `%doc`, `%license`, `%ghost`; nothing for
+  `file`). The path is quoted for rpm's
   `%files -f` parser (targets rpm 4.19+): `\` and `"` are escaped, the line
   is written as UTF-8 with `surrogateescape` (a non-UTF-8 name round-trips
   its original bytes), and glob characters are never escaped (rpm's own
@@ -614,7 +637,19 @@ whole file is validated before any command runs: a problem is one
   than paths do. Each entry resolves its path through a header function
   (`<path>` or the `<path>.gz` dh_compress renamed it to); a path that is
   gone (dh_usrlocal) is named on stderr and skipped, exit status 0. With
-  no pinned entry, the script is just its own header). `install`'s
+  no pinned entry, the script is just its own header) + `conffiles` (each
+  `config`/`config-noreplace` path outside `/etc/`, which debhelper adds
+  itself, one absolute path per line; whitespace in one is `DumpError`) +
+  `not-installed` (each ghost that is not a directory, escaped like `install`,
+  so `dh_missing --fail-missing` accepts a staged ghost file) + `postinst`
+  (`#!/bin/sh`, a `# Generated by pkgforge dbdump -f debian` marker line,
+  `set -e`, `#DEBHELPER#`, then under `if [ "$1" = configure ]` one
+  `setcap -- CAPS "$DPKG_ROOT"PATH` per `caps` entry; a package with one needs
+  `Depends: libcap2-bin`). `conffiles`, `not-installed` and `postinst` are
+  always written. A ghost entry is left out of `install`, `dirs` and
+  `fixperms`. A directory OUTPUT whose existing `postinst` lacks the marker
+  line is refused with `UsageError` (exit 2, nothing written) so a hand-written
+  script is never overwritten; one with the marker is replaced. `install`'s
   source is debhelper-escaped (needs compat 13): a backslash before each
   glob character (`\ * ? [ ] { }`, which also makes a literal `${` read as
   literal since `{`/`}` get escaped), a space as `${Space}`, and a leading
@@ -698,7 +733,9 @@ With `PKGFORGE_MCP=stdio` the command tree is served as MCP tools
 protocol channel, so a `-` source of `install` and `dbdump --db -` are refused
 there with a `UsageError`. See [Environment variables](#environment-variables).
 
-- **`pkgforge install SOURCE... DESTINATION`** — maps the command line onto `Project.install`; the
+- **`pkgforge install SOURCE... DESTINATION`** — maps the command line onto `Project.install`
+  (`-k/--kind` one of `file`, `config`, `config-noreplace`, `doc`, `license`,
+  `ghost`; `--caps` one `setcap` clause); the
   staging lives in the private `pkgforge._install` package (the per-source
   worker, the `-x` kind table, the tar-family/bsdtar extraction policy, the
   staging mixins and the `--record-tree` walk on the shared
@@ -778,7 +815,9 @@ there with a `UsageError`. See [Environment variables](#environment-variables).
   real destination directory is left alone (a source symlink colliding with
   one still raises).
   `--mode`, the recorded `--owner`/`--group` names (account-name syntax
-  only), `-O rpmprefix=` (no control character or rpm expansion), `--chown`'s owner/group
+  only), `--kind` and `--caps` (a kind that does not fit the type, or caps on
+  anything but a regular non-ghost file, exits 2 before staging), `-O` (the
+  key `rpmprefix` exits 2: use `-k`/`--caps`), `--chown`'s owner/group
   names (only when `--chown` is set; a recorded-only name is never resolved)
   and the `--db` directory are validated before anything is staged; without `-p`, a missing destination
   parent directory raises `UsageError` the same way. `--remove-source`
@@ -951,12 +990,12 @@ there with a `UsageError`. See [Environment variables](#environment-variables).
   `pkgforge.cfg` (`pkgforge --config FILE stage` names another). `--init`
   resets the file DB first, as `initdb` does. Exit 2 for no steps or a missing
   source, otherwise as `install`; with no file DB the records go to stdout.
-- **`pkgforge mkdir [-m MODE] [-o OWNER] [-g GROUP] [-O KEY=VALUE] [-p]
+- **`pkgforge mkdir [-m MODE] [-o OWNER] [-g GROUP] [-k KIND] [-O KEY=VALUE] [-p]
   DEST...`** — `Project.mkdir`: record each `DEST` as a directory and create it
   under the build root. `-p/--parents` creates the missing parents; without it a
   missing parent exits 2. Exit 0 on success; with no file DB the records go to
   stdout like `install`'s.
-- **`pkgforge symlink [-o OWNER] [-g GROUP] [-O KEY=VALUE] [-p] TARGET LINK`**
+- **`pkgforge symlink [-o OWNER] [-g GROUP] [-k KIND] [-O KEY=VALUE] [-p] TARGET LINK`**
   — `Project.symlink`: record `LINK` as a symbolic link to `TARGET`. There is
   no `--mode`. Exit codes as for `mkdir`.
 - **`pkgforge initdb`** — create or truncate

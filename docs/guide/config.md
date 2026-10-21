@@ -87,14 +87,16 @@ What an entry gets when neither a flag nor a rule sets it.
 
 ### `[[rules]]`
 
-Any number of rules. Each sets `mode`, `owner` and `group` for the entries whose
-path matches.
+Any number of rules. Each sets `mode`, `owner`, `group`, `kind` and `caps` for the
+entries whose path matches.
 
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `match` | list of text | required, not empty | `-X` statements, see the [exclude grammar](exclude.md). A rule fits an entry when its statements match the entry's path in the file DB, which is always `/`-rooted |
 | `mode` | text | none | |
 | `owner`, `group` | text | none | |
+| `kind` | text | none | `file`, `config`, `config-noreplace`, `doc`, `license` or `ghost`; all but `file` and `ghost` fit a regular file only, so such a rule should match `(?type:file)` |
+| `caps` | text | none | one `setcap` clause such as `cap_net_bind_service=ep`; a regular file that is not a ghost |
 
 `/etc/hello/**` matches what is below `/etc/hello`, not the directory itself.
 
@@ -113,6 +115,8 @@ Each element is one step. A step names what it stages with exactly one of
 | `target` | text | required with `symlink` | `symlink` | what the link points to, stored as written |
 | `mode` | text | none | all but `symlink` | a link has no mode |
 | `owner`, `group` | text | none | all | |
+| `kind` | text | none | all | as `install -k`; a `dir` fits `file` or `ghost`, a `symlink` too |
+| `caps` | text | none | `src`, `file` | as `install --caps` |
 | `meta` | table of text | none | all | free-form metadata, as `install -O` |
 | `type` | text | from the source | `src` | `file`, `directory` or `symlink` |
 | `into` | boolean | `true` | `src` | `false` treats `dest` as the final path, as `install -T` |
@@ -160,6 +164,8 @@ For each of the three, in this order, the first that has a value wins:
 4. Nothing: the field stays `-`, which dump formats leave to the OS. A symlink
    never gets a mode.
 
+`kind` and `caps` follow the same order without step 3: a flag or the step's own
+value, then the first fitting rule, then `file` and no capabilities.
 An installed source, and what a `dir` or `file` step creates, is staged with the
 mode that was recorded. The entries below a `record_tree = true` step are chmod'ed to the
 mode they resolved to (a rule or `[defaults]`; with neither, they keep the mode
@@ -231,7 +237,7 @@ nothing.
 - `dir`: create the directory and record it, as `pkgforge mkdir`.
 - `file`: create an empty file and record it. It is how a file that only the
   installed system creates, such as a log, gets an entry (with
-  `meta = { rpmprefix = "%ghost" }`).
+  `kind = "ghost"`).
 - `symlink` with `target`: create the link and record it, as `pkgforge symlink`.
 
 `pkgforge stage --init` resets the file DB first, as `initdb` does; with no file

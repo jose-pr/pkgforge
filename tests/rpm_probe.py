@@ -63,7 +63,15 @@ SPELLING_ORDER = (
 )
 # fmt: on
 
-_ENTRY = {"mode": "644", "owner": "root", "group": "root", "type": "file", "meta": {}}
+_ENTRY = {
+    "mode": "644",
+    "owner": "root",
+    "group": "root",
+    "type": "file",
+    "kind": "file",
+    "caps": "-",
+    "meta": {},
+}
 
 
 def _pkgforge_spelling(path: str) -> str | None:

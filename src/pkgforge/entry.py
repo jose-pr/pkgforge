@@ -1,7 +1,7 @@
 """File entry types: the on-disk *file DB* record and its metadata.
 
-Defines the record (:class:`FileEntry`: mode / owner / group / type /
-free-form ``meta``) and the functions that normalize, build, resolve and
+Defines the record (:class:`FileEntry`: mode / owner / group / type / kind /
+caps / free-form ``meta``) and the functions that normalize, build, resolve and
 apply one (:func:`normalize_mode`, :func:`entry_from_path`,
 :func:`resolve_entry`, :func:`apply_entry`). ``mode`` is always stored as an **octal permission
 string** (e.g. ``"644"``) so the DB round-trips cleanly and dumps (e.g.
@@ -36,6 +36,7 @@ __all__ = [
     "DEFAULT",
     "FileEntries",
     "FileEntry",
+    "FileKind",
     "FileRecords",
     "FileType",
     "StrPath",
@@ -43,6 +44,8 @@ __all__ = [
     "check_meta",
     "entry_from_path",
     "mode_to_octal",
+    "normalize_caps",
+    "normalize_kind",
     "normalize_mode",
     "normalize_name",
     "resolve_entry",
@@ -60,13 +63,13 @@ _NAME_PATTERN = r"--?|[A-Za-z_][A-Za-z0-9_.-]*\$?"
 _MODE_PATTERN = r"--?|[0-7]{1,4}"
 #: Every C0 control character plus DEL.
 _CONTROL_PATTERN = "[\x00-\x1f\x7f]"
-#: rpm's shell, macro and expression expansions; an ``rpmprefix`` such as
-#: ``%config(noreplace)`` never needs one.
-_RPM_EXPANSION_PATTERN = r"%[({\[]"
+#: One ``setcap`` clause in libcap's text form, lowercase and without spaces:
+#: capability names, then one or more ``=``/``+``/``-`` runs of ``e``, ``i``,
+#: ``p``. It is a single argument of ``setcap`` and of rpm's ``%caps``.
+_CAPS_PATTERN = r"(?:all|cap_[a-z0-9_]+)(?:,(?:all|cap_[a-z0-9_]+))*(?:[=+-][eip]*)+"
 
 _NAME_RE = re.compile(_NAME_PATTERN)
-_CONTROL_RE = re.compile(_CONTROL_PATTERN)
-_RPM_EXPANSION_RE = re.compile(_RPM_EXPANSION_PATTERN)
+_CAPS_RE = re.compile(_CAPS_PATTERN)
 
 
 class FileType(str, enum.Enum):
@@ -87,6 +90,44 @@ class FileType(str, enum.Enum):
                 "(missing or special file)"
             ) from None
         return _file_type(path, st)
+
+
+class FileKind(str, enum.Enum):
+    """How packaging treats an entry, whatever the package format.
+
+    * ``File``: an ordinary payload file (the default);
+    * ``Config``: a configuration file the package manager keeps when the
+      administrator edited it and the package ships a new one;
+    * ``ConfigNoReplace``: a configuration file whose edited copy stays in place,
+      the package's new one is written beside it;
+    * ``Doc``: documentation, which a minimal install may leave out;
+    * ``License``: a license text;
+    * ``Ghost``: a path the package owns but does not ship, created at run time.
+
+    ``Config``, ``ConfigNoReplace``, ``Doc`` and ``License`` need a regular
+    file; ``File`` and ``Ghost`` fit every type.
+    """
+
+    File = "file"
+    Config = "config"
+    ConfigNoReplace = "config-noreplace"
+    Doc = "doc"
+    License = "license"
+    Ghost = "ghost"
+
+
+_KINDS = tuple(member.value for member in FileKind)
+_ANY_TYPE = frozenset(member.value for member in FileType)
+_FILE_ONLY = frozenset((FileType.File.value,))
+#: The entry types each kind fits, by kind value.
+_KIND_TYPES: typing.Dict[str, typing.FrozenSet[str]] = {
+    FileKind.File.value: _ANY_TYPE,
+    FileKind.Config.value: _FILE_ONLY,
+    FileKind.ConfigNoReplace.value: _FILE_ONLY,
+    FileKind.Doc.value: _FILE_ONLY,
+    FileKind.License.value: _FILE_ONLY,
+    FileKind.Ghost.value: _ANY_TYPE,
+}
 
 
 def _file_type(path: Path, st: os.stat_result) -> FileType:
@@ -175,15 +216,50 @@ def normalize_name(value: str, field: str) -> str:
     return value
 
 
+def normalize_kind(value: str) -> str:
+    """Normalize a ``kind`` value: ``-``/``""`` mean :data:`DEFAULT` (unset),
+    one of the :class:`FileKind` values is returned as text.
+    Anything else raises :class:`UsageError`."""
+    if isinstance(value, FileKind):
+        return value.value
+    value = _normalize_field(value)
+    if value == DEFAULT or value in _KINDS:
+        return value
+    raise UsageError(f"invalid kind {value!r}: choose from {', '.join(_KINDS)}")
+
+
+def normalize_caps(value: str) -> str:
+    """Normalize a ``caps`` value: ``-``/``""`` mean :data:`DEFAULT` (none),
+    otherwise one clause of libcap's text form, lowercase with no space
+    (``cap_net_bind_service=ep``, ``cap_net_raw,cap_net_admin+ep``).
+    Anything else raises :class:`UsageError`."""
+    value = _normalize_field(value)
+    if value == DEFAULT:
+        return value
+    if isinstance(value, str) and _CAPS_RE.fullmatch(value):
+        return value
+    raise UsageError(
+        f"invalid caps {value!r}: expected one lowercase setcap clause "
+        "without spaces, such as cap_net_bind_service=ep"
+    )
+
+
+def _check_kind_caps(path: str, kind: str, caps: str, ftype: object) -> None:
+    """Raise :class:`UsageError` unless the resolved ``kind`` fits ``ftype``
+    and ``caps`` (when set) sits on a regular file that is not a ghost."""
+    if isinstance(ftype, FileType):
+        ftype = ftype.value
+    if ftype not in _KIND_TYPES[kind]:
+        raise UsageError(f"{path}: kind {kind} needs a regular file")
+    if caps != DEFAULT and (ftype != FileType.File.value or kind == "ghost"):
+        raise UsageError(f"{path}: caps need a regular file that is not a ghost")
+
+
 def check_meta(meta: typing.Mapping[str, str]) -> None:
-    """Raise :class:`UsageError` if ``meta["rpmprefix"]`` holds a control
-    character or an rpm expansion (``%(``, ``%{``, ``%[``): it is written
-    verbatim into an rpm ``%files`` line, which rpmbuild macro-expands."""
-    prefix = meta.get("rpmprefix")
-    if prefix and _CONTROL_RE.search(prefix):
-        raise UsageError(f"invalid meta rpmprefix {prefix!r}: control character")
-    if prefix and _RPM_EXPANSION_RE.search(prefix):
-        raise UsageError(f"invalid meta rpmprefix {prefix!r}: rpm expansion")
+    """Raise :class:`UsageError` if ``meta`` holds the key ``rpmprefix``, which
+    no dump reads any more: ``kind`` and ``caps`` replace it."""
+    if "rpmprefix" in meta:
+        raise UsageError("meta key 'rpmprefix' is no longer read: use kind or caps")
 
 
 def _or_default(value: str) -> str:
@@ -220,14 +296,18 @@ def _filetype(value: typing.Union[str, FileType]) -> typing.Union[FileType, str]
 
 class FileEntry(typing.TypedDict):
     """One DB record: ``mode`` (an octal permission **string**, e.g. ``"644"``,
-    never a raw ``st_mode`` int), ``owner``, ``group``, ``type``, and a
-    free-form ``meta`` string map. A plain dict at runtime (a ``TypedDict``
-    carries no methods) -- use the module functions below."""
+    never a raw ``st_mode`` int), ``owner``, ``group``, ``type``, ``kind`` (a
+    :class:`FileKind` value; ``"-"`` only before it is resolved), ``caps`` (one
+    ``setcap`` clause, or ``"-"`` for none) and a free-form ``meta`` string
+    map. A plain dict at runtime (a ``TypedDict`` carries no methods) -- use
+    the module functions below."""
 
     mode: str
     owner: str
     group: str
     type: str
+    kind: str
+    caps: str
     meta: typing.Dict[str, str]
 
 
@@ -248,17 +328,22 @@ def _new_entry(
     owner: str,
     group: str,
     type: typing.Any,
+    kind: str = DEFAULT,
+    caps: str = DEFAULT,
     meta: typing.Mapping[str, str],
 ) -> FileEntry:
-    """A :class:`FileEntry` with ``mode``/``owner``/``group``/``meta``
-    normalized and validated; ``type`` is stored as given (it may still be a
-    sentinel to resolve from disk)."""
+    """A :class:`FileEntry` with ``mode``/``owner``/``group``/``kind``/``caps``/
+    ``meta`` normalized and validated; ``type`` is stored as given (it may
+    still be a sentinel to resolve from disk). A ``kind`` or ``caps`` of
+    ``"-"`` is resolved when the entry is recorded."""
     check_meta(meta)
     return {
         "mode": normalize_mode(mode),
         "owner": normalize_name(owner, "owner"),
         "group": normalize_name(group, "group"),
         "type": type,
+        "kind": normalize_kind(kind),
+        "caps": normalize_caps(caps),
         "meta": dict(meta),
     }
 
@@ -298,6 +383,8 @@ def entry_from_path(
         "owner": AUTO,
         "group": AUTO,
         "type": AUTO,
+        "kind": FileKind.File.value,
+        "caps": DEFAULT,
         "meta": {} if meta is None else meta,
     }
     return _resolve_stat(base, path, path.lstat(), lookupval=AUTO)

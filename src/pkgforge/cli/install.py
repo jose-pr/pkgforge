@@ -17,7 +17,14 @@ from ..entry import (
 )
 from ..exceptions import UsageError
 from ..project import _INSTALL_METHODS
-from ._common import EntryArgs, ExcludeArgs, ProjectCmd, _refuse_mcp_stdin
+from ._common import (
+    EntryArgs,
+    ExcludeArgs,
+    KindArgs,
+    ProjectCmd,
+    _parse_caps,
+    _refuse_mcp_stdin,
+)
 
 __all__ = ["Install"]
 
@@ -45,7 +52,7 @@ def _source(text: str) -> typing.Union[str, Path]:
     return text if text in ("", DEFAULT) else Path(text)
 
 
-class Install(EntryArgs, ExcludeArgs, ProjectCmd):
+class Install(EntryArgs, KindArgs, ExcludeArgs, ProjectCmd):
     """Install a source into the build root and record its file entry."""
 
     _parsername_ = "install"
@@ -95,6 +102,12 @@ class Install(EntryArgs, ExcludeArgs, ProjectCmd):
     ] = DEFAULT
     "file, directory or symlink, in any case (auto-detected from the source if unset, or given as '--')"
     ("--type", "-t")
+    caps: duho.Arg[str, duho.Meta(type=_parse_caps)] = DEFAULT
+    (
+        "file capabilities (setcap text, one clause, e.g. "
+        "cap_net_bind_service=ep) the package sets on install; '-' for none"
+    )
+    ("--caps",)
     parents: bool
     "create missing parent directories of the destination"
     ("--parents", "-p")
@@ -158,6 +171,8 @@ class Install(EntryArgs, ExcludeArgs, ProjectCmd):
             owner=self.owner,
             group=self.group,
             type=None if _is_auto(self.type) else _filetype(self.type),
+            kind=self.kind,
+            caps=self.caps,
             meta=self.meta,
             into=not self.no_target_directory,
             parents=self.parents,

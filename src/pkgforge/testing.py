@@ -68,21 +68,32 @@ def _check(fn: typing.Callable[[_C, Path], None]) -> _Check:
 # --------------------------------------------------------------------------
 
 
-def _entry(kind: FileType, **meta: str) -> FileEntry:
+def _entry(
+    ftype: FileType, kind: str = "file", caps: str = "-", **meta: str
+) -> FileEntry:
     return {
-        "mode": "755" if kind is FileType.Directory else "644",
+        "mode": "755" if ftype is FileType.Directory else "644",
         "owner": "root",
         "group": "root",
-        "type": kind.value,
+        "type": ftype.value,
+        "kind": kind,
+        "caps": caps,
         "meta": dict(meta),
     }
 
 
-#: One entry per file type, each with ``meta``; the first path is not ASCII.
+#: One entry per file type, each with ``meta``, and one of each kind that
+#: stores something special: capabilities, a doc, a ghost directory. The first
+#: path is not ASCII.
 _DB_ENTRIES: typing.Dict[str, FileEntry] = {
     "/usr/share/café/file": _entry(FileType.File, note="café"),
     "/usr/share/café": _entry(FileType.Directory, note="dir"),
     "/usr/bin/link": _entry(FileType.Symlink, target="../share/café/file"),
+    "/opt/tool/tool.conf": _entry(
+        FileType.File, "config-noreplace", "cap_net_raw=ep", note="conf"
+    ),
+    "/usr/share/doc/tool/README": _entry(FileType.File, "doc"),
+    "/run/tool": _entry(FileType.Directory, "ghost"),
 }
 
 
@@ -192,9 +203,13 @@ def check_db_provider(cls: typing.Type[DbProvider], directory: StrPath) -> None:
 # --------------------------------------------------------------------------
 
 _FORMAT_ENTRIES: typing.List[typing.Tuple[str, FileEntry]] = [
-    ("/usr/bin/tool", _entry(FileType.File)),
+    ("/usr/bin/tool", _entry(FileType.File, "file", "cap_net_raw=ep")),
     ("/usr/lib/tool", _entry(FileType.Directory)),
     ("/usr/lib/tool/link", _entry(FileType.Symlink, target="../tool")),
+    ("/opt/tool/tool.conf", _entry(FileType.File, "config-noreplace")),
+    ("/usr/share/doc/tool/README", _entry(FileType.File, "doc")),
+    ("/var/log/tool.log", _entry(FileType.File, "ghost")),
+    ("/run/tool", _entry(FileType.Directory, "ghost")),
 ]
 
 
@@ -289,8 +304,9 @@ def check_dump_format(cls: typing.Type[DumpFormat], directory: StrPath) -> None:
     """Run every :data:`DUMP_FORMAT_CHECKS` check against ``cls`` in
     ``directory``.
 
-    The sample is three entries (a file, a directory and a symlink, owned by
-    ``root``); each check works in its own subdirectory of ``directory``.
+    The sample is seven entries owned by ``root``: a file with capabilities, a
+    directory, a symlink, a ``config-noreplace`` file outside ``/etc``, a
+    ``doc`` file and a ghost file and directory; each check works in its own subdirectory of ``directory``.
     Raises :class:`AssertionError` naming ``cls`` and the failed check.
     """
     for check in DUMP_FORMAT_CHECKS:

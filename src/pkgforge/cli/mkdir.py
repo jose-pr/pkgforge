@@ -6,12 +6,12 @@ import typing
 
 import duho
 
-from ._common import EntryArgs, ProjectCmd
+from ._common import EntryArgs, KindArgs, ProjectCmd
 
 __all__ = ["Mkdir"]
 
 
-class Mkdir(EntryArgs, ProjectCmd):
+class Mkdir(EntryArgs, KindArgs, ProjectCmd):
     """Create directories under the build root and record their entries.
 
     Nothing is read from a source, so this is how a directory with no files of
@@ -34,6 +34,7 @@ class Mkdir(EntryArgs, ProjectCmd):
             mode=self.mode,
             owner=self.owner,
             group=self.group,
+            kind=self.kind,
             meta=self.meta,
             parents=self.parents,
         )

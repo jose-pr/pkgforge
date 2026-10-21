@@ -44,20 +44,22 @@ def _parse_jsonl(text: str, source: typing.Union["Path", str], hint: str = "") -
     is checked by :func:`~pkgforge.db._check_record`.
     """
     db: Db = {}
+    # Locals: this loop runs once per record of a DB that can be large.
+    raw_decode = _DECODER.raw_decode
+    record_ok = _record_ok
     for lineno, line in enumerate(text.split("\n"), 1):
         line = line.strip()
         if not line:
             continue
-        ok = True
         try:
-            rec, end = _DECODER.raw_decode(line)
+            rec, end = raw_decode(line)
         except json.JSONDecodeError:
-            ok = False
+            end = -1
         except RecursionError as exc:
             raise DbError(
                 f"{source}:{lineno}: invalid JSON Lines record: nested too deeply"
             ) from exc
-        if not ok or end != len(line):
+        if end != len(line):
             try:
                 rec = json.loads(line)
             except json.JSONDecodeError as exc:
@@ -86,7 +88,7 @@ def _parse_jsonl(text: str, source: typing.Union["Path", str], hint: str = "") -
                     '{"path": ..., "_removed": true}'
                 )
             rec = None
-        elif _record_ok(path, rec):
+        elif record_ok(path, rec):
             db[path] = rec
             continue
         db[path] = _check_record(path, rec, f"{source}:{lineno}")

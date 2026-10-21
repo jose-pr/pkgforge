@@ -68,6 +68,8 @@ def _make_db(n: int) -> dict:
             "owner": "root",
             "group": "root",
             "type": "file",
+            "kind": "file",
+            "caps": "-",
             "meta": {},
         }
         for i in range(n)

@@ -13,12 +13,13 @@ Before any format renders, every surviving entry is checked: the key must
 be an absolute path with no empty, `.` or `..` segment; `type` must be
 `file`, `directory` or `symlink`; `mode` is 1-4 octal digits, `-` or `--`;
 `owner` and `group` are an account name (`[A-Za-z_][A-Za-z0-9_.-]*`,
-optionally ending in `$`), `-` or `--`. A bad entry stops `dbdump` with exit
-2 and one line naming the entry and the field, and writes nothing. `%`,
-whitespace and control characters cannot occur in mode, owner or group. An
-entry's `meta.rpmprefix` may not hold a control character or an rpm expansion
-(`%(`, `%{`, `%[`, which rpmbuild would run or expand); otherwise it is
-written verbatim.
+optionally ending in `$`), `-` or `--`; `kind` is one of `file`, `config`,
+`config-noreplace`, `doc`, `license` and `ghost`, and all but `file` and
+`ghost` need `type` `file`; `caps` is `-` or one lowercase `setcap` clause
+(`cap_net_raw=ep`) on a regular file that is not a ghost. A bad entry stops
+`dbdump` with exit 2 and one line naming the entry and the field, and writes
+nothing. `%`, whitespace and control characters cannot occur in mode, owner,
+group or caps.
 
 A file OUTPUT is written whole or not at all: `dbdump` writes each file to
 a sibling `.<name>.pkgforge-tmp` and renames them into place only when every
@@ -35,9 +36,17 @@ Emits one RPM `%files` line per entry:
 ```
 
 Directories get a `%dir` prefix, a symlink's mode is written as `-`
-(rpm ignores it and warns on an explicit one), an entry's `meta.rpmprefix` (set with
-[`-O rpmprefix=VALUE`](commands.md#install), e.g. `%config(noreplace)`) is
-prepended.
+(rpm ignores it and warns on an explicit one), and an entry's kind (set with
+[`-k/--kind`](commands.md#install)) starts the line: `%config`,
+`%config(noreplace)`, `%doc`, `%license` or `%ghost`, and nothing for `file`.
+An entry with file capabilities (`--caps`) gets `%caps(CAPS)` before its
+`%attr`:
+
+```
+%config(noreplace) %attr(640,root,adm) "/etc/tool/config"
+%caps(cap_net_bind_service=ep) %attr(755,root,root) "/usr/bin/tool"
+%ghost %dir %attr(750,tool,tool) "/run/tool"
+```
 
 Each path is quoted for rpm's `%files -f` parser (targets rpm 4.19+, where
 no spelling of `%` is literal inside or outside quotes): a backslash and a
@@ -123,7 +132,7 @@ pkgforge dbdump -f rpmspecfiles-pre419 files.txt
 
 ## `debian`
 
-Writes three artifacts into an output directory (created if needed):
+Writes six artifacts into an output directory (created if needed):
 
 - **`install`** — `dh_install`-style `<src> <dest-dir>` lines (one per
   non-directory entry), where the source is the build-root-relative path and the
@@ -169,6 +178,25 @@ Writes three artifacts into an output directory (created if needed):
     package tree). With no pinned entry, the script is just its own
     header.
 
+- **`conffiles`** — the `config` and `config-noreplace` entries outside
+  `/etc/` (debhelper lists everything under `/etc/` itself), one absolute
+  path per line; always written, empty when there is none. A path with
+  whitespace in it stops `dbdump` with exit 1.
+
+- **`not-installed`** — the `ghost` entries that are not directories, escaped
+  like `install`, so `dh_missing --fail-missing` accepts a ghost file that is
+  staged but never shipped. A ghost entry is left out of `install`, `dirs` and
+  `fixperms`.
+
+- **`postinst`** — a maintainer script that holds `#DEBHELPER#` and, for each
+  entry with `caps`, `setcap -- CAPS "$DPKG_ROOT"PATH` under
+  `if [ "$1" = configure ]`. Capabilities are not kept in a `.deb`'s payload,
+  so a package with a `caps` entry needs `Depends: libcap2-bin`. Its second
+  line marks it as generated: `dbdump` replaces such a file, and refuses
+  (exit 2, nothing written) a directory whose `postinst` lacks the marker, so
+  a hand-written script is never overwritten. A package with its own
+  `postinst` dumps into another directory and merges the lines by hand.
+
 `install` sources are escaped for `dh_install`/`dh_installdirs` (needs
 debhelper compat 13): a backslash before each glob character (`\ * ? [ ] { }`)
 so the name matches only itself, a leading `#` backslash-escaped (`dh_install`
@@ -180,8 +208,8 @@ problem; a non-UTF-8 name is written
 as its original bytes.
 
 ```bash
-pkgforge dbdump -f debian debian/          # writes debian/{install,dirs,fixperms}
-pkgforge dbdump -f debian -                # all three to stdout under "# === <name> ===" headers
+pkgforge dbdump -f debian debian/          # writes debian/{install,dirs,fixperms,conffiles,not-installed,postinst}
+pkgforge dbdump -f debian -                # all six to stdout under "# === <name> ===" headers
 ```
 
 !!! note

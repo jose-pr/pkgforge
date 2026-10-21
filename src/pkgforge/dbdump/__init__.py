@@ -29,10 +29,12 @@ from pathlib import Path
 
 from .._registry import Registered
 from ..entry import (
+    _CAPS_PATTERN,
     _CONTROL_PATTERN,
-    _RPM_EXPANSION_PATTERN,
+    _KIND_TYPES,
     _MODE_PATTERN,
     _NAME_PATTERN,
+    DEFAULT,
     FileEntries,
     FileEntry,
     FileType,
@@ -46,15 +48,22 @@ from ..exclude import PathMatch, _statements
 #: both choke on these one way or another (a bare newline splits a line, a
 #: literal DEL is simply illegal), and neither format has an escape for them.
 _CONTROL_RE = re.compile(_CONTROL_PATTERN)
-_RPM_EXPANSION_RE = re.compile(_RPM_EXPANSION_PATTERN)
 
 _NAME_RE = re.compile(_NAME_PATTERN)
 _MODE_RE = re.compile(_MODE_PATTERN)
+_CAPS_RE = re.compile(_CAPS_PATTERN)
 #: Finds a line of newline-joined values that is not a valid name / mode.
 #: Empty values (rendered as ``-``) never match. Run only after
 #: :data:`_CONTROL_RE` found no newline in the values.
 _BAD_NAMES_RE = re.compile(rf"^(?!(?:{_NAME_PATTERN})$).+", re.M)
 _BAD_MODES_RE = re.compile(rf"^(?!(?:{_MODE_PATTERN})$).+", re.M)
+_BAD_CAPS_RE = re.compile(rf"^(?!(?:{_CAPS_PATTERN}|-)$).*", re.M)
+#: The ``(type, kind)`` pairs an entry may hold, and the ones that may carry
+#: ``caps`` (a regular file that is not a ghost).
+_KIND_FITS = frozenset(
+    (ftype, kind) for kind, types in _KIND_TYPES.items() for ftype in types
+)
+_CAPS_FITS = frozenset(("file", kind) for kind in _KIND_TYPES if kind != "ghost")
 #: Finds a key that is not an absolute path with no empty, ``.`` or ``..``
 #: segment (the key ``/`` alone is allowed), over newline-joined keys.
 _BAD_KEYS_RE = re.compile(r"^(?!/)|//|/\.\.?(?:/|$)|(?<=.)/$", re.M)
@@ -105,9 +114,18 @@ def _check_entry(path: str, entry: FileEntry) -> None:
         value = entry[field]
         if value and not (isinstance(value, str) and pattern.fullmatch(value)):
             raise _entry_error(path, field, value)
-    prefix = entry["meta"].get("rpmprefix")
-    if prefix and (_CONTROL_RE.search(prefix) or _RPM_EXPANSION_RE.search(prefix)):
-        raise _entry_error(path, "meta rpmprefix", prefix)
+    fkind = entry["kind"]
+    if fkind not in _KIND_TYPES:
+        raise _entry_error(path, "kind", fkind)
+    if (kind, fkind) not in _KIND_FITS:
+        raise _entry_error(path, "kind for type", fkind)
+    caps = entry["caps"]
+    if caps != DEFAULT and not (
+        isinstance(caps, str)
+        and _CAPS_RE.fullmatch(caps)
+        and (kind, fkind) in _CAPS_FITS
+    ):
+        raise _entry_error(path, "caps", caps)
 
 
 def _validate_entries(entries: FileEntries) -> None:
@@ -124,23 +142,31 @@ def _validate_entries(entries: FileEntries) -> None:
     keys = "\n".join(path for path, _entry in entries)
     columns = [
         "\n".join(str(entry[field] or "") for _path, entry in entries)
-        for field in ("mode", "owner", "group")
+        for field in ("mode", "owner", "group", "caps")
     ]
-    prefixes = "".join(entry["meta"].get("rpmprefix") or "" for _path, entry in entries)
-    kinds = {
-        entry["type"].value if isinstance(entry["type"], FileType) else entry["type"]
-        for _path, entry in entries
-    }
+    kinds = set()
+    pairs = set()
+    capped = set()
+    for _path, entry in entries:
+        ftype = entry["type"]
+        if isinstance(ftype, FileType):
+            ftype = ftype.value
+        kinds.add(ftype)
+        pair = (ftype, entry["kind"])
+        pairs.add(pair)
+        if entry["caps"] != DEFAULT:
+            capped.add(pair)
     if (
         _CONTROL_RE.search(keys)
-        or _CONTROL_RE.search(prefixes)
-        or _RPM_EXPANSION_RE.search(prefixes)
         or any(_CONTROL_RE.search(column) for column in columns)
         or _BAD_KEYS_RE.search(keys)
         or _BAD_MODES_RE.search(columns[0])
         or _BAD_NAMES_RE.search(columns[1])
         or _BAD_NAMES_RE.search(columns[2])
+        or _BAD_CAPS_RE.search(columns[3])
         or not kinds <= _FILE_TYPES
+        or not pairs <= _KIND_FITS
+        or not capped <= _CAPS_FITS
     ):
         for path, entry in entries:
             _check_entry(path, entry)

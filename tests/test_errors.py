@@ -342,9 +342,12 @@ def test_sqlite_bad_meta_json_is_one_line(tmp_path, cli):
     conn = sqlite3.connect(db)
     conn.execute(
         "CREATE TABLE entries (path TEXT PRIMARY KEY, mode TEXT, owner TEXT, "
-        '"group" TEXT, type TEXT, meta_json TEXT, removed INTEGER DEFAULT 0)'
+        '"group" TEXT, type TEXT, kind TEXT, caps TEXT, meta_json TEXT, '
+        "removed INTEGER DEFAULT 0)"
     )
-    conn.execute("INSERT INTO entries VALUES ('/a','644','-','-','file','{bad',0)")
+    conn.execute(
+        "INSERT INTO entries VALUES ('/a','644','-','-','file','file','-','{bad',0)"
+    )
     conn.commit()
     conn.close()
     result = cli("--db", str(db), "dbdump", "-f", "rpm")
@@ -359,7 +362,10 @@ def test_deeply_nested_jsonl_is_one_line(tmp_path, cli):
     depth = 100_000
     db.write_text(
         '{"path": "/a", "mode": "644", "owner": "-", "group": "-", '
-        '"type": "file", "meta": {"k": ' + "[" * depth + "]" * depth + "}}\n"
+        '"type": "file", "kind": "file", "caps": "-", "meta": {"k": '
+        + "[" * depth
+        + "]" * depth
+        + "}}\n"
     )
     result = cli("--db", str(db), "dbdump", "-f", "rpm")
     err = result.err.decode().strip()

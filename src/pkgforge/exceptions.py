@@ -64,8 +64,9 @@ class DumpError(PkgForgeError, ValueError):
 class InvalidEntryError(UsageError, DumpError):
     """A DB entry is malformed for every format: a key that is not an absolute
     normalized path, an unknown ``type``, a ``mode``/``owner``/``group`` outside
-    the recorded grammar, or a control character or rpm expansion in
-    ``meta["rpmprefix"]``.
+    the recorded grammar, an unknown ``kind`` or one that does not fit the
+    ``type``, or ``caps`` that are malformed or on anything but a regular
+    file that is not a ghost.
 
     Raised by :func:`_validate_entries` before any format renders, so it
     leaves no output behind. A :class:`~pkgforge.exceptions.UsageError` (exit 2):

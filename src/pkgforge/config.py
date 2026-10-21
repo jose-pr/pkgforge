@@ -22,8 +22,11 @@ from .entry import (
     DEFAULT,
     FileType,
     StrPath,
+    _KIND_TYPES,
     _filetype,
     check_meta,
+    normalize_caps,
+    normalize_kind,
     normalize_mode,
     normalize_name,
 )
@@ -89,6 +92,33 @@ def _name(value: typing.Optional[str], field_name: str) -> typing.Optional[str]:
     return name
 
 
+def _kind(value: typing.Optional[str]) -> typing.Optional[str]:
+    """``value`` as a :class:`~pkgforge.entry.FileKind` value; ``-`` is refused
+    as for :func:`_mode`."""
+    if value is None:
+        return None
+    try:
+        kind = normalize_kind(value)
+    except UsageError as exc:
+        raise UsageError(f"kind: {exc}") from None
+    if kind == DEFAULT:
+        raise UsageError(f"kind: invalid kind {value!r}: expected a kind name")
+    return kind
+
+
+def _caps(value: typing.Optional[str]) -> typing.Optional[str]:
+    """``value`` as one ``setcap`` clause; ``-`` is refused as for :func:`_mode`."""
+    if value is None:
+        return None
+    try:
+        caps = normalize_caps(value)
+    except UsageError as exc:
+        raise UsageError(f"caps: {exc}") from None
+    if caps == DEFAULT:
+        raise UsageError(f"caps: invalid caps {value!r}: expected a setcap clause")
+    return caps
+
+
 def _statements(
     values: typing.Iterable[str], field_name: str
 ) -> typing.Tuple[str, ...]:
@@ -145,14 +175,18 @@ class EntryDefaults:
 
 @dataclass(frozen=True)
 class EntryRule:
-    """One ``[[rules]]`` element: ``mode``, ``owner`` and ``group`` for the
-    entries whose DB path matches a ``match`` statement (the ``-X`` grammar).
-    ``match`` is not empty."""
+    """One ``[[rules]]`` element: ``mode``, ``owner``, ``group``, ``kind`` and
+    ``caps`` for the entries whose DB path matches a ``match`` statement (the
+    ``-X`` grammar). ``match`` is not empty. A ``kind`` other than ``file`` or
+    ``ghost`` fits regular files only, so such a rule's ``match`` should say
+    ``(?type:file)``."""
 
     match: typing.Tuple[_Text, ...]
     mode: typing.Optional[_Text] = None
     owner: typing.Optional[_Text] = None
     group: typing.Optional[_Text] = None
+    kind: typing.Optional[_Text] = None
+    caps: typing.Optional[_Text] = None
 
     def __post_init__(self) -> None:
         if not self.match:
@@ -161,13 +195,16 @@ class EntryRule:
         _set(self, "mode", _mode(self.mode, "mode"))
         _set(self, "owner", _name(self.owner, "owner"))
         _set(self, "group", _name(self.group, "group"))
+        _set(self, "kind", _kind(self.kind))
+        _set(self, "caps", _caps(self.caps))
 
 
 @dataclass(frozen=True)
 class StageStep:
     """One ``[[stage]]`` element: a step that stages one thing into the build
     root. Exactly one of ``src`` (install a source at ``dest``), ``dir``,
-    ``file`` or ``symlink`` (with ``target``) names it. ``type``, ``into``,
+    ``file`` or ``symlink`` (with ``target``) names it. ``kind`` applies to
+    every step, ``caps`` to ``src`` and ``file`` steps; ``type``, ``into``,
     ``decompress``, ``method``, ``exclude`` and ``record_tree`` are the
     ``install`` options and apply to ``src`` only."""
 
@@ -180,6 +217,8 @@ class StageStep:
     mode: typing.Optional[_Text] = None
     owner: typing.Optional[_Text] = None
     group: typing.Optional[_Text] = None
+    kind: typing.Optional[_Text] = None
+    caps: typing.Optional[_Text] = None
     meta: typing.Dict[_Text, _Text] = field(default_factory=dict)
     type: typing.Optional[_Text] = None
     into: bool = True
@@ -214,6 +253,8 @@ class StageStep:
             raise UsageError("mode: not valid with symlink")
         if self.symlink is not None and "target" in self.meta:
             raise UsageError("meta: must not hold 'target' with symlink")
+        if self.caps is not None and self.src is None and self.file is None:
+            raise UsageError("caps: only valid with src or file")
         if not has_src:
             for name, default in (
                 ("type", None),
@@ -229,6 +270,17 @@ class StageStep:
         _set(self, "mode", _mode(self.mode, "mode"))
         _set(self, "owner", _name(self.owner, "owner"))
         _set(self, "group", _name(self.group, "group"))
+        _set(self, "kind", _kind(self.kind))
+        _set(self, "caps", _caps(self.caps))
+        no_source = "symlink" if self.symlink is not None else "directory"
+        if (
+            (self.symlink is not None or self.dir is not None)
+            and self.kind is not None
+            and no_source not in _KIND_TYPES[self.kind]
+        ):
+            raise UsageError(
+                f"kind: {self.kind} needs a regular file, not a {no_source}"
+            )
         check_meta(self.meta)
         if self.type is not None:
             try:

@@ -194,7 +194,7 @@ def test_db_dash_bad_record_names_line(cli, make_entry, monkeypatch):
 def test_db_dash_schema_error_names_stdin_line_and_path(cli, monkeypatch):
     text = (
         '{"path": "/a", "mode": 644, "owner": "-", "group": "-", '
-        '"type": "file", "meta": {}}\n'
+        '"type": "file", "kind": "file", "caps": "-", "meta": {}}\n'
     )
     monkeypatch.setattr(sys, "stdin", _stdin_bytes(text.encode()))
 

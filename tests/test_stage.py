@@ -54,6 +54,8 @@ def test_mkdir_twice_leaves_one_live_directory(run, tmp_path):
             "owner": "root",
             "group": "adm",
             "type": "directory",
+            "kind": "file",
+            "caps": "-",
             "meta": {},
         }
     }
@@ -236,7 +238,15 @@ def test_stage_init_resets_an_existing_db(cli, project_dir, tmp_path):
     db = tmp_path / "f.jsonl"
     open_db(db).add(
         "/stale",
-        {"mode": "644", "owner": "-", "group": "-", "type": "file", "meta": {}},
+        {
+            "mode": "644",
+            "owner": "-",
+            "group": "-",
+            "type": "file",
+            "kind": "file",
+            "caps": "-",
+            "meta": {},
+        },
     )
     assert cli("stage", "--init").rc == 0
     assert "/stale" not in _live(db)
@@ -248,7 +258,15 @@ def test_stage_without_init_keeps_the_db(cli, project_dir, tmp_path):
     db = tmp_path / "f.jsonl"
     open_db(db).add(
         "/stale",
-        {"mode": "644", "owner": "-", "group": "-", "type": "file", "meta": {}},
+        {
+            "mode": "644",
+            "owner": "-",
+            "group": "-",
+            "type": "file",
+            "kind": "file",
+            "caps": "-",
+            "meta": {},
+        },
     )
     assert cli("stage").rc == 0
     assert "/stale" in _live(db)

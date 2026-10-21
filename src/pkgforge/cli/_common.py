@@ -13,7 +13,15 @@ import duho
 from duho import Cmd, LoggingArgs
 
 from ..db import jsonl_line
-from ..entry import AUTO, DEFAULT, FileRecords, normalize_mode, normalize_name
+from ..entry import (
+    _KINDS,
+    AUTO,
+    DEFAULT,
+    FileRecords,
+    normalize_caps,
+    normalize_mode,
+    normalize_name,
+)
 from ..exceptions import ExcludeSyntaxError, UsageError
 from ..exclude import PathMatchStmt
 
@@ -93,6 +101,15 @@ def _parse_mode(text: str) -> str:
         raise argparse.ArgumentTypeError(str(exc)) from None
 
 
+def _parse_caps(text: str) -> str:
+    """The ``type=`` converter of ``--caps``: a bad clause exits 2 before
+    anything is staged."""
+    try:
+        return normalize_caps(text)
+    except UsageError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from None
+
+
 def _own(text: str) -> str:
     """The ``type=`` converter of ``--own``: a bad prefix exits 2; the
     normalized prefix is returned."""
@@ -165,6 +182,18 @@ class EntryArgs(OwnershipArgs):
         super().__init__(**kwargs)
         if self.mode == []:  # argparse before 3.12, as for owner and group
             self.mode = AUTO
+
+
+class KindArgs(Cmd):
+    """``--kind``: the commands that record an entry packaging may treat
+    specially (a config file, a doc, a ghost)."""
+
+    kind: duho.Arg[str, duho.Meta(choices=(DEFAULT, *_KINDS))] = DEFAULT
+    (
+        "how packaging treats the entry: file, config, config-noreplace, doc, "
+        "license or ghost ('-': a matching rule's kind, else file)"
+    )
+    ("--kind", "-k")
 
 
 class ExcludeArgs(Cmd):

@@ -29,8 +29,11 @@ from ..entry import (
     _filetype,
     _is_auto,
     _new_entry,
+    _check_kind_caps,
     apply_entry,
     check_meta,
+    normalize_caps,
+    normalize_kind,
     normalize_mode,
     normalize_name,
     resolve_entry,
@@ -65,6 +68,8 @@ class _Installer(_RecordTree, _Staging):
         owner: str,
         group: str,
         type: typing.Optional[FileType],
+        kind: str,
+        caps: str,
         meta: typing.Optional[typing.Mapping[str, str]],
         into: bool,
         parents: bool,
@@ -92,6 +97,8 @@ class _Installer(_RecordTree, _Staging):
         self.owner = owner
         self.group = group
         self.type: typing.Any = DEFAULT if type is None else type
+        self.kind = kind
+        self.caps = caps
         # Each clone owns its meta dict: the symlink branch rebinds rather
         # than mutates, but a fresh copy per clone is cheap defense in depth
         # against any other future writer.
@@ -148,6 +155,8 @@ class _Installer(_RecordTree, _Staging):
         self.mode = normalize_mode(self.mode)
         self.owner = normalize_name(self.owner, "owner")
         self.group = normalize_name(self.group, "group")
+        self.kind = normalize_kind(self.kind)
+        self.caps = normalize_caps(self.caps)
         check_meta(self.meta)
 
         if self.chown:
@@ -315,6 +324,16 @@ class _Installer(_RecordTree, _Staging):
                 "not exist (use -p)"
             )
 
+        if not self.noentry and (self.kind != DEFAULT or self.caps != DEFAULT):
+            # A flag that cannot fit the type is refused before anything is
+            # staged; one a rule supplies is checked when the entry is built.
+            _check_kind_caps(
+                self.project.dbpath(dest),
+                "file" if self.kind == DEFAULT else self.kind,
+                self.caps,
+                self.type,
+            )
+
         if self.remove_source and self.source not in [DEFAULT, None]:
             if self.source.is_dir() and not self.source.is_symlink():
                 self._refuse_remove_source_containment(dest)
@@ -386,12 +405,15 @@ class _Installer(_RecordTree, _Staging):
                 owner=self.owner,
                 group=self.group,
                 type=FileType(self.type),
+                kind=self.kind,
+                caps=self.caps,
                 meta=self.meta,
             )
             if not self.noentry:
-                fileentry = self.project._configured(
-                    self.project.dbpath(dest), fileentry, local=staged
-                )
+                fspath = self.project.dbpath(dest)
+                fileentry = self.project._configured(fspath, fileentry, local=staged)
+                # Refused here, before the staged file replaces anything.
+                fileentry = self.project._resolved_kind(fspath, fileentry)
             fileentry = resolve_entry(fileentry, staged)
             apply_entry(fileentry, staged, chown=self.chown, logger=self._logger_)
             if staged != dest:

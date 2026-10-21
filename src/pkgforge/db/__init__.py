@@ -29,7 +29,7 @@ import typing
 from pathlib import Path
 
 from .._registry import Registered
-from ..entry import FileEntry
+from ..entry import _KINDS, FileEntry
 from ..exceptions import DbError, PkgForgeError
 
 _LOGGER = logging.getLogger("pkgforge.db")
@@ -176,8 +176,11 @@ def _format_hint(name: str) -> str:
     return f" (read as {name}; pass --db-format to choose another format)"
 
 
-_RECORD_FIELDS = ("mode", "owner", "group", "type", "meta")
+_RECORD_FIELDS = ("mode", "owner", "group", "type", "kind", "caps", "meta")
 _RECORD_TYPES = frozenset(("file", "directory", "symlink"))
+_RECORD_KINDS = frozenset(_KINDS)
+#: Ends the error for a record or table written before ``kind`` and ``caps``.
+_OLD_DB = "; this DB predates kind/caps: run initdb and record again"
 
 
 def _record_ok(path: object, rec: object) -> bool:
@@ -186,23 +189,28 @@ def _record_ok(path: object, rec: object) -> bool:
     The loaders' per-record fast path: ``type(x) is str`` checks, no regex and
     no message formatting.
     """
-    if type(rec) is not dict or len(rec) != 5:
-        return False
-    kind = rec.get("type")
-    meta = rec.get("meta")
-    return (
-        type(path) is str
-        and path.startswith("/")
-        and type(rec.get("mode")) is str
-        and type(rec.get("owner")) is str
-        and type(rec.get("group")) is str
-        and type(kind) is str
-        and kind in _RECORD_TYPES
-        and type(meta) is dict
-        and (
-            not meta or all(type(k) is str and type(v) is str for k, v in meta.items())
+    # A subscript beats .get here; a missing key or an unhashable type/kind
+    # (a list, a mapping) is a record that fails the full check.
+    try:
+        meta = rec["meta"]
+        return (
+            type(rec) is dict
+            and len(rec) == 7
+            and path[:1] == "/"
+            and type(rec["mode"]) is str
+            and type(rec["owner"]) is str
+            and type(rec["group"]) is str
+            and type(rec["caps"]) is str
+            and rec["type"] in _RECORD_TYPES
+            and rec["kind"] in _RECORD_KINDS
+            and type(meta) is dict
+            and (
+                not meta
+                or all(type(k) is str and type(v) is str for k, v in meta.items())
+            )
         )
-    )
+    except (KeyError, TypeError):
+        return False
 
 
 def _check_record(
@@ -212,8 +220,10 @@ def _check_record(
 
     ``path`` must be a ``str`` starting with ``/``. ``rec`` is ``None`` (a
     tombstone) or a ``dict`` with exactly ``mode``, ``owner``, ``group``,
-    ``type`` and ``meta``: the first three ``str``, ``type`` one of ``file``,
-    ``directory`` and ``symlink``, ``meta`` a ``dict`` of ``str`` to ``str``.
+    ``type``, ``kind``, ``caps`` and ``meta``: ``mode``, ``owner``, ``group``
+    and ``caps`` ``str``, ``type`` one of ``file``, ``directory`` and
+    ``symlink``, ``kind`` one of the :class:`~pkgforge.entry.FileKind` values,
+    ``meta`` a ``dict`` of ``str`` to ``str``.
     Nothing is coerced and nothing is defaulted. ``where`` (a file, or
     ``file:line``) prefixes the :class:`DbError` raised for anything else.
     """
@@ -230,8 +240,9 @@ def _check_record(
         raise DbError(f"{where}: {path!r}: unknown field {', '.join(extra)}")
     for field in _RECORD_FIELDS:
         if field not in rec:
-            raise DbError(f"{where}: {path!r}: missing field {field}")
-    for field in ("mode", "owner", "group"):
+            suffix = _OLD_DB if field in ("kind", "caps") else ""
+            raise DbError(f"{where}: {path!r}: missing field {field}{suffix}")
+    for field in ("mode", "owner", "group", "caps"):
         if type(rec[field]) is not str:
             raise DbError(
                 f"{where}: {path!r}: {field} must be a string, got {rec[field]!r}"
@@ -240,6 +251,11 @@ def _check_record(
         raise DbError(
             f"{where}: {path!r}: type must be one of "
             f"{', '.join(sorted(_RECORD_TYPES))}, got {rec['type']!r}"
+        )
+    if rec["kind"] not in _RECORD_KINDS:
+        raise DbError(
+            f"{where}: {path!r}: kind must be one of "
+            f"{', '.join(_KINDS)}, got {rec['kind']!r}"
         )
     raise DbError(f"{where}: {path!r}: meta must map strings to strings")
 

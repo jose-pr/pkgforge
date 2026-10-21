@@ -151,6 +151,8 @@ def test_resolve_for_fills_auto_from_disk(tmp_path):
         "owner": "root",
         "group": DEFAULT,
         "type": AUTO,
+        "kind": "file",
+        "caps": "-",
         "meta": {},
     }
     resolved = resolve_entry(base, f)
@@ -169,6 +171,8 @@ def test_apply_sets_mode(tmp_path):
         "owner": DEFAULT,
         "group": DEFAULT,
         "type": FileType.File,
+        "kind": "file",
+        "caps": "-",
         "meta": {},
     }
     apply_entry(entry, f)
@@ -649,7 +653,15 @@ def test_rpmspecfile_render():
 
     line = RPMSpecFiles().render_entry(
         "/usr/bin/x",
-        {"mode": "755", "owner": "root", "group": "root", "type": "file", "meta": {}},
+        {
+            "mode": "755",
+            "owner": "root",
+            "group": "root",
+            "type": "file",
+            "kind": "file",
+            "caps": "-",
+            "meta": {},
+        },
     )
     assert line == b'%attr(755,root,root) "/usr/bin/x"\n'
 
@@ -664,13 +676,15 @@ def test_rpmspecfile_dir_prefix():
             "owner": "root",
             "group": "root",
             "type": "directory",
+            "kind": "file",
+            "caps": "-",
             "meta": {},
         },
     )
     assert line.startswith(b"%dir ")
 
 
-def test_rpmspecfile_rpmprefix_meta():
+def test_rpmspecfile_kind_prefix():
     from pkgforge.dbdump import RPMSpecFiles
 
     line = RPMSpecFiles().render_entry(
@@ -680,7 +694,9 @@ def test_rpmspecfile_rpmprefix_meta():
             "owner": "root",
             "group": "root",
             "type": "file",
-            "meta": {"rpmprefix": "%config(noreplace)"},
+            "kind": "config-noreplace",
+            "caps": "-",
+            "meta": {},
         },
     )
     assert line.startswith(b"%config(noreplace) %attr(")
@@ -698,6 +714,8 @@ def test_dbdump_writes_manifest(tmp_path, yaml_module):
                     "owner": "root",
                     "group": "root",
                     "type": "file",
+                    "kind": "file",
+                    "caps": "-",
                     "meta": {},
                 },
                 "/removed": None,

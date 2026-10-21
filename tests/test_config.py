@@ -55,11 +55,17 @@ owner = "${package.name}"
 match = ["(?type:directory)/var/**"]
 group = "adm"
 
+[[rules]]
+match = ["(?type:file)/usr/share/doc/**"]
+kind = "doc"
+caps = "cap_net_raw,cap_net_admin+ep"
+
 [[stage]]
 src = "payload/hello"
 dest = "/usr/bin/hello"
 mode = "755"
-meta = { rpmprefix = "%config" }
+kind = "config"
+caps = "cap_net_raw=ep"
 type = "file"
 into = false
 decompress = "GZ"
@@ -115,13 +121,19 @@ def test_full_document_loads_into_the_dataclasses(tmp_path):
         rules=(
             EntryRule(match=("/etc/**", "!/etc/skip"), mode="600", owner="hello"),
             EntryRule(match=("(?type:directory)/var/**",), group="adm"),
+            EntryRule(
+                match=("(?type:file)/usr/share/doc/**",),
+                kind="doc",
+                caps="cap_net_raw,cap_net_admin+ep",
+            ),
         ),
         stage=(
             StageStep(
                 src=str(tmp_path / "payload/hello"),
                 dest="/usr/bin/hello",
                 mode="755",
-                meta={"rpmprefix": "%config"},
+                kind="config",
+                caps="cap_net_raw=ep",
                 type="file",
                 into=False,
                 decompress="gz",
@@ -156,7 +168,7 @@ def test_text_values_are_plain_str(tmp_path):
     # Rules, defaults and steps put these values in the file DB, and YAML's
     # safe dumper refuses a str subclass.
     texts = list(_texts(load(write(tmp_path, FULL))))
-    assert "hello" in texts and "%config" in texts
+    assert "hello" in texts and "cap_net_raw=ep" in texts
     assert {type(text) for text in texts} == {str}
 
 
@@ -168,7 +180,7 @@ def test_configured_values_reach_a_yaml_db(tmp_path, yaml_module):
         tmp_path,
         'own = ["/opt/p"]\n[package]\nname = "p"\n'
         '[defaults]\nowner = "root"\ngroup = "${package.name}"\n'
-        '[[stage]]\nsrc = "a"\ndest = "/opt/p"\nmeta = { rpmprefix = "%doc" }\n',
+        '[[stage]]\nsrc = "a"\ndest = "/opt/p"\nkind = "doc"\n',
     )
     project = Project.from_config(
         cfg, buildroot=tmp_path / "root", db=tmp_path / "f.yaml"
@@ -176,7 +188,7 @@ def test_configured_values_reach_a_yaml_db(tmp_path, yaml_module):
     project.stage()
     live = project.load()
     assert live["/opt/p"]["group"] == "p"
-    assert live["/opt/p/a"]["meta"] == {"rpmprefix": "%doc"}
+    assert live["/opt/p/a"]["kind"] == "doc"
 
 
 def _include_cfg(tmp_path: Path) -> Path:
@@ -279,7 +291,7 @@ def test_unquoted_values_are_refused(tmp_path, text, where):
         ('[[rules]]\nmatch = ["/a"]\nmdoe = "644"\n', "mdoe"),
         ('[install]\nmode = "644"\n', "install"),
         ('[[users]]\nname = "u"\n', "users"),
-        ('[[stage]]\nsrc = "a"\ndest = "/a"\nkind = "doc"\n', "kind"),
+        ('[[stage]]\nsrc = "a"\ndest = "/a"\nverify = "doc"\n', "verify"),
     ],
 )
 def test_unknown_keys_are_refused(tmp_path, text, key):

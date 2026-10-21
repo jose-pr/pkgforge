@@ -87,7 +87,15 @@ def _seed_tool_entry(db):
     # relative_to() against on Windows), but dbdump itself is cross-platform.
     open_db(db).add(
         "/usr/bin/tool",
-        {"mode": "755", "owner": "root", "group": "root", "type": "file", "meta": {}},
+        {
+            "mode": "755",
+            "owner": "root",
+            "group": "root",
+            "type": "file",
+            "kind": "file",
+            "caps": "-",
+            "meta": {},
+        },
     )
 
 
@@ -174,7 +182,15 @@ def test_dbdump_closed_pipe_is_quiet(tmp_path):
     for i in range(20000):
         provider.add(
             f"/a/{i:05d}",
-            {"mode": "644", "owner": "-", "group": "-", "type": "file", "meta": {}},
+            {
+                "mode": "644",
+                "owner": "-",
+                "group": "-",
+                "type": "file",
+                "kind": "file",
+                "caps": "-",
+                "meta": {},
+            },
         )
     env = {**os.environ, "PYTHONPATH": str(SRC_DIR)}
     cmd = f"{sys.executable} -m pkgforge --db {db} dbdump -f rpmspecfiles - | head -1"
@@ -284,7 +300,15 @@ def test_dbdump_unrepresentable_exits_1_without_output(tmp_path, cli, row, ident
     db = tmp_path / "files.jsonl"
     open_db(db).add(
         "/o/%(echo PWNED >&2)",
-        {"mode": "-", "owner": "-", "group": "-", "type": "file", "meta": {}},
+        {
+            "mode": "-",
+            "owner": "-",
+            "group": "-",
+            "type": "file",
+            "kind": "file",
+            "caps": "-",
+            "meta": {},
+        },
     )
     out = tmp_path / "out.txt"
     result = cli("--db", str(db), "dbdump", "-f", "rpmspecfiles", str(out))
@@ -413,6 +437,8 @@ def test_dbdump_hand_edited_yaml_mode(tmp_path, cli):
         "  owner: root\n"
         "  group: root\n"
         "  type: file\n"
+        "  kind: file\n"
+        "  caps: '-'\n"
         "  meta: {}\n",
         encoding="utf-8",
     )
@@ -491,7 +517,16 @@ def test_initdb_creates_parent_and_truncates(tmp_path, cli, ext):
 
     provider = open_db(db)
     provider.add(
-        "/seed", {"mode": "644", "owner": "-", "group": "-", "type": "file", "meta": {}}
+        "/seed",
+        {
+            "mode": "644",
+            "owner": "-",
+            "group": "-",
+            "type": "file",
+            "kind": "file",
+            "caps": "-",
+            "meta": {},
+        },
     )
     assert open_db(db).load() != {}
 
@@ -710,7 +745,15 @@ def test_scan_missing_keeps_existing_entries(tmp_path, cli):
     provider = open_db(db)
     provider.add(
         "/sub/a",
-        {"mode": "600", "owner": "-", "group": "-", "type": "file", "meta": {}},
+        {
+            "mode": "600",
+            "owner": "-",
+            "group": "-",
+            "type": "file",
+            "kind": "file",
+            "caps": "-",
+            "meta": {},
+        },
     )
 
     result = cli("--db", str(db), "--buildroot", str(root), "scan", "--missing", "/sub")

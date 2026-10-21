@@ -13,6 +13,7 @@ from . import (
     Db,
     DbProvider,
     _check_record,
+    _OLD_DB,
     _fields,
     _format_hint,
     _record_ok,
@@ -39,7 +40,7 @@ def _ensure_utf8(path: str, rec: dict) -> None:
     surrogate and round-trip it), so this is sqlite-only.
     """
     candidates = [("path", path)]
-    for field in ("mode", "owner", "group", "type"):
+    for field in ("mode", "owner", "group", "type", "kind", "caps"):
         value = rec.get(field)
         if isinstance(value, str):
             candidates.append((field, value))
@@ -73,6 +74,11 @@ def _db_error(path: typing.Any, exc: Exception) -> DbError:
     naming the DB file."""
     if "locked" in str(exc):
         return DbError(f"{path}: database is locked; another process holds it")
+    text = str(exc)
+    if ("no such column" in text or "has no column named" in text) and (
+        "kind" in text or "caps" in text
+    ):
+        return DbError(f"{path}: {exc}{_OLD_DB}")
     if "not a database" in str(exc):
         return DbError(f"{path}: {exc}{_format_hint(SQLiteDb.NAME)}")
     return DbError(f"{path}: {exc}")
@@ -87,7 +93,8 @@ class SQLiteDb(DbProvider):
     _SCHEMA = (
         "CREATE TABLE IF NOT EXISTS entries ("
         "path TEXT PRIMARY KEY, mode TEXT, owner TEXT, "
-        '"group" TEXT, type TEXT, meta_json TEXT, removed INTEGER DEFAULT 0)'
+        '"group" TEXT, type TEXT, kind TEXT, caps TEXT, meta_json TEXT, '
+        "removed INTEGER DEFAULT 0)"
     )
 
     #: Set only while a :meth:`batch` is active; ``add``/``remove`` use it
@@ -181,9 +188,10 @@ class SQLiteDb(DbProvider):
             if not self._has_entries_table(conn):
                 return {}
             for row in conn.execute(
-                'SELECT path, mode, owner, "group", type, meta_json, removed FROM entries'
+                'SELECT path, mode, owner, "group", type, kind, caps, meta_json, '
+                "removed FROM entries"
             ):
-                path, mode, owner, group, type_, meta_json, removed = row
+                path, mode, owner, group, type_, kind, caps, meta_json, removed = row
                 if removed:
                     db[path] = _check_record(path, None, self.path)
                     continue
@@ -205,6 +213,8 @@ class SQLiteDb(DbProvider):
                     "owner": owner,
                     "group": group,
                     "type": type_,
+                    "kind": kind,
+                    "caps": caps,
                     "meta": meta,
                 }
                 db[path] = (
@@ -218,17 +228,21 @@ class SQLiteDb(DbProvider):
         rec = _fields(entry)
         _ensure_utf8(path, rec)
         conn.execute(
-            'INSERT INTO entries (path, mode, owner, "group", type, meta_json, removed) '
-            "VALUES (?, ?, ?, ?, ?, ?, 0) "
+            "INSERT INTO entries "
+            '(path, mode, owner, "group", type, kind, caps, meta_json, removed) '
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0) "
             "ON CONFLICT(path) DO UPDATE SET "
             'mode=excluded.mode, owner=excluded.owner, "group"=excluded."group", '
-            "type=excluded.type, meta_json=excluded.meta_json, removed=0",
+            "type=excluded.type, kind=excluded.kind, caps=excluded.caps, "
+            "meta_json=excluded.meta_json, removed=0",
             (
                 path,
                 rec.get("mode"),
                 rec.get("owner"),
                 rec.get("group"),
                 rec.get("type"),
+                rec.get("kind"),
+                rec.get("caps"),
                 json.dumps(rec.get("meta") or {}, sort_keys=True),
             ),
         )

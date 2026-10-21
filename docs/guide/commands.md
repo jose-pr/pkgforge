@@ -78,13 +78,16 @@ pkgforge install [options] SOURCE... DESTINATION
 | `--chown` | apply the recorded owner/group (off by default); an unknown owner/group name exits 2 before anything is staged (a recorded-only name, without `--chown`, is never resolved) |
 | `--remove-source` | delete the source after staging (files or directories), only once the entry is applied and recorded -- never when the source IS the destination, and refused (exit 2) up front when a directory source contains the resolved destination or the `--db` file |
 | `--noentry` | stage but do not record a DB entry |
-| `-O, --meta KEY=VALUE` | record free-form metadata on the entry (repeatable); consumed by a dump format (e.g. `rpmspecfiles`' `meta.rpmprefix`) or by a symlink's `meta.target` |
+| `-O, --meta KEY=VALUE` | record free-form metadata on the entry (repeatable); consumed by a symlink's `meta.target` or by a third-party dump format |
+| `-k, --kind KIND` | how packaging treats the entry: `file` (default), `config`, `config-noreplace`, `doc`, `license` or `ghost`; all but `file` and `ghost` need a regular file (exit 2 otherwise); also on `mkdir` and `symlink`, where only `file` and `ghost` fit |
+| `--caps CLAUSE` | file capabilities the package sets on install: one lowercase `setcap` clause such as `cap_net_bind_service=ep`; a regular file that is not a ghost only |
 
-`-O rpmprefix=VALUE` prepends `VALUE` to the entry's `rpmspecfiles` line (see
-[Dump formats](formats.md)):
+`-k KIND` marks how the package manager treats the entry; `rpmspecfiles` writes
+it as a `%config(noreplace)`, `%doc`, `%license` or `%ghost` directive and
+`debian` as `conffiles`/`not-installed` lines (see [Dump formats](formats.md)):
 
 ```bash
-pkgforge install -p -m 640 -O rpmprefix='%config(noreplace)' tool.conf /etc/tool
+pkgforge install -p -m 640 -k config-noreplace tool.conf /etc/tool
 ```
 
 A symlink source (or an explicit `--type symlink`) records its `meta.target`
