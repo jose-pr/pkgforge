@@ -20,7 +20,7 @@ from pkgforge.entry import (
 )
 
 KINDS = ("file", "config", "config-noreplace", "doc", "license", "ghost")
-OLD_DB = "this DB predates kind/caps: run initdb and record again"
+OLD_DB = "this DB was written by an older pkgforge: run initdb and record again"
 
 
 def entry(ftype: str = "file", kind: str = "file", caps: str = "-", **over):
@@ -31,6 +31,7 @@ def entry(ftype: str = "file", kind: str = "file", caps: str = "-", **over):
         "type": ftype,
         "kind": kind,
         "caps": caps,
+        "package": "-",
         "meta": {},
         **over,
     }
@@ -418,7 +419,7 @@ def test_every_backend_round_trips_kind_and_caps(tmp_path, name):
     assert open_db(tmp_path / name).load() == ROUND_TRIP
 
 
-@pytest.mark.parametrize("missing", ["kind", "caps"])
+@pytest.mark.parametrize("missing", ["kind", "caps", "package"])
 def test_a_jsonl_record_without_kind_or_caps_is_refused(tmp_path, missing):
     rec = {"path": "/a", **entry()}
     del rec[missing]
@@ -471,7 +472,9 @@ def test_an_old_sqlite_table_is_refused_on_load_and_add(tmp_path):
 def test_dbdump_of_an_old_db_exits_1(cli, tmp_path, name):
     db = tmp_path / name
     if name.endswith("jsonl"):
-        record = {k: v for k, v in entry().items() if k not in ("kind", "caps")}
+        record = {
+            k: v for k, v in entry().items() if k not in ("kind", "caps", "package")
+        }
         db.write_text(json.dumps({"path": "/a", **record}) + "\n", encoding="utf-8")
     else:
         _old_sqlite(db)

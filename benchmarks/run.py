@@ -72,6 +72,7 @@ def _make_db(n: int) -> dict:
             "type": "file",
             "kind": "file",
             "caps": "-",
+            "package": "-",
             "meta": {},
         }
         for i in range(n)

@@ -24,8 +24,9 @@ split on `\n` only.
 
 Every backend enforces the same record schema when it loads, and coerces or
 defaults nothing: a path is a string starting with `/`; a record has exactly
-`mode`, `owner`, `group` (strings), `type` (`file`, `directory` or `symlink`)
-and `meta` (string to string); a removal is `{"path": ..., "_removed": true}`
+the [entry fields](#entry-fields) below: `mode`, `owner`, `group`, `caps` and
+`package` (strings), `type` (`file`, `directory` or `symlink`), `kind` (one of the
+six kinds) and `meta` (string to string); a removal is `{"path": ..., "_removed": true}`
 (jsonl), `null` (yaml) or a flagged row (sqlite). Anything else raises
 `DbError` naming the file and the path, so a bad DB is one error at load time
 instead of a crash while rendering. Reading a `sqlite` DB never writes to it: an empty or
@@ -37,8 +38,8 @@ undecodable file name, or a `pwd`/`grp` entry with one) is rejected with
 
 ```jsonl
 # jsonl
-{"caps": "cap_net_bind_service=ep", "group": "root", "kind": "file", "meta": {}, "mode": "755", "owner": "root", "path": "/usr/bin/tool", "type": "file"}
-{"caps": "-", "group": "adm", "kind": "config-noreplace", "meta": {}, "mode": "640", "owner": "root", "path": "/etc/tool/config", "type": "file"}
+{"caps": "cap_net_bind_service=ep", "group": "root", "kind": "file", "meta": {}, "mode": "755", "owner": "root", "package": "tool", "path": "/usr/bin/tool", "type": "file"}
+{"caps": "-", "group": "adm", "kind": "config-noreplace", "meta": {}, "mode": "640", "owner": "root", "package": "tool", "path": "/etc/tool/config", "type": "file"}
 ```
 
 The JSON Lines default is fast to write and parse and stays greppable —
@@ -128,13 +129,14 @@ either way).
 | `type` | `file`, `directory`, or `symlink` |
 | `kind` | how packaging treats the entry: `file`, `config`, `config-noreplace`, `doc`, `license` or `ghost`; set with `-k/--kind` or a rule, never `-` in a DB |
 | `caps` | file capabilities for the package to set on install (one `setcap` clause), or `-` for none; set with `--caps` or a rule |
+| `package` | the package the entry ships in: the `[package]` name or a `[[packages]]` name, or `-` when the configuration has no `[package]`; set with `-P/--package` or a rule, else the `[package]` name |
 | `meta` | free-form string map (e.g. a symlink `target`), set with [`-O/--meta KEY=VALUE`](commands.md#install) |
 
 A `yaml` DB's scalars load as strings (`mode: 0755` is `"0755"`).
 
-A record has exactly these seven fields. A DB written before `kind` and `caps`
-existed fails to load with an error ending `this DB predates kind/caps: run
-initdb and record again`; there is no migration.
+A record has exactly these eight fields. A DB written before `package`
+existed fails to load with an error ending `this DB was written by an older
+pkgforge: run initdb and record again`; there is no migration.
 
 ## Sentinels
 

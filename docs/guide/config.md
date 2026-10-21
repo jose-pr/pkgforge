@@ -65,14 +65,38 @@ mode = "755"
 
 ### `[package]`
 
-Facts about the package. Nothing reads them but `${package.KEY}` in the rest of
-the file.
+The main (and source) package. Other values can name its keys once with
+`${package.KEY}`.
 
-| Key | Type | Default |
-| --- | --- | --- |
-| `name` | text | required |
-| `version`, `release`, `arch`, `summary`, `license`, `maintainer`, `description` | text | none |
-| `depends` | list of text | none |
+| Key | Type | Default | Grammar |
+| --- | --- | --- | --- |
+| `name` | text | required | a package name: `[a-z0-9][a-z0-9+.-]+` |
+| `version` | text | none | `[0-9][A-Za-z0-9.+~]*` |
+| `release` | text | none | `[A-Za-z0-9.+~]+` |
+| `arch` | text | none | `all` or `any` |
+| `maintainer` | text | none | `Name <address>` |
+| `summary`, `license`, `homepage` | text | none | one line, no control character |
+| `description` | text | none | no control character but newline |
+
+`[package.rpm]` holds `requires`, a list of text (one `Requires:` item each),
+and `[package.debian]` holds `depends`, a list of text (one dependency each, no
+`,`), `section` (lowercase, such as `utils`) and `priority` (`required`,
+`important`, `standard`, `optional` or `extra`). A list item is not empty and has
+no control character.
+
+### `[[packages]]`
+
+Any number of subpackages built from the same source. `[[packages]]` needs
+`[package]`.
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `name` | text | required | the full package name, such as `${package.name}-doc`; unique and not the `[package]` name |
+| `summary`, `description` | text | none | as in `[package]` |
+| `arch` | text | the main package's | `all` or `any` |
+| `rpm`, `debian` | table | empty | as in `[package]` |
+
+The `package` of a rule or step, and `-P`, name `[package]` or one of these.
 
 ### `[defaults]`
 
@@ -87,8 +111,8 @@ What an entry gets when neither a flag nor a rule sets it.
 
 ### `[[rules]]`
 
-Any number of rules. Each sets `mode`, `owner`, `group`, `kind` and `caps` for the
-entries whose path matches.
+Any number of rules. Each sets `mode`, `owner`, `group`, `kind`, `caps` and `package`
+for the entries whose path matches.
 
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -97,6 +121,7 @@ entries whose path matches.
 | `owner`, `group` | text | none | |
 | `kind` | text | none | `file`, `config`, `config-noreplace`, `doc`, `license` or `ghost`; all but `file` and `ghost` fit a regular file only, so such a rule should match `(?type:file)` |
 | `caps` | text | none | one `setcap` clause such as `cap_net_bind_service=ep`; a regular file that is not a ghost |
+| `package` | text | the `[package]` name | the package the entry ships in: the `[package]` name or a `[[packages]]` name |
 
 `/etc/hello/**` matches what is below `/etc/hello`, not the directory itself.
 
@@ -117,6 +142,7 @@ Each element is one step. A step names what it stages with exactly one of
 | `owner`, `group` | text | none | all | |
 | `kind` | text | none | all | as `install -k`; a `dir` fits `file` or `ghost`, a `symlink` too |
 | `caps` | text | none | `src`, `file` | as `install --caps` |
+| `package` | text | a matching rule's, else the `[package]` name | all | as `install -P` |
 | `meta` | table of text | none | all | free-form metadata, as `install -O` |
 | `type` | text | from the source | `src` | `file`, `directory` or `symlink` |
 | `into` | boolean | `true` | `src` | `false` treats `dest` as the final path, as `install -T` |

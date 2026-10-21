@@ -50,8 +50,8 @@ __all__ = ["Project", "VerifyIssue"]
 _INSTALL_METHODS = ("copy", "link", "move")
 
 #: The entry fields ``[[rules]]`` fill when they are unset (``[defaults]`` has no
-#: ``kind`` or ``caps``).
-_RESOLVED = ("mode", "owner", "group", "kind", "caps")
+#: ``kind``, ``caps`` or ``package``).
+_RESOLVED = ("mode", "owner", "group", "kind", "caps", "package")
 _UNSET = frozenset((DEFAULT, AUTO))
 
 _INIT_LOGGER = logging.getLogger("pkgforge.initdb")
@@ -149,6 +149,10 @@ class Project:
     _names: typing.Optional[
         typing.Tuple[ProjectConfig, typing.FrozenSet[str], typing.FrozenSet[str]]
     ] = None
+    # The package names the config declares, with the config they came from.
+    _packages: typing.Optional[typing.Tuple[ProjectConfig, typing.FrozenSet[str]]] = (
+        None
+    )
     # Owned parents: the paths the DB held when the operation first needed to
     # know (None until then) and the paths the operation has written since.
     _held: typing.Optional[typing.Set[str]] = None
@@ -375,8 +379,8 @@ class Project:
     def _configured(
         self, dbpath: str, entry: FileEntry, local: typing.Optional[Path] = None
     ) -> FileEntry:
-        """``entry`` with the ``mode``, ``owner``, ``group``, ``kind`` and
-        ``caps`` it leaves at ``"-"`` filled in from the configuration;
+        """``entry`` with the ``mode``, ``owner``, ``group``, ``kind``, ``caps``
+        and ``package`` it leaves at ``"-"`` filled in from the configuration;
         ``entry`` itself is never changed.
 
         A field that is not ``"-"`` is a flag and stays. The others come from
@@ -455,7 +459,7 @@ class Project:
                 }
             if parent in self._held:
                 continue
-            entry = self._resolved_kind(
+            entry = self._resolved(
                 parent,
                 self._configured(
                     parent,
@@ -466,6 +470,7 @@ class Project:
                         "type": FileType.Directory.value,
                         "kind": DEFAULT,
                         "caps": DEFAULT,
+                        "package": DEFAULT,
                         "meta": {},
                     },
                 ),
@@ -476,16 +481,48 @@ class Project:
             if records is not None:
                 records.append((parent, entry))
 
-    @staticmethod
-    def _resolved_kind(dbpath: str, entry: FileEntry) -> FileEntry:
-        """``entry`` with an unset ``kind`` made ``file``, after checking that
-        its kind and caps fit its type."""
+    def _declared_packages(self) -> typing.FrozenSet[str]:
+        """The package names the configuration allows an entry to carry:
+        ``{"-"}`` with no ``[package]``, else its name and each ``[[packages]]``
+        name."""
+        cache = self._packages
+        if cache is None or cache[0] is not self.config:
+            config = self.config
+            if config.package is None:
+                names = frozenset((DEFAULT,))
+            else:
+                names = frozenset(
+                    (config.package.name, *(sub.name for sub in config.packages))
+                )
+            cache = (config, names)
+            self._packages = cache
+        return cache[1]
+
+    def _resolved(self, dbpath: str, entry: FileEntry) -> FileEntry:
+        """``entry`` with an unset ``kind`` made ``file`` and an unset
+        ``package`` made the ``[package]`` name (``-`` with none), after
+        checking that its kind and caps fit its type and that its package is
+        declared."""
         kind = entry["kind"]
         if kind == DEFAULT:
             kind = "file"
             entry = {**entry, "kind": kind}
+        package = entry["package"]
+        if package == DEFAULT and self.config.package is not None:
+            package = self.config.package.name
+            entry = {**entry, "package": package}
         _check_kind_caps(dbpath, kind, entry["caps"], entry["type"])
+        self._check_package(dbpath, package)
         return entry
+
+    def _check_package(self, where: str, package: str) -> None:
+        """Refuse a ``package`` the configuration does not declare; ``where``
+        leads the message."""
+        if package not in self._declared_packages():
+            raise UsageError(
+                f"{where}: package {package!r} is neither [package] name nor "
+                "a [[packages]] name"
+            )
 
     def _record(
         self,
@@ -497,11 +534,12 @@ class Project:
         through here. The owned parents of ``dbpath`` are written first and
         appended to ``records``.
 
-        A ``kind`` still unset becomes ``file``; a kind or caps that does not
-        fit the entry's type, or an owner or group that is neither a
-        base-passwd name nor declared, is a :class:`UsageError`."""
+        A ``kind`` still unset becomes ``file`` and a ``package`` still unset the
+        ``[package]`` name; a kind or caps that does not fit the entry's type,
+        a package the configuration does not declare, or an owner or group that
+        is neither a base-passwd name nor declared, is a :class:`UsageError`."""
         entry = self._configured(dbpath, entry)
-        entry = self._resolved_kind(dbpath, entry)
+        entry = self._resolved(dbpath, entry)
         self._check_names(dbpath, entry["owner"], entry["group"])
         if self.config.own:
             self._record_parents(dbpath, records)
@@ -599,6 +637,7 @@ class Project:
         type: typing.Optional[FileType] = None,
         kind: str = DEFAULT,
         caps: str = DEFAULT,
+        package: str = DEFAULT,
         meta: typing.Optional[typing.Mapping[str, str]] = None,
         into: bool = True,
         parents: bool = False,
@@ -633,6 +672,9 @@ class Project:
                 ``setcap`` clause such as ``"cap_net_bind_service=ep"``;
                 ``"-"`` takes a matching rule's, else none. Regular files
                 that are not ghosts only.
+            package: the package the entry ships in: the ``[package]`` name or
+                a ``[[packages]]`` name; ``"-"`` takes a matching rule's
+                package, else the ``[package]`` name (``"-"`` with none).
             meta: extra ``{key: value}`` metadata recorded with the entry.
             into: install into the directory ``dest`` (False: ``dest`` is the
                 final path).
@@ -676,6 +718,7 @@ class Project:
             type=type,
             kind=kind,
             caps=caps,
+            package=package,
             meta=meta,
             into=into,
             parents=parents,
@@ -699,6 +742,7 @@ class Project:
         type: typing.Optional[FileType] = None,
         kind: str = DEFAULT,
         caps: str = DEFAULT,
+        package: str = DEFAULT,
         meta: typing.Optional[typing.Mapping[str, str]] = None,
         into: bool = True,
         parents: bool = False,
@@ -753,6 +797,7 @@ class Project:
                 type=type,
                 kind=kind,
                 caps=caps,
+                package=package,
                 meta=meta,
                 into=into,
                 parents=parents,
@@ -800,6 +845,7 @@ class Project:
         owner: str = DEFAULT,
         group: str = DEFAULT,
         kind: str = DEFAULT,
+        package: str = DEFAULT,
         meta: typing.Optional[typing.Mapping[str, str]] = None,
         parents: bool = False,
     ) -> FileRecords:
@@ -809,7 +855,7 @@ class Project:
         Nothing is read from a source, so this is how a directory with no
         files of its own is packaged. Running it again changes nothing.
         ``mode``, ``owner``, ``group``, ``kind`` (``file`` or ``ghost`` fit a
-        directory) and ``meta`` are as for :meth:`install`; ``parents``
+        directory), ``package`` and ``meta`` are as for :meth:`install`; ``parents``
         creates the missing parent directories.
 
         Returns:
@@ -827,6 +873,7 @@ class Project:
             owner=owner,
             group=group,
             kind=kind,
+            package=package,
             meta=meta,
             parents=parents,
             logger=_MKDIR_LOGGER,
@@ -841,6 +888,7 @@ class Project:
         owner: str,
         group: str,
         kind: str,
+        package: str,
         meta: typing.Optional[typing.Mapping[str, str]],
         parents: bool,
         logger: logging.Logger,
@@ -863,6 +911,7 @@ class Project:
                     group=group,
                     type=FileType.Directory,
                     kind=kind,
+                    package=package,
                     meta=meta,
                     into=False,
                     parents=parents,
@@ -880,6 +929,7 @@ class Project:
         owner: str = DEFAULT,
         group: str = DEFAULT,
         kind: str = DEFAULT,
+        package: str = DEFAULT,
         meta: typing.Optional[typing.Mapping[str, str]] = None,
         parents: bool = False,
     ) -> FileRecords:
@@ -888,7 +938,7 @@ class Project:
 
         ``target`` is stored as written, relative or absolute, and may name
         nothing. A symlink has no mode. ``owner``, ``group``, ``kind`` (``file``
-        or ``ghost`` fit a link) and ``meta`` are as for :meth:`install`;
+        or ``ghost`` fit a link), ``package`` and ``meta`` are as for :meth:`install`;
         ``parents`` creates the missing parent directories.
 
         Returns:
@@ -907,6 +957,7 @@ class Project:
             owner=owner,
             group=group,
             kind=kind,
+            package=package,
             meta=meta,
             parents=parents,
             logger=_SYMLINK_LOGGER,
@@ -921,6 +972,7 @@ class Project:
         owner: str,
         group: str,
         kind: str,
+        package: str,
         meta: typing.Optional[typing.Mapping[str, str]],
         parents: bool,
         logger: logging.Logger,
@@ -941,6 +993,7 @@ class Project:
             group=group,
             type=FileType.Symlink,
             kind=kind,
+            package=package,
             meta={**(meta or {}), "target": target},
             into=False,
             parents=parents,
@@ -1073,6 +1126,7 @@ class Project:
                     "type": FileType.File.value,
                     "kind": "file",
                     "caps": DEFAULT,
+                    "package": DEFAULT,
                     "meta": {},
                 },
                 records,
@@ -1088,6 +1142,7 @@ class Project:
         group = DEFAULT if step.group is None else step.group
         kind = DEFAULT if step.kind is None else step.kind
         caps = DEFAULT if step.caps is None else step.caps
+        package = DEFAULT if step.package is None else step.package
         meta = dict(step.meta)
         if step.symlink is not None:
             return self._symlink(
@@ -1096,6 +1151,7 @@ class Project:
                 owner=owner,
                 group=group,
                 kind=kind,
+                package=package,
                 meta=meta,
                 parents=True,
                 logger=_STAGE_LOGGER,
@@ -1108,6 +1164,7 @@ class Project:
                 owner=owner,
                 group=group,
                 kind=kind,
+                package=package,
                 meta=meta,
                 parents=True,
                 logger=_STAGE_LOGGER,
@@ -1122,6 +1179,7 @@ class Project:
                 group=group,
                 kind=kind,
                 caps=caps,
+                package=package,
                 meta=meta,
                 into=False,
                 parents=True,
@@ -1137,6 +1195,7 @@ class Project:
             type=None if step.type is None else FileType(step.type),
             kind=kind,
             caps=caps,
+            package=package,
             meta=meta,
             into=step.into,
             parents=True,

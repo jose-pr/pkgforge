@@ -56,6 +56,7 @@ def test_mkdir_twice_leaves_one_live_directory(run, tmp_path):
             "type": "directory",
             "kind": "file",
             "caps": "-",
+            "package": "-",
             "meta": {},
         }
     }
@@ -227,7 +228,7 @@ def test_stage_with_a_missing_source_stages_nothing(cli, project_dir, tmp_path):
 
 
 def test_stage_without_steps_exits_2(cli, project_dir):
-    (project_dir / "pkgforge.cfg").write_bytes(b'[package]\nname = "x"\n')
+    (project_dir / "pkgforge.cfg").write_bytes(b'[package]\nname = "demo"\n')
     result = cli("stage")
     assert result.rc == 2
     assert b"no [[stage]] steps" in result.err
@@ -245,6 +246,7 @@ def test_stage_init_resets_an_existing_db(cli, project_dir, tmp_path):
             "type": "file",
             "kind": "file",
             "caps": "-",
+            "package": "-",
             "meta": {},
         },
     )
@@ -265,6 +267,7 @@ def test_stage_without_init_keeps_the_db(cli, project_dir, tmp_path):
             "type": "file",
             "kind": "file",
             "caps": "-",
+            "package": "-",
             "meta": {},
         },
     )

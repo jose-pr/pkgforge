@@ -36,6 +36,7 @@ from ..entry import (
     normalize_kind,
     normalize_mode,
     normalize_name,
+    normalize_package,
     resolve_entry,
 )
 from ..exceptions import PkgForgeError, UsageError
@@ -70,6 +71,7 @@ class _Installer(_RecordTree, _Staging):
         type: typing.Optional[FileType],
         kind: str,
         caps: str,
+        package: str,
         meta: typing.Optional[typing.Mapping[str, str]],
         into: bool,
         parents: bool,
@@ -99,6 +101,7 @@ class _Installer(_RecordTree, _Staging):
         self.type: typing.Any = DEFAULT if type is None else type
         self.kind = kind
         self.caps = caps
+        self.package = package
         # Each clone owns its meta dict: the symlink branch rebinds rather
         # than mutates, but a fresh copy per clone is cheap defense in depth
         # against any other future writer.
@@ -157,6 +160,7 @@ class _Installer(_RecordTree, _Staging):
         self.group = normalize_name(self.group, "group")
         self.kind = normalize_kind(self.kind)
         self.caps = normalize_caps(self.caps)
+        self.package = normalize_package(self.package)
         check_meta(self.meta)
 
         if self.chown:
@@ -337,6 +341,9 @@ class _Installer(_RecordTree, _Staging):
                 self.type,
             )
 
+        if not self.noentry and self.package != DEFAULT:
+            self.project._check_package(self.project.dbpath(dest), self.package)
+
         if self.remove_source and self.source not in [DEFAULT, None]:
             if self.source.is_dir() and not self.source.is_symlink():
                 self._refuse_remove_source_containment(dest)
@@ -410,13 +417,14 @@ class _Installer(_RecordTree, _Staging):
                 type=FileType(self.type),
                 kind=self.kind,
                 caps=self.caps,
+                package=self.package,
                 meta=self.meta,
             )
             if not self.noentry:
                 fspath = self.project.dbpath(dest)
                 fileentry = self.project._configured(fspath, fileentry, local=staged)
                 # Refused here, before the staged file replaces anything.
-                fileentry = self.project._resolved_kind(fspath, fileentry)
+                fileentry = self.project._resolved(fspath, fileentry)
             fileentry = resolve_entry(fileentry, staged)
             apply_entry(fileentry, staged, chown=self.chown, logger=self._logger_)
             if staged != dest:

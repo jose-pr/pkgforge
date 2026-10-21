@@ -38,6 +38,10 @@
     options:
       show_root_heading: true
 
+::: pkgforge.entry.normalize_package
+    options:
+      show_root_heading: true
+
 ::: pkgforge.entry.mode_to_octal
     options:
       show_root_heading: true

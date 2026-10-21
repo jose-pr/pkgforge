@@ -146,7 +146,7 @@ def test_import_without_sqlite3_or_yaml(tmp_path):
         "from pkgforge.db import JSONLinesDb\n"
         f"p = JSONLinesDb(pathlib.Path({str(db_path)!r}))\n"
         "p.init()\n"
-        "p.add('/a', {'mode': '644', 'owner': '-', 'group': '-', 'type': 'file', 'kind': 'file', 'caps': '-', 'meta': {}})\n"
+        "p.add('/a', {'mode': '644', 'owner': '-', 'group': '-', 'type': 'file', 'kind': 'file', 'caps': '-', 'package': '-', 'meta': {}})\n"
         "loaded = JSONLinesDb(p.path).load()\n"
         "assert loaded['/a']['mode'] == '644'\n"
         "try:\n"
@@ -199,7 +199,7 @@ def test_yaml_extra_missing_names_the_extra(tmp_path):
             "yaml",
             "yaml",
             "p.add('/a', {'mode': '644', 'owner': '-', 'group': '-', "
-            "'type': 'file', 'kind': 'file', 'caps': '-', 'meta': {}})",
+            "'type': 'file', 'kind': 'file', 'caps': '-', 'package': '-', 'meta': {}})",
         ),
     ],
     ids=["sqlite", "yaml"],
@@ -431,6 +431,7 @@ class _TsvDb(DbProvider):
                     "type": "file",
                     "kind": "file",
                     "caps": "-",
+                    "package": "-",
                     "meta": {},
                 }
             )
@@ -528,7 +529,7 @@ def test_append_repairs_missing_newline(tmp_path, fmt, make_entry):
     if fmt == "jsonl":
         path.write_bytes(
             b'{"path": "/old", "mode": "644", "owner": "-", "group": "-", '
-            b'"type": "file", "kind": "file", "caps": "-", "meta": {}}'
+            b'"type": "file", "kind": "file", "caps": "-", "package": "-", "meta": {}}'
         )
     else:
         path.write_bytes(b"/old: null")  # a tombstone, no trailing newline
@@ -550,9 +551,9 @@ def test_jsonl_error_names_file_and_line(tmp_path):
     path = tmp_path / "f.jsonl"
     path.write_text(
         '{"path": "/a", "mode": "644", "owner": "-", "group": "-", '
-        '"type": "file", "kind": "file", "caps": "-", "meta": {}}\n'
+        '"type": "file", "kind": "file", "caps": "-", "package": "-", "meta": {}}\n'
         '{"path": "/b", "mode": "644", "owner": "-", "group": "-", '
-        '"type": "file", "kind": "file", "caps": "-", "meta": {}}\n'
+        '"type": "file", "kind": "file", "caps": "-", "package": "-", "meta": {}}\n'
         '{"path": "/c", not valid json\n',
         encoding="utf-8",
     )
@@ -611,12 +612,12 @@ def test_utf8_db_under_ascii_locale(tmp_path, fmt):
         db_path.write_bytes(
             b'{"group": "-", "meta": {}, "mode": "-", "owner": "-", '
             b'"path": "/etc/caf\xc3\xa9.conf", "type": "file", '
-            b'"kind": "file", "caps": "-"}\n'
+            b'"kind": "file", "caps": "-", "package": "-"}\n'
         )
     else:
         db_path.write_bytes(
             b"/etc/caf\xc3\xa9.conf:\n  mode: '-'\n  owner: '-'\n  group: '-'\n"
-            b"  type: file\n  kind: file\n  caps: '-'\n  meta: {}\n"
+            b"  type: file\n  kind: file\n  caps: '-'\n  package: '-'\n  meta: {}\n"
         )
 
     script = (
@@ -669,6 +670,7 @@ def test_yaml_scalars_load_as_strings(tmp_path):
         "  type: file\n"
         "  kind: file\n"
         "  caps: '-'\n"
+        "  package: '-'\n"
         "  meta: {enabled: yes}\n"
         "/gone: null\n",
         encoding="utf-8",
@@ -744,13 +746,13 @@ def test_jsonl_load_tolerant_lines_pinned(tmp_path):
     path.write_bytes(
         b"\n"
         b'  {"path": "/a", "mode": "644", "owner": "-", "group": "-", '
-        b'"type": "file", "kind": "file", "caps": "-", "meta": {}}  \r\n'
+        b'"type": "file", "kind": "file", "caps": "-", "package": "-", "meta": {}}  \r\n'
         b"\t \r\n"
         b'{"path": "/a", "mode": "755", "owner": "-", "group": "-", '
-        b'"type": "file", "kind": "file", "caps": "-", "meta": {}}\r\n'
+        b'"type": "file", "kind": "file", "caps": "-", "package": "-", "meta": {}}\r\n'
         b'{"path": "/b", "_removed": true}\n'
         b'{"path": "/c", "mode": "600", "owner": "-", "group": "-", '
-        b'"type": "file", "kind": "file", "caps": "-", "meta": {}}'  # no final newline
+        b'"type": "file", "kind": "file", "caps": "-", "package": "-", "meta": {}}'  # no final newline
     )
     db = open_db(path, "jsonl").load()
     assert db["/a"]["mode"] == "755"  # duplicate path: last record wins
@@ -852,7 +854,7 @@ def _write_bad_field(tmp_path: Path, kind: str) -> Path:
         path = tmp_path / "f.jsonl"
         path.write_text(
             '{"path": "/a", "mode": "-", "owner": true, "group": "-", '
-            '"type": "file", "kind": "file", "caps": "-", "meta": {}}\n',
+            '"type": "file", "kind": "file", "caps": "-", "package": "-", "meta": {}}\n',
             encoding="utf-8",
         )
     elif kind == "non_octal_int":
@@ -862,7 +864,7 @@ def _write_bad_field(tmp_path: Path, kind: str) -> Path:
         path = tmp_path / "f.jsonl"
         path.write_text(
             '{"path": "/a", "mode": "-", "owner": "-", "group": "-", '
-            '"type": 5, "kind": "file", "caps": "-", "meta": {}}\n',
+            '"type": 5, "kind": "file", "caps": "-", "package": "-", "meta": {}}\n',
             encoding="utf-8",
         )
     else:  # record_list: a per-path YAML record that is a list, not a mapping
@@ -900,7 +902,7 @@ def test_bad_field_types_raise(tmp_path, kind):
 def test_flow_yaml_loads(tmp_path):
     path = tmp_path / "flow.yaml"
     path.write_text(
-        "{/usr/bin/x: {mode: '0755', owner: root, group: root, type: file, kind: file, caps: '-', "
+        "{/usr/bin/x: {mode: '0755', owner: root, group: root, type: file, kind: file, caps: '-', package: '-', "
         "meta: {}}}\n",
         encoding="utf-8",
     )
@@ -934,7 +936,7 @@ def test_append_to_flow_yaml_refused(tmp_path, make_entry, content):
 def test_compact_rewrites_flow_yaml_to_block(tmp_path, make_entry):
     path = tmp_path / "flow.yaml"
     path.write_text(
-        "{/usr/bin/x: {mode: '0755', owner: root, group: root, type: file, kind: file, caps: '-', "
+        "{/usr/bin/x: {mode: '0755', owner: root, group: root, type: file, kind: file, caps: '-', package: '-', "
         "meta: {}}}\n",
         encoding="utf-8",
     )
@@ -1023,7 +1025,7 @@ def test_compact_keeps_concurrent_append(tmp_path, monkeypatch, make_entry, fmt)
         f"p = open_db(pathlib.Path({str(db_path)!r}), {fmt!r})\n"
         f"pathlib.Path({str(ready)!r}).write_text('1')\n"
         "p.add('/usr/b', {'mode': '644', 'owner': '-', 'group': '-', "
-        "'type': 'file', 'kind': 'file', 'caps': '-', 'meta': {}})\n"
+        "'type': 'file', 'kind': 'file', 'caps': '-', 'package': '-', 'meta': {}})\n"
     )
     proc = subprocess.Popen(
         [sys.executable, "-c", script],
@@ -1064,7 +1066,7 @@ def test_db_imports_without_fcntl(tmp_path):
         "from pkgforge.db import JSONLinesDb\n"
         f"p = JSONLinesDb(pathlib.Path({str(db_path)!r}))\n"
         "p.init()\n"
-        "p.add('/a', {'mode': '644', 'owner': '-', 'group': '-', 'type': 'file', 'kind': 'file', 'caps': '-', 'meta': {}})\n"
+        "p.add('/a', {'mode': '644', 'owner': '-', 'group': '-', 'type': 'file', 'kind': 'file', 'caps': '-', 'package': '-', 'meta': {}})\n"
         "p.compact()\n"
         "assert JSONLinesDb(p.path).load()['/a']['mode'] == '644'\n"
         "print('OK')\n"

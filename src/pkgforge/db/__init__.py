@@ -176,11 +176,20 @@ def _format_hint(name: str) -> str:
     return f" (read as {name}; pass --db-format to choose another format)"
 
 
-_RECORD_FIELDS = ("mode", "owner", "group", "type", "kind", "caps", "meta")
+_RECORD_FIELDS = (
+    "mode",
+    "owner",
+    "group",
+    "type",
+    "kind",
+    "caps",
+    "package",
+    "meta",
+)
 _RECORD_TYPES = frozenset(("file", "directory", "symlink"))
 _RECORD_KINDS = frozenset(_KINDS)
-#: Ends the error for a record or table written before ``kind`` and ``caps``.
-_OLD_DB = "; this DB predates kind/caps: run initdb and record again"
+#: Ends the error for a record or table that lacks a field a later version added.
+_OLD_DB = "; this DB was written by an older pkgforge: run initdb and record again"
 
 
 def _record_ok(path: object, rec: object) -> bool:
@@ -195,12 +204,13 @@ def _record_ok(path: object, rec: object) -> bool:
         meta = rec["meta"]
         return (
             type(rec) is dict
-            and len(rec) == 7
+            and len(rec) == 8
             and path[:1] == "/"
             and type(rec["mode"]) is str
             and type(rec["owner"]) is str
             and type(rec["group"]) is str
             and type(rec["caps"]) is str
+            and type(rec["package"]) is str
             and rec["type"] in _RECORD_TYPES
             and rec["kind"] in _RECORD_KINDS
             and type(meta) is dict
@@ -220,8 +230,8 @@ def _check_record(
 
     ``path`` must be a ``str`` starting with ``/``. ``rec`` is ``None`` (a
     tombstone) or a ``dict`` with exactly ``mode``, ``owner``, ``group``,
-    ``type``, ``kind``, ``caps`` and ``meta``: ``mode``, ``owner``, ``group``
-    and ``caps`` ``str``, ``type`` one of ``file``, ``directory`` and
+    ``type``, ``kind``, ``caps``, ``package`` and ``meta``: ``mode``, ``owner``,
+    ``group``, ``caps`` and ``package`` ``str``, ``type`` one of ``file``, ``directory`` and
     ``symlink``, ``kind`` one of the :class:`~pkgforge.entry.FileKind` values,
     ``meta`` a ``dict`` of ``str`` to ``str``.
     Nothing is coerced and nothing is defaulted. ``where`` (a file, or
@@ -240,9 +250,9 @@ def _check_record(
         raise DbError(f"{where}: {path!r}: unknown field {', '.join(extra)}")
     for field in _RECORD_FIELDS:
         if field not in rec:
-            suffix = _OLD_DB if field in ("kind", "caps") else ""
+            suffix = _OLD_DB if field in ("kind", "caps", "package") else ""
             raise DbError(f"{where}: {path!r}: missing field {field}{suffix}")
-    for field in ("mode", "owner", "group", "caps"):
+    for field in ("mode", "owner", "group", "caps", "package"):
         if type(rec[field]) is not str:
             raise DbError(
                 f"{where}: {path!r}: {field} must be a string, got {rec[field]!r}"

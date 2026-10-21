@@ -21,6 +21,18 @@ project = Project.from_config("pkgforge.cfg", buildroot="build/root")
     options:
       show_root_heading: true
 
+::: pkgforge.config.SubPackageInfo
+    options:
+      show_root_heading: true
+
+::: pkgforge.config.RpmInfo
+    options:
+      show_root_heading: true
+
+::: pkgforge.config.DebianInfo
+    options:
+      show_root_heading: true
+
 ::: pkgforge.config.EntryDefaults
     options:
       show_root_heading: true

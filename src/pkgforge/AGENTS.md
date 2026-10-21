@@ -11,8 +11,8 @@ API. For the CLI overview see the shipped `README.md` or <https://github.com/jos
 `UnsupportedOutputError`, `UsageError`, `VerifyIssue`, `__version__`,
 `open_db`. `FileKind` and
 the entry functions (`apply_entry`, `entry_from_path`, `normalize_caps`,
-`normalize_kind`, `normalize_mode`, `normalize_name`, `resolve_entry`) are in
-`pkgforge.entry`. `import pkgforge`
+`normalize_kind`, `normalize_mode`, `normalize_name`, `normalize_package`,
+`resolve_entry`) are in `pkgforge.entry`. `import pkgforge`
 loads neither `duho`, `anycfg` nor `pkgforge.cli`; the project file is documented
 under [Configuration](#configuration-configpy) and the command line under
 [Command line](#command-line).
@@ -137,7 +137,9 @@ tool's last stderr line.
   `type`, `kind` (a `FileKind` value; `"-"` only before the entry is
   recorded), `caps` (one `setcap` clause such as `cap_net_bind_service=ep`, or
   `"-"` for none; recorded only, never applied while staging),
-  `meta: dict[str, str]`. A DB record has exactly these seven keys. A `FileEntry` value is a **plain dict** at
+  `package` (the package the entry ships in: the `[package]` name or a
+  `[[packages]]` name; `"-"` only when the configuration has no `[package]`),
+  `meta: dict[str, str]`. A DB record has exactly these eight keys. A `FileEntry` value is a **plain dict** at
   runtime (it is a `TypedDict`), so it carries no methods of its own; use the
   module functions below.
   - **`entry_from_path(path: Path, meta: Optional[dict[str, str]] = None) ->
@@ -183,6 +185,8 @@ tool's last stderr line.
   - **`normalize_caps(value: str) -> str`** — `-`/`""` are `DEFAULT`; otherwise
     one lowercase `setcap` clause without spaces (`cap_net_raw=ep`,
     `cap_net_raw,cap_net_admin+ep`), else `UsageError`.
+  - **`normalize_package(value: str) -> str`** — `-`/`""` are `DEFAULT`;
+    otherwise a package name (`[a-z0-9][a-z0-9+.-]+`), else `UsageError`.
   - **`check_meta(meta: Mapping[str, str]) -> None`** — raises `UsageError`
     for the key `rpmprefix`, which no dump reads: use `kind` or `caps`.
 - **`BASE_USERS`** / **`BASE_GROUPS`** — `frozenset[str]` of the account names
@@ -248,8 +252,8 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
 - **`compact() -> None`** — collapse the DB to one record per live path.
   `UsageError` when `db` is `None` or its file does not exist.
 - **`install(sources: Sequence[StrPath], dest: str, *, mode="-", owner="-",
-  group="-", type: FileType | None = None, kind="-", caps="-", meta: Mapping[str, str] | None = None,
-  into=True, parents=False, decompress: str | None = None, method="copy",
+  group="-", type: FileType | None = None, kind="-", caps="-", package="-",
+  meta: Mapping[str, str] | None = None, into=True, parents=False, decompress: str | None = None, method="copy",
   exclude: Sequence[str] = (), record=True, record_tree=False, chown=False,
   remove_source=False) -> FileRecords`** — stage each source under the build
   root at `dest` and record it; the `pkgforge install` command's behaviour.
@@ -264,7 +268,10 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   the default) or `"--"` (read it from the staged file). `kind` is a `FileKind`
   value and `caps` a `setcap` clause; `"-"` takes the first matching rule's,
   else `file` and none, and a kind or caps that does not fit the type is
-  `UsageError` before anything is staged. `decompress` is a kind
+  `UsageError` before anything is staged. `package` is the `[package]` name or
+  a `[[packages]]` name; `"-"` takes the first matching rule's, else the
+  `[package]` name (`"-"` with none), and a name the configuration does not
+  declare is `UsageError` before anything is staged. `decompress` is a kind
   (`gz`, `xz`, `bz2`, `zst`, `lzma`), `"auto"` (infer it from the source
   suffix) or `None`. `method` is `copy`, `link` or `move` (`UsageError`
   otherwise). `exclude` statements follow the exclude grammar below; an
@@ -276,14 +283,14 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   Returns what was written, in write order. Raises `UsageError`,
   `PkgForgeError` and `OSError` exactly where the command exits 2 or 1.
 - **`mkdir(paths: Sequence[str], *, mode="-", owner="-", group="-", kind="-",
-  meta: Mapping[str, str] | None = None, parents=False) -> FileRecords`** — record
+  package="-", meta: Mapping[str, str] | None = None, parents=False) -> FileRecords`** — record
   each path as a directory and create it under the build root, in order, with
   no source: one `install([""], path, type=FileType.Directory, into=False)`
   each. Running it again changes nothing. `paths` is a sequence (a bare `str`
   is `TypeError`); a missing parent is `UsageError` unless `parents=True`.
   Logs under `pkgforge.mkdir`.
 - **`symlink(target: str, link: str, *, owner="-", group="-", kind="-",
-  meta: Mapping[str, str] | None = None, parents=False) -> FileRecords`** — record
+  package="-", meta: Mapping[str, str] | None = None, parents=False) -> FileRecords`** — record
   `link` as a symbolic link to `target` and create it. `target` is stored as
   written in `meta["target"]` (relative or absolute, and it may name nothing);
   an empty `target`, or a `meta` that already holds `target`, is `UsageError`.
@@ -292,7 +299,7 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   order, with missing parents created: `src` + `dest` is `install([src], dest,
   ...)` with the step's `type`, `into`, `decompress`, `method`, `exclude` and
   `record_tree`; `dir` is `mkdir`, `file` an empty file, `symlink` + `target` is
-  `symlink`; a step's `mode`/`owner`/`group`/`kind`/`caps`/`meta` are the call's. A step's
+  `symlink`; a step's `mode`/`owner`/`group`/`kind`/`caps`/`package`/`meta` are the call's. A step's
   `exclude` is relative to its source, as `install`'s. Every `src` must exist
   before the first step runs (`UsageError: [[stage]] #N: source PATH does not
   exist`), and no steps is `UsageError`. `init=True` first resets the file DB
@@ -323,11 +330,12 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   else `"-"`); a symlink's mode is always `"-"`. `drop_stale=True` needs a file
   DB (`UsageError`).
 - **Record-time resolution** — every entry `install` and `scan` write (and
-  `install --record-tree` children) has its `mode`, `owner`, `group`, `kind` and
-  `caps` that were left at `"-"` filled in, a value or flag never changed: first
-  from the first `[[rules]]` element whose `match` fits the DB path (only the
-  fields that rule sets), then (mode, owner, group) from `[defaults]`, else
-  they stay `"-"` (`kind` becomes `file`; `-k`/`--caps` apply to the installed
+  `install --record-tree` children) has its `mode`, `owner`, `group`, `kind`,
+  `caps` and `package` that were left at `"-"` filled in, a value or flag never
+  changed: first from the first `[[rules]]` element whose `match` fits the DB
+  path (only the fields that rule sets), then (mode, owner, group) from
+  `[defaults]`, else they stay `"-"` (`kind` becomes `file` and `package` the
+  `[package]` name; `-k`/`--caps`/`-P` apply to the installed
   entry only, never to `--record-tree` children or owned parents; a
   `--record-tree` child's mode is then read from disk). A symlink never gets a
   mode. `install` without `-m` also chmods the staged file to the mode it
@@ -408,12 +416,13 @@ Tables, all optional (`ProjectConfig` fields in this order):
 | --- | --- | --- |
 | `buildroot`, `db`, `db_format` | text | the options of the same name; `db = "-"` means no file DB |
 | `own` | list of text | `/`-rooted directory prefixes the package owns (no `..`, not `/`; stored normalized) |
-| `[package]` | `PackageInfo` | `name` (required), `version`, `release`, `arch`, `summary`, `license`, `maintainer`, `description`, `depends` (list); values to name once and reuse as `${package.KEY}` |
+| `[package]` | `PackageInfo` | the main (and source) package: `name` (required, `[a-z0-9][a-z0-9+.-]+`), `version` (`[0-9][A-Za-z0-9.+~]*`), `release` (`[A-Za-z0-9.+~]+`), `arch` (`all` or `any`), `summary`, `license`, `homepage` (one line each), `maintainer` (`Name <address>`), `description` (no control character but newline), and the sub-tables `[package.rpm]` (`RpmInfo`: `requires`, a list) and `[package.debian]` (`DebianInfo`: `depends`, a list of items without `,`; `section`, lowercase; `priority`, one of `required`, `important`, `standard`, `optional`, `extra`); values to name once and reuse as `${package.KEY}` |
+| `[[packages]]` | `SubPackageInfo` | a subpackage: `name` (required, the full package name such as `hello-doc`, unique and not the `[package]` name; needs `[package]`), `summary`, `description`, `arch` (unset: the main's), `rpm`, `debian` as in `[package]` |
 | `[defaults]` | `EntryDefaults` | `owner`, `group`, `file_mode`, `exec_mode`, `dir_mode` |
-| `[[rules]]` | `EntryRule` | `match` (non-empty list of `-X` statements), `mode`, `owner`, `group`, `kind`, `caps` |
+| `[[rules]]` | `EntryRule` | `match` (non-empty list of `-X` statements), `mode`, `owner`, `group`, `kind`, `caps`, `package` (the `[package]` name or a `[[packages]]` name) |
 | `[[users]]` | `UserAccount` | `name` (required), `description`, `home`, `shell` (absolute, no whitespace or `\`), `groups` (list of supplementary groups), `create` (boolean, default `true`; `false` takes `name` only) |
 | `[[groups]]` | `GroupAccount` | `name` (required), `create` (boolean, default `true`) |
-| `[[stage]]` | `StageStep` | `src` + `dest`, or `dir`, or `file`, or `symlink` + `target`; `mode`, `owner`, `group`, `kind`, `meta` (table); `caps` with `src` or `file` only; with `src` only: `type`, `into`, `decompress`, `method`, `exclude`, `record_tree` (the `install` options) |
+| `[[stage]]` | `StageStep` | `src` + `dest`, or `dir`, or `file`, or `symlink` + `target`; `mode`, `owner`, `group`, `kind`, `package`, `meta` (table); `caps` with `src` or `file` only; with `src` only: `type`, `into`, `decompress`, `method`, `exclude`, `record_tree` (the `install` options) |
 
 A mode is 1-4 octal digits and an owner or group an account name (`-`, `--` and
 `auto` are refused: a file states values). A `[[stage]]` step names exactly one of
@@ -826,7 +835,8 @@ there with a `UsageError`. See [Environment variables](#environment-variables).
 
 - **`pkgforge install SOURCE... DESTINATION`** — maps the command line onto `Project.install`
   (`-k/--kind` one of `file`, `config`, `config-noreplace`, `doc`, `license`,
-  `ghost`; `--caps` one `setcap` clause); the
+  `ghost`; `--caps` one `setcap` clause; `-P/--package` the `[package]` name or a
+  `[[packages]]` name, also on `mkdir` and `symlink`); the
   staging lives in the private `pkgforge._install` package (the per-source
   worker, the `-x` kind table, the tar-family/bsdtar extraction policy, the
   staging mixins and the `--record-tree` walk on the shared

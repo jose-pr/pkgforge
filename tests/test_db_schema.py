@@ -21,6 +21,7 @@ def _record(**over):
         "type": "file",
         "kind": "file",
         "caps": "-",
+        "package": "-",
         "meta": {},
     }
     rec.update(over)
@@ -81,29 +82,32 @@ _JSONL = '{"path": "/a", "mode": "644", "owner": "-", "group": "-", %s}'
     [
         (
             '{"path": 5, "mode": "644", "owner": "-", "group": "-", '
-            '"type": "file", "kind": "file", "caps": "-", "meta": {}}',
+            '"type": "file", "kind": "file", "caps": "-", "package": "-", "meta": {}}',
             "path must be a string",
         ),
         (
             '{"path": null, "mode": "644", "owner": "-", "group": "-", '
-            '"type": "file", "kind": "file", "caps": "-", "meta": {}}',
+            '"type": "file", "kind": "file", "caps": "-", "package": "-", "meta": {}}',
             "path must be a string",
         ),
         (
-            _JSONL % '"type": "file", "kind": "file", "caps": "-", "meta": "x"',
+            _JSONL
+            % '"type": "file", "kind": "file", "caps": "-", "package": "-", "meta": "x"',
             "meta must map",
         ),
         (
-            _JSONL % '"type": "bogus", "kind": "file", "caps": "-", "meta": {}',
+            _JSONL
+            % '"type": "bogus", "kind": "file", "caps": "-", "package": "-", "meta": {}',
             "type must be one of",
         ),
         (
-            _JSONL % '"type": null, "kind": "file", "caps": "-", "meta": {}',
+            _JSONL
+            % '"type": null, "kind": "file", "caps": "-", "package": "-", "meta": {}',
             "type must be one of",
         ),
         (
             '{"path": "/a", "mode": 755, "owner": "-", "group": "-", '
-            '"type": "file", "kind": "file", "caps": "-", "meta": {}}',
+            '"type": "file", "kind": "file", "caps": "-", "package": "-", "meta": {}}',
             "mode must be a string",
         ),
         ('{"path": "/a", "_removed": false}', "a removal is exactly"),
@@ -121,7 +125,7 @@ def test_jsonl_load_rejects_schema_violations(tmp_path, line, message):
 def test_yaml_load_rejects_schema_violations(tmp_path):
     path = tmp_path / "f.yaml"
     path.write_text(
-        "/a: {mode: '644', owner: '-', group: '-', type: bogus, kind: file, caps: '-', meta: {}}\n"
+        "/a: {mode: '644', owner: '-', group: '-', type: bogus, kind: file, caps: '-', package: '-', meta: {}}\n"
     )
     with pytest.raises(DbError, match="'/a': type must be one of"):
         open_db(path, "yaml").load()
@@ -134,7 +138,7 @@ def _sqlite_rows(path, *rows):
     conn = sqlite3.connect(str(path))
     conn.execute(SQLiteDb._SCHEMA)
     for row in rows:
-        conn.execute("INSERT INTO entries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", row)
+        conn.execute("INSERT INTO entries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", row)
     conn.commit()
     conn.close()
 
@@ -142,18 +146,30 @@ def _sqlite_rows(path, *rows):
 @pytest.mark.parametrize(
     "row,message",
     [
-        (("/a", None, "-", "-", "file", "file", "-", "{}", 0), "mode must be a string"),
-        (("/a", "644", "-", "-", None, "file", "-", "{}", 0), "type must be one of"),
         (
-            ("/a", "644", "-", "-", "file", "file", "-", None, 0),
+            ("/a", None, "-", "-", "file", "file", "-", "-", "{}", 0),
+            "mode must be a string",
+        ),
+        (
+            ("/a", "644", "-", "-", None, "file", "-", "-", "{}", 0),
+            "type must be one of",
+        ),
+        (
+            ("/a", "644", "-", "-", "file", "file", "-", "-", None, 0),
             "meta must map strings",
         ),
         (
-            ("/a", "644", "-", "-", "file", "file", "-", '{"k": 1}', 0),
+            ("/a", "644", "-", "-", "file", "file", "-", "-", '{"k": 1}', 0),
             "meta must map strings",
         ),
-        (("/a", "644", "-", "-", "file", "file", "-", "{bad", 0), "invalid meta_json"),
-        (("rel", None, None, None, None, None, None, None, 1), "path must be a string"),
+        (
+            ("/a", "644", "-", "-", "file", "file", "-", "-", "{bad", 0),
+            "invalid meta_json",
+        ),
+        (
+            ("rel", None, None, None, None, None, None, None, None, 1),
+            "path must be a string",
+        ),
     ],
 )
 def test_sqlite_load_rejects_schema_violations(tmp_path, row, message):
@@ -166,7 +182,7 @@ def test_sqlite_load_rejects_schema_violations(tmp_path, row, message):
 
 def test_sqlite_removed_row_loads_as_tombstone(tmp_path):
     path = tmp_path / "f.db"
-    _sqlite_rows(path, ("/gone", None, None, None, None, None, None, None, 1))
+    _sqlite_rows(path, ("/gone", None, None, None, None, None, None, None, None, 1))
     assert open_db(path, "sqlite").load() == {"/gone": None}
 
 
@@ -195,7 +211,7 @@ def test_a_literal_u2028_in_a_json_string_is_one_record(tmp_path, make_entry):
     path = tmp_path / "f.jsonl"
     path.write_text(
         '{"path": "/a b", "mode": "644", "owner": "-", "group": "-", '
-        '"type": "file", "kind": "file", "caps": "-", "meta": {}}\n',
+        '"type": "file", "kind": "file", "caps": "-", "package": "-", "meta": {}}\n',
         encoding="utf-8",
     )
     assert list(open_db(path, "jsonl").load()) == ["/a b"]

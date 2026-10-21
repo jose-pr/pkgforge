@@ -60,6 +60,7 @@ def test_apply_entry_skips_chmod_on_symlink(tmp_path):
         "type": "symlink",
         "kind": "file",
         "caps": "-",
+        "package": "-",
         "meta": {},
     }
     apply_entry(entry, link)
@@ -91,6 +92,7 @@ def test_apply_entry_chmod_without_nofollow_support(tmp_path, monkeypatch):
         "type": "file",
         "kind": "file",
         "caps": "-",
+        "package": "-",
         "meta": {},
     }
     apply_entry(entry, f)
@@ -150,6 +152,7 @@ def test_apply_entry_auto_mode_on_symlink(tmp_path):
         "type": AUTO,
         "kind": "file",
         "caps": "-",
+        "package": "-",
         "meta": {},
     }
     resolved = resolve_entry(entry, link)
@@ -179,6 +182,7 @@ def test_apply_entry_chown_keeps_special_bits(tmp_path, requested_mode, expected
         "type": "file",
         "kind": "file",
         "caps": "-",
+        "package": "-",
         "meta": {},
     }
     apply_entry(entry, f, chown=True)
@@ -201,6 +205,7 @@ def test_apply_entry_chown_default_mode_keeps_setuid(tmp_path):
         "type": "file",
         "kind": "file",
         "caps": "-",
+        "package": "-",
         "meta": {},
     }
     apply_entry(entry, f, chown=True)
@@ -221,6 +226,7 @@ def test_apply_entry_empty_owner_is_default(tmp_path):
         "type": "file",
         "kind": "file",
         "caps": "-",
+        "package": "-",
         "meta": {},
     }
     apply_entry(entry, f, chown=True)  # must not raise (no getpwnam("") lookup)
@@ -237,6 +243,7 @@ def test_apply_entry_rejects_unresolved_auto_mode(tmp_path):
         "type": "file",
         "kind": "file",
         "caps": "-",
+        "package": "-",
         "meta": {},
     }
     with pytest.raises(UsageError, match="unresolved"):

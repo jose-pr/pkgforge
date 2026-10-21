@@ -407,6 +407,7 @@ def test_rpmbuild_packages_pinned_attrs_config_and_symlink(tmp_path, cli):
                     "type": "symlink",
                     "kind": "file",
                     "caps": "-",
+                    "package": "-",
                     "meta": {},
                 }
             )

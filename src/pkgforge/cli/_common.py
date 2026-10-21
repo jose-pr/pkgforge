@@ -22,6 +22,7 @@ from ..entry import (
     normalize_caps,
     normalize_mode,
     normalize_name,
+    normalize_package,
 )
 from ..exceptions import ExcludeSyntaxError, UsageError
 from ..exclude import PathMatchStmt
@@ -135,6 +136,15 @@ def _parse_caps(text: str) -> str:
         raise argparse.ArgumentTypeError(str(exc)) from None
 
 
+def _parse_package(text: str) -> str:
+    """The ``type=`` converter of ``--package``: a bad name exits 2 before
+    anything is staged."""
+    try:
+        return normalize_package(text)
+    except UsageError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from None
+
+
 def _own(text: str) -> str:
     """The ``type=`` converter of ``--own``: a bad prefix exits 2; the
     normalized prefix is returned."""
@@ -219,6 +229,17 @@ class KindArgs(Cmd):
         "license or ghost ('-': a matching rule's kind, else file)"
     )
     ("--kind", "-k")
+
+
+class PackageArgs(Cmd):
+    """``--package``/``-P``: the commands that record an entry for a package."""
+
+    package: duho.Arg[str, duho.Meta(type=_parse_package)] = DEFAULT
+    (
+        "the package the entry ships in: the [package] name or a [[packages]] "
+        "name ('-': a matching rule's package, else the main package)"
+    )
+    ("--package", "-P")
 
 
 class ExcludeArgs(Cmd):

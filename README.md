@@ -208,7 +208,8 @@ set -e
 Each entry records `mode` (octal string, e.g. `644`), `owner`, `group`, `type`
 (`file`/`directory`/`symlink`), `kind` (how packaging treats it: `file`,
 `config`, `config-noreplace`, `doc`, `license` or `ghost`; `-k`), `caps` (file
-capabilities for the package to set on install; `--caps`) and a `meta` map. Two sentinels defer a field to
+capabilities for the package to set on install; `--caps`), `package` (the
+package it ships in; `-P`) and a `meta` map. Two sentinels defer a field to
 the staged file: `-` ("leave at OS default") and `--` ("resolve from disk",
 also spelled `auto` for `-m`). `-m` accepts only 1-4 octal digits or a
 sentinel and is validated before anything is staged.

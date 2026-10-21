@@ -185,6 +185,7 @@ def make_entry():
             "type": type,
             "kind": "file",
             "caps": "-",
+            "package": "-",
             "meta": meta or {},
         }
         entry.update(over)

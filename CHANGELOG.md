@@ -7,6 +7,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- An entry records the `package` it ships in. `install`, `mkdir` and `symlink`
+  take `-P/--package NAME` (`package=` of `Project.install`, `mkdir` and
+  `symlink`), `package` in `[[rules]]` and in every `[[stage]]` step names it for
+  the entries they match, and an entry left unset takes the `[package]` name. A
+  name the configuration does not declare exits 2 before anything is staged.
+  `pkgforge.entry.normalize_package` checks a name.
+- `[[packages]]` declares the subpackages built from the same source
+  (`SubPackageInfo`, `ProjectConfig.packages`): `name`, `summary`, `description`,
+  `arch`, `rpm` and `debian`.
+- `[package]` takes `homepage`, `[package.rpm]` (`RpmInfo`: `requires`) and
+  `[package.debian]` (`DebianInfo`: `depends`, `section`, `priority`).
 - `pkgforge verify [-X STMT]... [-f text|json]` (and `Project.verify`, returning
   `VerifyIssue` tuples) checks the build root against the file DB before
   `rpmbuild` or `dh_missing` runs: a file or symlink no entry records
@@ -105,6 +116,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `postrm` removes on purge.
 
 ### Changed
+- A file DB record carries a `package` key, and the `sqlite` table a `package`
+  column. A DB written before fails to load with an error ending `this DB was
+  written by an older pkgforge: run initdb and record again`: run `pkgforge
+  initdb` and stage again.
+- `[package] name` and the `[[packages]]` names must be lowercase package names
+  (`[a-z0-9][a-z0-9+.-]+`), and `version`, `release`, `arch` (`all` or `any`)
+  and `maintainer` (`Name <address>`) are checked when the file is read.
 - `dbdump -f debian` leaves an entry owned by an account the package creates out
   of `fixperms`; `postinst` applies it instead. Such a symlink, or an entry with
   no recorded mode, is an error. A directory OUTPUT whose `postrm` was not
@@ -253,6 +271,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   generated lines.
 
 ### Removed
+- `[package] depends`: write `requires` under `[package.rpm]` and `depends`
+  under `[package.debian]`.
 - `examples/stage.sh`: the example package stages from `examples/pkgforge.cfg`
   with `pkgforge stage`.
 - `DbProvider.lookup(name)` and `DumpFormat.lookup(name)`: call `get(name)`.

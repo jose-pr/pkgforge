@@ -94,6 +94,7 @@ def _seed_tool_entry(db):
             "type": "file",
             "kind": "file",
             "caps": "-",
+            "package": "-",
             "meta": {},
         },
     )
@@ -189,6 +190,7 @@ def test_dbdump_closed_pipe_is_quiet(tmp_path):
                 "type": "file",
                 "kind": "file",
                 "caps": "-",
+                "package": "-",
                 "meta": {},
             },
         )
@@ -307,6 +309,7 @@ def test_dbdump_unrepresentable_exits_1_without_output(tmp_path, cli, row, ident
             "type": "file",
             "kind": "file",
             "caps": "-",
+            "package": "-",
             "meta": {},
         },
     )
@@ -439,6 +442,7 @@ def test_dbdump_hand_edited_yaml_mode(tmp_path, cli):
         "  type: file\n"
         "  kind: file\n"
         "  caps: '-'\n"
+        "  package: '-'\n"
         "  meta: {}\n",
         encoding="utf-8",
     )
@@ -525,6 +529,7 @@ def test_initdb_creates_parent_and_truncates(tmp_path, cli, ext):
             "type": "file",
             "kind": "file",
             "caps": "-",
+            "package": "-",
             "meta": {},
         },
     )
@@ -753,6 +758,7 @@ def test_scan_missing_keeps_existing_entries(tmp_path, cli):
             "type": "file",
             "kind": "file",
             "caps": "-",
+            "package": "-",
             "meta": {},
         },
     )

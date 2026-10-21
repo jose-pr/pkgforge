@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from ._common import KindArgs, OwnershipArgs, ProjectCmd
+from ._common import KindArgs, OwnershipArgs, PackageArgs, ProjectCmd
 
 __all__ = ["Symlink"]
 
 
-class Symlink(OwnershipArgs, KindArgs, ProjectCmd):
+class Symlink(OwnershipArgs, KindArgs, PackageArgs, ProjectCmd):
     """Create a symbolic link under the build root and record its entry.
 
     The target is stored as written and may name nothing. A symlink has no mode.
@@ -33,6 +33,7 @@ class Symlink(OwnershipArgs, KindArgs, ProjectCmd):
             owner=self.owner,
             group=self.group,
             kind=self.kind,
+            package=self.package,
             meta=self.meta,
             parents=self.parents,
         )

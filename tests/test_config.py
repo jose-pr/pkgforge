@@ -14,7 +14,9 @@ from pkgforge.config import (
     EntryDefaults,
     EntryRule,
     GroupAccount,
+    DebianInfo,
     PackageInfo,
+    RpmInfo,
     ProjectConfig,
     StageStep,
     UserAccount,
@@ -34,12 +36,18 @@ own = ["/opt/${package.name}", "/usr/share//doc/"]
 name = "hello"
 version = "1.2"
 release = "3"
-arch = "noarch"
+arch = "all"
 summary = "Say hello"
 license = "MIT"
 maintainer = "Someone <s@example.org>"
 description = "The ${package.name} program."
-depends = ["glibc", "bash"]
+
+[package.rpm]
+requires = ["glibc", "bash"]
+
+[package.debian]
+depends = ["libc6", "bash"]
+section = "utils"
 
 [defaults]
 owner = "root"
@@ -117,12 +125,13 @@ def test_full_document_loads_into_the_dataclasses(tmp_path):
             name="hello",
             version="1.2",
             release="3",
-            arch="noarch",
+            arch="all",
             summary="Say hello",
             license="MIT",
             maintainer="Someone <s@example.org>",
             description="The hello program.",
-            depends=("glibc", "bash"),
+            rpm=RpmInfo(requires=("glibc", "bash")),
+            debian=DebianInfo(depends=("libc6", "bash"), section="utils"),
         ),
         defaults=EntryDefaults(
             owner="root",
@@ -201,17 +210,17 @@ def test_configured_values_reach_a_yaml_db(tmp_path, yaml_module):
     (tmp_path / "a").write_bytes(b"a")
     cfg = write(
         tmp_path,
-        'own = ["/opt/p"]\n[package]\nname = "p"\n[[users]]\nname = "p"\n'
+        'own = ["/opt/pk"]\n[package]\nname = "pk"\n[[users]]\nname = "pk"\n'
         '[defaults]\nowner = "root"\ngroup = "${package.name}"\n'
-        '[[stage]]\nsrc = "a"\ndest = "/opt/p"\nkind = "doc"\n',
+        '[[stage]]\nsrc = "a"\ndest = "/opt/pk"\nkind = "doc"\n',
     )
     project = Project.from_config(
         cfg, buildroot=tmp_path / "root", db=tmp_path / "f.yaml"
     )
     project.stage()
     live = project.load()
-    assert live["/opt/p"]["group"] == "p"
-    assert live["/opt/p/a"]["kind"] == "doc"
+    assert live["/opt/pk"]["group"] == "pk"
+    assert live["/opt/pk/a"]["kind"] == "doc"
 
 
 def _include_cfg(tmp_path: Path) -> Path:

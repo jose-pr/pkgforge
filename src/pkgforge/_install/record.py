@@ -37,8 +37,8 @@ class _RecordTree:
         # disk (the fallback) -- DESTINATION's own `-m` never inherits down,
         # and there is no per-child `--dir-mode` equivalent.
         # owner/group/meta are this install's own -o/-g/-O, `--` resolved per
-        # child from disk the same as -m/-o/-g always resolve AUTO. kind and
-        # caps come from rules only, never from this install's -k/--caps.
+        # child from disk the same as -m/-o/-g always resolve AUTO. kind, caps
+        # and package come from rules only, never from this install's flags.
         base: FileEntry = {
             "mode": DEFAULT,
             "owner": _normalize_field(self.owner),
@@ -46,6 +46,7 @@ class _RecordTree:
             "type": AUTO,
             "kind": DEFAULT,
             "caps": DEFAULT,
+            "package": DEFAULT,
             "meta": dict(self.meta),
         }
         bases = {

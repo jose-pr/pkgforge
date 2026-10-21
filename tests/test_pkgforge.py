@@ -155,6 +155,7 @@ def test_resolve_for_fills_auto_from_disk(tmp_path):
         "type": AUTO,
         "kind": "file",
         "caps": "-",
+        "package": "-",
         "meta": {},
     }
     resolved = resolve_entry(base, f)
@@ -175,6 +176,7 @@ def test_apply_sets_mode(tmp_path):
         "type": FileType.File,
         "kind": "file",
         "caps": "-",
+        "package": "-",
         "meta": {},
     }
     apply_entry(entry, f)
@@ -662,6 +664,7 @@ def test_rpmspecfile_render():
             "type": "file",
             "kind": "file",
             "caps": "-",
+            "package": "-",
             "meta": {},
         },
     )
@@ -680,6 +683,7 @@ def test_rpmspecfile_dir_prefix():
             "type": "directory",
             "kind": "file",
             "caps": "-",
+            "package": "-",
             "meta": {},
         },
     )
@@ -698,6 +702,7 @@ def test_rpmspecfile_kind_prefix():
             "type": "file",
             "kind": "config-noreplace",
             "caps": "-",
+            "package": "-",
             "meta": {},
         },
     )
@@ -718,6 +723,7 @@ def test_dbdump_writes_manifest(tmp_path, yaml_module):
                     "type": "file",
                     "kind": "file",
                     "caps": "-",
+                    "package": "-",
                     "meta": {},
                 },
                 "/removed": None,

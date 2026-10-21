@@ -31,17 +31,21 @@ from .entry import (
     normalize_kind,
     normalize_mode,
     normalize_name,
+    normalize_package,
 )
 from .exceptions import ExcludeSyntaxError, UsageError
 from .exclude import PathMatchStmt
 
 __all__ = [
     "EntryDefaults",
+    "DebianInfo",
     "EntryRule",
     "GroupAccount",
     "PackageInfo",
     "ProjectConfig",
+    "RpmInfo",
     "StageStep",
+    "SubPackageInfo",
     "UserAccount",
     "load",
 ]
@@ -141,10 +145,114 @@ def _set(obj: object, name: str, value: object) -> None:
     object.__setattr__(obj, name, value)
 
 
+def _package(value: typing.Optional[str]) -> typing.Optional[str]:
+    """``value`` as a package name; ``-`` is refused as for :func:`_mode`."""
+    if value is None:
+        return None
+    try:
+        name = normalize_package(value)
+    except UsageError as exc:
+        raise UsageError(f"package: {exc}") from None
+    if name == DEFAULT:
+        raise UsageError(f"package: invalid package {value!r}: expected a package name")
+    return name
+
+
+_PACKAGE_NAME = re.compile(r"[a-z0-9][a-z0-9+.-]+")
+_VERSION = re.compile(r"[0-9][A-Za-z0-9.+~]*")
+_RELEASE = re.compile(r"[A-Za-z0-9.+~]+")
+_MAINTAINER = re.compile(r"[^<>,\x00-\x1f\x7f]+ <[^<>\s]+@[^<>\s]+>")
+_SECTION = re.compile(r"[a-z0-9][a-z0-9/+.-]*")
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+_DESCRIPTION_CONTROL = re.compile(r"[\x00-\x09\x0b-\x1f\x7f]")
+_PRIORITIES = ("required", "important", "standard", "optional", "extra")
+
+
+def _matches(
+    value: typing.Optional[str],
+    field_name: str,
+    pattern: "re.Pattern[str]",
+    expected: str,
+) -> None:
+    """Raise unless ``value`` is ``None`` or fully matches ``pattern``."""
+    if value is not None and not pattern.fullmatch(value):
+        raise UsageError(f"{field_name}: {value!r} is not {expected}")
+
+
+def _one_line(value: typing.Optional[str], field_name: str) -> None:
+    """Raise if ``value`` holds a control character, a newline included."""
+    if value is not None and _CONTROL.search(value):
+        raise UsageError(f"{field_name}: must be one line with no control character")
+
+
+def _items(
+    values: typing.Iterable[str], field_name: str, comma: bool = True
+) -> typing.Tuple[str, ...]:
+    """``values`` unchanged when each item is non-empty, one line and, unless
+    ``comma``, free of ``,``."""
+    out = tuple(values)
+    for item in out:
+        if not item:
+            raise UsageError(f"{field_name}: an item must not be empty")
+        _one_line(item, field_name)
+        if not comma and "," in item:
+            raise UsageError(f"{field_name}: {item!r} must not contain ','")
+    return out
+
+
+def _description(value: typing.Optional[str]) -> None:
+    """Raise if ``value`` holds a control character other than newline."""
+    if value is not None and _DESCRIPTION_CONTROL.search(value):
+        raise UsageError("description: must hold no control character but newline")
+
+
+def _arch(value: typing.Optional[str]) -> None:
+    """Raise unless ``value`` is ``None``, ``all`` or ``any``."""
+    if value is not None and value not in ("all", "any"):
+        raise UsageError(f"arch: {value!r} is not 'all' or 'any'")
+
+
+def _package_name(value: str) -> None:
+    _matches(value, "name", _PACKAGE_NAME, "a package name ([a-z0-9][a-z0-9+.-]+)")
+
+
+@dataclass(frozen=True)
+class RpmInfo:
+    """The ``rpm`` table of a package: facts for the RPM format only.
+    ``requires`` lists one ``Requires:`` item each."""
+
+    requires: typing.Tuple[_Text, ...] = ()
+
+    def __post_init__(self) -> None:
+        _set(self, "requires", _items(self.requires, "requires"))
+
+
+@dataclass(frozen=True)
+class DebianInfo:
+    """The ``debian`` table of a package: facts for the Debian format only.
+    ``depends`` lists one dependency each (no ``,``); ``section`` and
+    ``priority`` are control fields."""
+
+    depends: typing.Tuple[_Text, ...] = ()
+    section: typing.Optional[_Text] = None
+    priority: typing.Optional[_Text] = None
+
+    def __post_init__(self) -> None:
+        _set(self, "depends", _items(self.depends, "depends", comma=False))
+        _matches(self.section, "section", _SECTION, "a section name")
+        if self.priority is not None and self.priority not in _PRIORITIES:
+            raise UsageError(
+                f"priority: {self.priority!r} is not one of {', '.join(_PRIORITIES)}"
+            )
+
+
 @dataclass(frozen=True)
 class PackageInfo:
-    """The ``[package]`` table: facts about the package that other values can
-    name once with ``${package.name}``. ``name`` is required."""
+    """The ``[package]`` table: the main (and source) package, whose facts other
+    values can name once with ``${package.KEY}``. ``name`` is required and a
+    package name (``[a-z0-9][a-z0-9+.-]+``); ``arch`` is ``all`` or ``any``;
+    ``maintainer`` reads ``Name <address>``. ``rpm`` and ``debian`` hold the
+    facts only that format uses."""
 
     name: _Text
     version: typing.Optional[_Text] = None
@@ -154,7 +262,39 @@ class PackageInfo:
     license: typing.Optional[_Text] = None
     maintainer: typing.Optional[_Text] = None
     description: typing.Optional[_Text] = None
-    depends: typing.Tuple[_Text, ...] = ()
+    homepage: typing.Optional[_Text] = None
+    rpm: RpmInfo = field(default_factory=RpmInfo)
+    debian: DebianInfo = field(default_factory=DebianInfo)
+
+    def __post_init__(self) -> None:
+        _package_name(self.name)
+        _matches(self.version, "version", _VERSION, "a version ([0-9][A-Za-z0-9.+~]*)")
+        _matches(self.release, "release", _RELEASE, "a release ([A-Za-z0-9.+~]+)")
+        _arch(self.arch)
+        _matches(self.maintainer, "maintainer", _MAINTAINER, "'Name <address>'")
+        for name in ("summary", "license", "homepage"):
+            _one_line(getattr(self, name), name)
+        _description(self.description)
+
+
+@dataclass(frozen=True)
+class SubPackageInfo:
+    """One ``[[packages]]`` element: a subpackage built from the same source.
+    ``name`` is its full package name (``hello-doc``); the other keys are as in
+    :class:`PackageInfo`, and an unset ``arch`` is the main package's."""
+
+    name: _Text
+    summary: typing.Optional[_Text] = None
+    description: typing.Optional[_Text] = None
+    arch: typing.Optional[_Text] = None
+    rpm: RpmInfo = field(default_factory=RpmInfo)
+    debian: DebianInfo = field(default_factory=DebianInfo)
+
+    def __post_init__(self) -> None:
+        _package_name(self.name)
+        _one_line(self.summary, "summary")
+        _description(self.description)
+        _arch(self.arch)
 
 
 @dataclass(frozen=True)
@@ -179,8 +319,8 @@ class EntryDefaults:
 
 @dataclass(frozen=True)
 class EntryRule:
-    """One ``[[rules]]`` element: ``mode``, ``owner``, ``group``, ``kind`` and
-    ``caps`` for the entries whose DB path matches a ``match`` statement (the
+    """One ``[[rules]]`` element: ``mode``, ``owner``, ``group``, ``kind``,
+    ``caps`` and ``package`` for the entries whose DB path matches a ``match`` statement (the
     ``-X`` grammar). ``match`` is not empty. A ``kind`` other than ``file`` or
     ``ghost`` fits regular files only, so such a rule's ``match`` should say
     ``(?type:file)``."""
@@ -191,6 +331,7 @@ class EntryRule:
     group: typing.Optional[_Text] = None
     kind: typing.Optional[_Text] = None
     caps: typing.Optional[_Text] = None
+    package: typing.Optional[_Text] = None
 
     def __post_init__(self) -> None:
         if not self.match:
@@ -201,14 +342,15 @@ class EntryRule:
         _set(self, "group", _name(self.group, "group"))
         _set(self, "kind", _kind(self.kind))
         _set(self, "caps", _caps(self.caps))
+        _set(self, "package", _package(self.package))
 
 
 @dataclass(frozen=True)
 class StageStep:
     """One ``[[stage]]`` element: a step that stages one thing into the build
     root. Exactly one of ``src`` (install a source at ``dest``), ``dir``,
-    ``file`` or ``symlink`` (with ``target``) names it. ``kind`` applies to
-    every step, ``caps`` to ``src`` and ``file`` steps; ``type``, ``into``,
+    ``file`` or ``symlink`` (with ``target``) names it. ``kind`` and
+    ``package`` apply to every step, ``caps`` to ``src`` and ``file`` steps; ``type``, ``into``,
     ``decompress``, ``method``, ``exclude`` and ``record_tree`` are the
     ``install`` options and apply to ``src`` only."""
 
@@ -223,6 +365,7 @@ class StageStep:
     group: typing.Optional[_Text] = None
     kind: typing.Optional[_Text] = None
     caps: typing.Optional[_Text] = None
+    package: typing.Optional[_Text] = None
     meta: typing.Dict[_Text, _Text] = field(default_factory=dict)
     type: typing.Optional[_Text] = None
     into: bool = True
@@ -276,6 +419,7 @@ class StageStep:
         _set(self, "group", _name(self.group, "group"))
         _set(self, "kind", _kind(self.kind))
         _set(self, "caps", _caps(self.caps))
+        _set(self, "package", _package(self.package))
         no_source = "symlink" if self.symlink is not None else "directory"
         if (
             (self.symlink is not None or self.dir is not None)
@@ -472,6 +616,29 @@ def _check_account_names(config: "ProjectConfig") -> None:
         check(f"stage[{index}]", step.owner, step.group)
 
 
+def _check_packages(config: "ProjectConfig") -> None:
+    """Refuse a subpackage that is repeated, named like the main package or
+    declared without ``[package]``, and a rule or step that names a package
+    nothing declares."""
+    if config.packages and config.package is None:
+        raise UsageError("[[packages]] need [package]")
+    main = None if config.package is None else config.package.name
+    names = [] if main is None else [main]
+    for index, sub in enumerate(config.packages):
+        if sub.name == main:
+            raise UsageError(f"packages[{index}]: {sub.name!r} is the [package] name")
+        if sub.name in names:
+            raise UsageError(f"packages[{index}]: {sub.name!r} is declared twice")
+        names.append(sub.name)
+    for table, items in (("rules", config.rules), ("stage", config.stage)):
+        for index, item in enumerate(items):
+            if item.package is not None and item.package not in names:
+                raise UsageError(
+                    f"{table}[{index}]: package {item.package!r} is neither "
+                    "[package] name nor a [[packages]] name"
+                )
+
+
 def _own_prefix(prefix: str) -> str:
     """``prefix`` normalized, or :class:`UsageError` unless it is a ``/``-rooted
     path below ``/`` with no ``..``."""
@@ -495,7 +662,8 @@ class ProjectConfig:
     ``buildroot``, ``db`` and ``db_format`` set the options of the same name
     (``db = "-"`` means no file DB), ``own`` lists the directory prefixes the
     package owns, and the tables are ``[package]``, ``[defaults]``,
-    ``[[rules]]``, ``[[stage]]``, ``[[users]]`` and ``[[groups]]``. A key that
+    ``[[packages]]``, ``[[rules]]``, ``[[stage]]``, ``[[users]]`` and
+    ``[[groups]]``. A key that
     is not listed here is an error. An owner or group named by ``[defaults]``,
     a rule or a step must be a base-passwd account (``BASE_USERS``,
     ``BASE_GROUPS``) or declared in ``[[users]]``/``[[groups]]``; a created
@@ -508,6 +676,7 @@ class ProjectConfig:
     db_format: typing.Optional[_Text] = None
     own: typing.Tuple[_Text, ...] = ()
     package: typing.Optional[PackageInfo] = None
+    packages: typing.Tuple[SubPackageInfo, ...] = ()
     defaults: EntryDefaults = field(default_factory=EntryDefaults)
     rules: typing.Tuple[EntryRule, ...] = ()
     stage: typing.Tuple[StageStep, ...] = ()
@@ -517,6 +686,7 @@ class ProjectConfig:
     def __post_init__(self) -> None:
         _set(self, "own", tuple(_own_prefix(prefix) for prefix in self.own))
         _check_account_names(self)
+        _check_packages(self)
 
     @classmethod
     def from_dict(cls, data: typing.Mapping[str, typing.Any]) -> "ProjectConfig":

@@ -21,6 +21,7 @@ from ._common import (
     EntryArgs,
     ExcludeArgs,
     KindArgs,
+    PackageArgs,
     ProjectCmd,
     _parse_caps,
     _refuse_mcp_stdin,
@@ -52,7 +53,7 @@ def _source(text: str) -> typing.Union[str, Path]:
     return text if text in ("", DEFAULT) else Path(text)
 
 
-class Install(EntryArgs, KindArgs, ExcludeArgs, ProjectCmd):
+class Install(EntryArgs, KindArgs, PackageArgs, ExcludeArgs, ProjectCmd):
     """Install a source into the build root and record its file entry."""
 
     _parsername_ = "install"
@@ -173,6 +174,7 @@ class Install(EntryArgs, KindArgs, ExcludeArgs, ProjectCmd):
             type=None if _is_auto(self.type) else _filetype(self.type),
             kind=self.kind,
             caps=self.caps,
+            package=self.package,
             meta=self.meta,
             into=not self.no_target_directory,
             parents=self.parents,

@@ -78,6 +78,7 @@ def _entry(
         "type": ftype.value,
         "kind": kind,
         "caps": caps,
+        "package": "-",
         "meta": dict(meta),
     }
 

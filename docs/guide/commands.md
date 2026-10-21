@@ -81,6 +81,7 @@ pkgforge install [options] SOURCE... DESTINATION
 | `-O, --meta KEY=VALUE` | record free-form metadata on the entry (repeatable); consumed by a symlink's `meta.target` or by a third-party dump format |
 | `-k, --kind KIND` | how packaging treats the entry: `file` (default), `config`, `config-noreplace`, `doc`, `license` or `ghost`; all but `file` and `ghost` need a regular file (exit 2 otherwise); also on `mkdir` and `symlink`, where only `file` and `ghost` fit |
 | `--caps CLAUSE` | file capabilities the package sets on install: one lowercase `setcap` clause such as `cap_net_bind_service=ep`; a regular file that is not a ghost only |
+| `-P, --package NAME` | the package the entry ships in: the `[package]` name or a `[[packages]]` name (exit 2 before anything is staged for any other); `-` takes a matching rule's package, else the `[package]` name. Applies to the installed entry only. Also on `mkdir` and `symlink` |
 
 `-k KIND` marks how the package manager treats the entry; `rpmspecfiles` writes
 it as a `%config(noreplace)`, `%doc`, `%license` or `%ghost` directive and
@@ -316,7 +317,7 @@ read from a source, so this is how a directory with no files of its own is
 packaged. Running it again changes nothing.
 
 ```bash
-pkgforge mkdir [-m MODE] [-o OWNER] [-g GROUP] [-k KIND] [-O KEY=VALUE]... [-p] DEST...
+pkgforge mkdir [-m MODE] [-o OWNER] [-g GROUP] [-k KIND] [-P PACKAGE] [-O KEY=VALUE]... [-p] DEST...
 ```
 
 | Option | Meaning |
@@ -324,6 +325,7 @@ pkgforge mkdir [-m MODE] [-o OWNER] [-g GROUP] [-k KIND] [-O KEY=VALUE]... [-p] 
 | `-m, --mode` | as for `install` |
 | `-o, --owner` / `-g, --group` | owner / group to record |
 | `-k, --kind` | `file` (default) or `ghost`, the only kinds a directory can have; a ghost directory is created at install time by the generated `tmpfiles.d` file |
+| `-P, --package` | as for `install` |
 | `-O, --meta KEY=VALUE` | record free-form metadata on the entry (repeatable) |
 | `-p, --parents` | create missing parent directories |
 
@@ -338,13 +340,14 @@ stored as written and may name nothing; a symlink has no mode, so there is no
 `--mode`.
 
 ```bash
-pkgforge symlink [-o OWNER] [-g GROUP] [-k KIND] [-O KEY=VALUE]... [-p] TARGET LINK
+pkgforge symlink [-o OWNER] [-g GROUP] [-k KIND] [-P PACKAGE] [-O KEY=VALUE]... [-p] TARGET LINK
 ```
 
 | Option | Meaning |
 | --- | --- |
 | `-o, --owner` / `-g, --group` | owner / group to record |
 | `-k, --kind` | `file` (default) or `ghost`, the only kinds a link can have |
+| `-P, --package` | as for `install` |
 | `-O, --meta KEY=VALUE` | record free-form metadata on the entry (repeatable) |
 | `-p, --parents` | create missing parent directories of LINK |
 

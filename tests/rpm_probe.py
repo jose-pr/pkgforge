@@ -70,6 +70,7 @@ _ENTRY = {
     "type": "file",
     "kind": "file",
     "caps": "-",
+    "package": "-",
     "meta": {},
 }
 

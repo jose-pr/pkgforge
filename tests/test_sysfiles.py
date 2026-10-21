@@ -35,6 +35,7 @@ def ghost_dir(mode="755", owner="svc", group="svc", **over):
         "type": "directory",
         "kind": "ghost",
         "caps": "-",
+        "package": "-",
         "meta": {},
         **over,
     }
@@ -145,6 +146,7 @@ def test_sysfiles_writes_and_records_both_files(tmp_path):
         "type": "file",
         "kind": "file",
         "caps": "-",
+        "package": "hi",
         "meta": {},
     }
     assert recorded["/usr/lib/sysusers.d/hi.conf"] == expected

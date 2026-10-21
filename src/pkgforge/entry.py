@@ -1,7 +1,7 @@
 """File entry types: the on-disk *file DB* record and its metadata.
 
 Defines the record (:class:`FileEntry`: mode / owner / group / type / kind /
-caps / free-form ``meta``) and the functions that normalize, build, resolve and
+caps / package / free-form ``meta``) and the functions that normalize, build, resolve and
 apply one (:func:`normalize_mode`, :func:`entry_from_path`,
 :func:`resolve_entry`, :func:`apply_entry`). ``mode`` is always stored as an **octal permission
 string** (e.g. ``"644"``) so the DB round-trips cleanly and dumps (e.g.
@@ -50,6 +50,7 @@ __all__ = [
     "normalize_kind",
     "normalize_mode",
     "normalize_name",
+    "normalize_package",
     "resolve_entry",
 ]
 
@@ -69,6 +70,8 @@ _CONTROL_PATTERN = "[\x00-\x1f\x7f]"
 #: capability names, then one or more ``=``/``+``/``-`` runs of ``e``, ``i``,
 #: ``p``. It is a single argument of ``setcap`` and of rpm's ``%caps``.
 _CAPS_PATTERN = r"(?:all|cap_[a-z0-9_]+)(?:,(?:all|cap_[a-z0-9_]+))*(?:[=+-][eip]*)+"
+#: A package name in Debian's grammar (valid for rpm too), or :data:`DEFAULT`.
+_PACKAGE_PATTERN = r"-|[a-z0-9][a-z0-9+.-]+"
 
 #: The user names every Debian system has: the static ``passwd.master`` of the
 #: ``base-passwd`` package (3.6.9). An owner outside this set must be declared.
@@ -86,6 +89,7 @@ BASE_GROUPS: typing.FrozenSet[str] = frozenset(
 
 _NAME_RE = re.compile(_NAME_PATTERN)
 _CAPS_RE = re.compile(_CAPS_PATTERN)
+_PACKAGE_RE = re.compile(_PACKAGE_PATTERN)
 
 
 class FileType(str, enum.Enum):
@@ -260,6 +264,19 @@ def normalize_caps(value: str) -> str:
     )
 
 
+def normalize_package(value: str) -> str:
+    """Normalize a ``package`` value: ``-``/``""`` mean :data:`DEFAULT` (unset),
+    otherwise a package name (``[a-z0-9][a-z0-9+.-]+``).
+    Anything else raises :class:`UsageError`."""
+    value = _normalize_field(value)
+    if isinstance(value, str) and _PACKAGE_RE.fullmatch(value):
+        return value
+    raise UsageError(
+        f"invalid package {value!r}: expected a package name "
+        "([a-z0-9][a-z0-9+.-]+) or '-'"
+    )
+
+
 def _check_kind_caps(path: str, kind: str, caps: str, ftype: object) -> None:
     """Raise :class:`UsageError` unless the resolved ``kind`` fits ``ftype``
     and ``caps`` (when set) sits on a regular file that is not a ghost."""
@@ -314,8 +331,9 @@ class FileEntry(typing.TypedDict):
     """One DB record: ``mode`` (an octal permission **string**, e.g. ``"644"``,
     never a raw ``st_mode`` int), ``owner``, ``group``, ``type``, ``kind`` (a
     :class:`FileKind` value; ``"-"`` only before it is resolved), ``caps`` (one
-    ``setcap`` clause, or ``"-"`` for none) and a free-form ``meta`` string
-    map. A plain dict at runtime (a ``TypedDict`` carries no methods) -- use
+    ``setcap`` clause, or ``"-"`` for none), ``package`` (the package the entry
+    ships in; ``"-"`` only when the configuration has no ``[package]``) and a
+    free-form ``meta`` string map. A plain dict at runtime (a ``TypedDict`` carries no methods) -- use
     the module functions below."""
 
     mode: str
@@ -324,6 +342,7 @@ class FileEntry(typing.TypedDict):
     type: str
     kind: str
     caps: str
+    package: str
     meta: typing.Dict[str, str]
 
 
@@ -346,12 +365,13 @@ def _new_entry(
     type: typing.Any,
     kind: str = DEFAULT,
     caps: str = DEFAULT,
+    package: str = DEFAULT,
     meta: typing.Mapping[str, str],
 ) -> FileEntry:
     """A :class:`FileEntry` with ``mode``/``owner``/``group``/``kind``/``caps``/
-    ``meta`` normalized and validated; ``type`` is stored as given (it may
-    still be a sentinel to resolve from disk). A ``kind`` or ``caps`` of
-    ``"-"`` is resolved when the entry is recorded."""
+    ``package``/``meta`` normalized and validated; ``type`` is stored as given
+    (it may still be a sentinel to resolve from disk). A ``kind``, ``caps`` or
+    ``package`` of ``"-"`` is resolved when the entry is recorded."""
     check_meta(meta)
     return {
         "mode": normalize_mode(mode),
@@ -360,6 +380,7 @@ def _new_entry(
         "type": type,
         "kind": normalize_kind(kind),
         "caps": normalize_caps(caps),
+        "package": normalize_package(package),
         "meta": dict(meta),
     }
 
@@ -401,6 +422,7 @@ def entry_from_path(
         "type": AUTO,
         "kind": FileKind.File.value,
         "caps": DEFAULT,
+        "package": DEFAULT,
         "meta": {} if meta is None else meta,
     }
     return _resolve_stat(base, path, path.lstat(), lookupval=AUTO)

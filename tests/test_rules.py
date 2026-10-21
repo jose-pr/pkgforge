@@ -21,6 +21,7 @@ UNSET = {
     "group": "-",
     "kind": "-",
     "caps": "-",
+    "package": "-",
     "meta": {},
 }
 
@@ -385,6 +386,7 @@ def db_with_dirs(tmp_path: Path) -> Path:
                 "type": kind,
                 "kind": "file",
                 "caps": "-",
+                "package": "-",
                 "meta": {},
             }
         )
