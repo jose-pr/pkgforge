@@ -18,7 +18,7 @@ class Package(ProjectCmd):
     _logger_name_ = "pkgforge.package"
 
     format: str
-    "package format: arch, deb, rpm or tar"
+    "package format: apk, arch, deb, rpm or tar"
     ("--format", "-f")
     output: Path = Path(".")
     "directory the packages are written into, created if missing"

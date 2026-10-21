@@ -50,6 +50,16 @@ def sysusers_text(config: ProjectConfig) -> str:
     return _HEADER + "\n".join(lines) + "\n" if lines else ""
 
 
+def created_accounts(
+    config: ProjectConfig,
+) -> typing.Tuple[typing.Set[str], typing.Set[str]]:
+    """The user and group names ``config`` creates; a created user also makes
+    the group of its name."""
+    users = {user.name for user in config.users if user.create}
+    groups = {group.name for group in config.groups if group.create} | users
+    return users, groups
+
+
 def tmpfiles_text(entries: FileEntries) -> str:
     """The ``tmpfiles.d`` file that creates each ghost directory of ``entries``
     at install time (``d PATH MODE OWNER GROUP -``), sorted by path. ``""`` when

@@ -323,6 +323,31 @@ jobs:
           PKGFORGE_CONSUMER_INSTALL: "1"
         run: /tmp/venv/bin/python -m pytest -p no:cacheprovider -q -rxs -k pacman tests/test_consumers.py
 
+  # apk exists only on Alpine (musl), where a JavaScript action such as
+  # actions/checkout cannot run inside a job container, so the runner checks out
+  # and `docker run` does the rest. The container is thrown away with the
+  # account and files the install test adds.
+  consumers-apk:
+    name: Consumer test (apk, alpine:latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - name: Run the apk consumer test in alpine:latest
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w \
+            -e PKGFORGE_CONSUMER_INSTALL=1 -e PYTHONDONTWRITEBYTECODE=1 \
+            alpine:latest sh -c '
+              set -e
+              apk --version
+              apk add --no-cache python3 libcap-getcap
+              python3 -m venv /tmp/venv
+              /tmp/venv/bin/pip install -U pip
+              /tmp/venv/bin/pip install -e ".[dev]"
+              /tmp/venv/bin/python -m pytest -p no:cacheprovider -q -rxs -k apk tests/test_consumers.py
+            '
+
   # Measures how each rpm version's %files parser handles a quoted/escaped
   # path (tests/rpm_probe.py). Only a manual dispatch with rpm_probe=true
   # runs these jobs; a plain dispatch or a ci-* tag skips them.

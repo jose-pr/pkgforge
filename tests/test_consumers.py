@@ -2309,3 +2309,51 @@ def test_pacman_example_installs(tmp_path):
         assert all("mismatch" in text for text in warned.values()), warned
     finally:
         _run_as_root("pacman", "-R", "--noconfirm", "hello", check=False)
+
+
+# --------------------------------------------------------------------------
+# package -f apk: the Alpine package pkgforge writes itself
+# --------------------------------------------------------------------------
+
+APK = shutil.which("apk")
+requires_apk = pytest.mark.skipif(APK is None, reason="apk not installed")
+
+
+@requires_apk
+@requires_install
+def test_apk_example_installs(tmp_path):
+    """Installing the package creates the account before its files are
+    extracted, owns ``/var/lib/hello`` and ``/run/hello`` by it, gives the
+    config its group and sets the capability; ``apk audit`` then reports none
+    of the package's paths."""
+    tree = _example_source(tmp_path / "work")
+    project = Project.from_config(
+        tree / "pkgforge.cfg", buildroot=tmp_path / "root", db=tmp_path / "files.jsonl"
+    )
+    project.stage(init=True)
+    package = project.package("apk", tmp_path / "out")[0]
+    assert package.name == "hello-1.0-r1.apk"
+    with tarfile.open(package) as archive:
+        packaged = {
+            member.name
+            for member in archive
+            if "hello" in member.name or member.name == "usr/bin/hi"
+        }
+    assert "usr/bin/hello" in packaged
+    try:
+        _run_as_root("apk", "add", "--allow-untrusted", str(package))
+        _assert_installed_example_state()
+        assert os.stat("/run/hello").st_uid == pwd.getpwnam("hello").pw_uid
+        assert stat.S_IMODE(os.stat("/run/hello").st_mode) == 0o755
+        conf = os.stat("/etc/hello/hello.conf")
+        assert grp.getgrgid(conf.st_gid).gr_name == "adm"
+        # setcap in the post-install script gives the helper an extended
+        # attribute the apk database does not hold, which audit reports as `x`.
+        audit = _run_as_root("apk", "audit", "--system", check=False)
+        reported = {
+            line.partition(" ")[2] for line in audit.stdout.splitlines() if line
+        }
+        reported -= {"usr/libexec/hello/helper"}
+        assert not reported & packaged, audit.stdout + audit.stderr
+    finally:
+        _run_as_root("apk", "del", "hello", check=False)

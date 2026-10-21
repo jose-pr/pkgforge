@@ -25,6 +25,10 @@ every format.
 
 ## Built-in formats
 
+::: pkgforge.package.ApkFormat
+    options:
+      show_root_heading: true
+
 ::: pkgforge.package.ArchFormat
     options:
       show_root_heading: true

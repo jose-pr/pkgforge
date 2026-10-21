@@ -37,6 +37,10 @@ project = Project.from_config("pkgforge.cfg", buildroot="build/root")
     options:
       show_root_heading: true
 
+::: pkgforge.config.ApkInfo
+    options:
+      show_root_heading: true
+
 ::: pkgforge.config.EntryDefaults
     options:
       show_root_heading: true

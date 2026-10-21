@@ -10,7 +10,7 @@ import tarfile
 import typing
 from pathlib import Path
 
-from .._sysfiles import SYSUSERS_DIR, TMPFILES_DIR, sysusers_text
+from .._sysfiles import SYSUSERS_DIR, TMPFILES_DIR, created_accounts, sysusers_text
 from ..config import ProjectConfig
 from ..dbdump import _write_files
 from ..entry import DEFAULT, FileType
@@ -77,14 +77,6 @@ def _mtree(
     return gzip.compress(("\n".join(lines) + "\n").encode("ascii"), 9, mtime=0)
 
 
-def _created(config: ProjectConfig) -> typing.Tuple[typing.Set[str], typing.Set[str]]:
-    """The user and group names ``config`` creates; a created user also makes
-    the group of its name."""
-    users = {user.name for user in config.users if user.create}
-    groups = {group.name for group in config.groups if group.create} | users
-    return users, groups
-
-
 class _Script(typing.NamedTuple):
     """What a package's ``.INSTALL`` does."""
 
@@ -105,7 +97,7 @@ def _install_script(
     """
     present = {item.path for item in items}
     main = payload.main.name
-    users, groups = _created(config)
+    users, groups = created_accounts(config)
     text = sysusers_text(config)
     accounts = bool(text) and (
         f"{SYSUSERS_DIR}/{main}.conf" in present

@@ -11,6 +11,7 @@ import pytest
 
 from pkgforge import Project
 from pkgforge.config import (
+    ApkInfo,
     EntryDefaults,
     EntryRule,
     GroupAccount,
@@ -52,6 +53,9 @@ section = "utils"
 
 [package.pacman]
 depends = ["glibc", "bash>=5"]
+
+[package.apk]
+depends = ["musl", "bash>=5"]
 
 [defaults]
 owner = "root"
@@ -137,6 +141,7 @@ def test_full_document_loads_into_the_dataclasses(tmp_path):
             rpm=RpmInfo(requires=("glibc", "bash")),
             debian=DebianInfo(depends=("libc6", "bash"), section="utils"),
             pacman=PacmanInfo(depends=("glibc", "bash>=5")),
+            apk=ApkInfo(depends=("musl", "bash>=5")),
         ),
         defaults=EntryDefaults(
             owner="root",
@@ -263,6 +268,20 @@ def test_pacman_tables_hydrate(tmp_path):
     assert PacmanInfo() == PackageInfo(name="hello").pacman
 
 
+def test_apk_tables_hydrate(tmp_path):
+    cfg = load(
+        write(
+            tmp_path,
+            '[package]\nname = "hello"\n[package.apk]\ndepends = ["musl"]\n'
+            '[[packages]]\nname = "hello-doc"\n[packages.apk]\n'
+            'depends = ["hello=1.0", "bash>=5"]\n',
+        )
+    )
+    assert cfg.package.apk == ApkInfo(depends=("musl",))
+    assert cfg.packages[0].apk == ApkInfo(depends=("hello=1.0", "bash>=5"))
+    assert ApkInfo() == PackageInfo(name="hello").apk
+
+
 def test_empty_file_is_all_defaults(tmp_path):
     assert load(write(tmp_path, "")) == ProjectConfig()
 
@@ -301,6 +320,17 @@ BAD_VALUES = [
             "packages": [{"name": "xx-doc", "pacman": {"depends": ["a b"]}}],
         },
         "must be one word",
+    ),
+    (
+        {"package": {"name": "xx", "apk": {"depends": ["a b"]}}},
+        "depends: 'a b' must be one word",
+    ),
+    (
+        {
+            "package": {"name": "xx"},
+            "packages": [{"name": "xx-doc", "apk": {"depends": ["a\tb"]}}],
+        },
+        "depends: must be one line",
     ),
     ({"stage": [{}]}, "step needs exactly one of src, dir, file, symlink"),
     (
@@ -621,6 +651,11 @@ BAD_FILES = [
         '[package]\nname = "a"\n[package.pacman]\nrequires = ["x"]\n',
         "requires",
         id="pacman-unknown-key",
+    ),
+    pytest.param(
+        '[package]\nname = "a"\n[package.apk]\ndepends = ["x y"]\n',
+        "depends: 'x y' must be one word",
+        id="apk-two-words",
     ),
 ]
 

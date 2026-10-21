@@ -37,6 +37,7 @@ from .exceptions import ExcludeSyntaxError, UsageError
 from .exclude import PathMatchStmt
 
 __all__ = [
+    "ApkInfo",
     "EntryDefaults",
     "DebianInfo",
     "EntryRule",
@@ -248,6 +249,14 @@ class DebianInfo:
             )
 
 
+def _one_word_items(values: typing.Iterable[str], name: str) -> typing.Tuple[str, ...]:
+    items = _items(values, name)
+    for item in items:
+        if _WHITESPACE.search(item):
+            raise UsageError(f"{name}: {item!r} must be one word")
+    return items
+
+
 @dataclass(frozen=True)
 class PacmanInfo:
     """The ``pacman`` table of a package: facts for the Arch format only.
@@ -257,11 +266,19 @@ class PacmanInfo:
     depends: typing.Tuple[_Text, ...] = ()
 
     def __post_init__(self) -> None:
-        items = _items(self.depends, "depends")
-        for item in items:
-            if _WHITESPACE.search(item):
-                raise UsageError(f"depends: {item!r} must be one word")
-        _set(self, "depends", items)
+        _set(self, "depends", _one_word_items(self.depends, "depends"))
+
+
+@dataclass(frozen=True)
+class ApkInfo:
+    """The ``apk`` table of a package: facts for the Alpine format only.
+    ``depends`` lists one ``depend`` item each, a single word such as
+    ``musl`` or ``bash>=5``."""
+
+    depends: typing.Tuple[_Text, ...] = ()
+
+    def __post_init__(self) -> None:
+        _set(self, "depends", _one_word_items(self.depends, "depends"))
 
 
 @dataclass(frozen=True)
@@ -269,8 +286,8 @@ class PackageInfo:
     """The ``[package]`` table: the main (and source) package, whose facts other
     values can name once with ``${package.KEY}``. ``name`` is required and a
     package name (``[a-z0-9][a-z0-9+.-]+``); ``arch`` is ``all`` or ``any``;
-    ``maintainer`` reads ``Name <address>``. ``rpm``, ``debian`` and ``pacman``
-    hold the facts only that format uses."""
+    ``maintainer`` reads ``Name <address>``. ``rpm``, ``debian``, ``pacman`` and
+    ``apk`` hold the facts only that format uses."""
 
     name: _Text
     version: typing.Optional[_Text] = None
@@ -284,6 +301,7 @@ class PackageInfo:
     rpm: RpmInfo = field(default_factory=RpmInfo)
     debian: DebianInfo = field(default_factory=DebianInfo)
     pacman: PacmanInfo = field(default_factory=PacmanInfo)
+    apk: ApkInfo = field(default_factory=ApkInfo)
 
     def __post_init__(self) -> None:
         _package_name(self.name)
@@ -309,6 +327,7 @@ class SubPackageInfo:
     rpm: RpmInfo = field(default_factory=RpmInfo)
     debian: DebianInfo = field(default_factory=DebianInfo)
     pacman: PacmanInfo = field(default_factory=PacmanInfo)
+    apk: ApkInfo = field(default_factory=ApkInfo)
 
     def __post_init__(self) -> None:
         _package_name(self.name)

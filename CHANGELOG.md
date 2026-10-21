@@ -7,6 +7,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `pkgforge package -f apk` builds each package as an Alpine package (apk v2)
+  itself, with no `abuild`: `NAME-VERSION-rREL.apk`, two gzip members holding
+  `.PKGINFO` (with the `datahash` of the data member) and, when they have a
+  command, `.pre-install`/`.pre-upgrade` and `.post-install`/`.post-upgrade`,
+  then the payload with the DB's owner names and a SHA-1 checksum on every file
+  and symlink. The scripts create the configured accounts and ghost
+  directories and set file capabilities. Install it with `apk add
+  --allow-untrusted`; apk v3 packages and signatures are not written. It needs
+  `[package]` `version` and `summary`, a `summary` per `[[packages]]` element,
+  and a version and release apk accepts.
+- `[package.apk] depends` (and the same table under `[[packages]]`) lists the
+  `depend` items of the Alpine package.
 - `pkgforge package -f arch` builds each package as a pacman package itself,
   with no `makepkg` or fakeroot: `NAME-VERSION-PKGREL-ARCH.pkg.tar.zst` (or
   `.xz`, `.gz` with `--compression`), holding `.PKGINFO`, `.MTREE` and, when it

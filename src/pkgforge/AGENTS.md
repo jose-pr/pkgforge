@@ -440,8 +440,8 @@ Tables, all optional (`ProjectConfig` fields in this order):
 | --- | --- | --- |
 | `buildroot`, `db`, `db_format` | text | the options of the same name; `db = "-"` means no file DB |
 | `own` | list of text | `/`-rooted directory prefixes the package owns (no `..`, not `/`; stored normalized) |
-| `[package]` | `PackageInfo` | the main (and source) package: `name` (required, `[a-z0-9][a-z0-9+.-]+`), `version` (`[0-9][A-Za-z0-9.+~]*`), `release` (`[A-Za-z0-9.+~]+`), `arch` (`all` or `any`), `summary`, `license`, `homepage` (one line each), `maintainer` (`Name <address>`), `description` (no control character but newline), and the sub-tables `[package.rpm]` (`RpmInfo`: `requires`, a list) and `[package.debian]` (`DebianInfo`: `depends`, a list of items without `,`; `section`, lowercase; `priority`, one of `required`, `important`, `standard`, `optional`, `extra`) and `[package.pacman]` (`PacmanInfo`: `depends`, a list of one-word items such as `glibc` or `bash>=5`; named for the manager because `arch` is already a key); values to name once and reuse as `${package.KEY}` |
-| `[[packages]]` | `SubPackageInfo` | a subpackage: `name` (required, the full package name such as `hello-doc`, unique and not the `[package]` name; needs `[package]`), `summary`, `description`, `arch` (unset: the main's), `rpm`, `debian`, `pacman` as in `[package]` |
+| `[package]` | `PackageInfo` | the main (and source) package: `name` (required, `[a-z0-9][a-z0-9+.-]+`), `version` (`[0-9][A-Za-z0-9.+~]*`), `release` (`[A-Za-z0-9.+~]+`), `arch` (`all` or `any`), `summary`, `license`, `homepage` (one line each), `maintainer` (`Name <address>`), `description` (no control character but newline), and the sub-tables `[package.rpm]` (`RpmInfo`: `requires`, a list) and `[package.debian]` (`DebianInfo`: `depends`, a list of items without `,`; `section`, lowercase; `priority`, one of `required`, `important`, `standard`, `optional`, `extra`) and `[package.pacman]` (`PacmanInfo`: `depends`, a list of one-word items such as `glibc` or `bash>=5`; named for the manager because `arch` is already a key) and `[package.apk]` (`ApkInfo`: `depends` as `PacmanInfo`); values to name once and reuse as `${package.KEY}` |
+| `[[packages]]` | `SubPackageInfo` | a subpackage: `name` (required, the full package name such as `hello-doc`, unique and not the `[package]` name; needs `[package]`), `summary`, `description`, `arch` (unset: the main's), `rpm`, `debian`, `pacman`, `apk` as in `[package]` |
 | `[defaults]` | `EntryDefaults` | `owner`, `group`, `file_mode`, `exec_mode`, `dir_mode` |
 | `[[rules]]` | `EntryRule` | `match` (non-empty list of `-X` statements), `mode`, `owner`, `group`, `kind`, `caps`, `package` (the `[package]` name or a `[[packages]]` name) |
 | `[[users]]` | `UserAccount` | `name` (required), `description`, `home`, `shell` (absolute, no whitespace or `\`), `groups` (list of supplementary groups), `create` (boolean, default `true`; `false` takes `name` only) |
@@ -933,6 +933,40 @@ Importing `pkgforge.package` loads no optional dependency.
   release), the package's own table (`PackageInfo` or `SubPackageInfo`), its
   architecture (`"all"` or `"any"`: its own, else the main's, else `"any"`) and
   its live entries sorted by DB path.
+- **`ApkFormat`** — `NAME = "apk"`, `COMPRESSIONS = ("gz",)`, `REQUIRED =
+  ("version", "summary")`, `SUB_REQUIRED = ("summary",)`, `ALL_ARCH = "noarch"`,
+  `MACHINES` mapping `x86_64`/`amd64` to `x86_64`, `aarch64`/`arm64` to
+  `aarch64`, `armv7l` to `armv7`, `i686`/`i386` to `x86`, and `riscv64`,
+  `ppc64le`, `s390x` to themselves. One `NAME-VERSION-rREL.apk` per package
+  (REL is `[package] release` or `0`, digits only; VERSION must read like an
+  apk version, `1.2.3b` but not `1.0+git`: `UsageError`), an apk v2 file that
+  apk-tools 2 and 3 install with `--allow-untrusted` (no signature; apk v3
+  packages are not written). The file is two gzip members back to back: the
+  control tar (USTAR, no end-of-archive blocks) holding `.PKGINFO` and the
+  scripts, then the data tar (pax, no `./`, the payload sorted by DB path, the
+  DB's owner names with uid and gid 0) with an `APK-TOOLS.checksum.SHA1` record
+  (hex) on every regular file (its content) and symlink (its target), which
+  apk-tools 3 requires. A path that is not UTF-8 is a `DumpError`. `.PKGINFO`
+  (`key = value` lines): `pkgname`, `pkgver` (`VERSION-rREL`), `pkgdesc` (the
+  summary), `url` (the main's `homepage`), `builddate`, `packager` (the main's
+  `maintainer`, else `Unknown`), `size` (bytes of files and symlink targets),
+  `arch`, `origin` (the main name), `maintainer` and `license` (the main's, when
+  set), then `depend`: the `[package.apk] depends` items and `libcap-setcap`
+  with a `caps` entry, each once, and `datahash`, the SHA-256 of the data member
+  (apk-tools 3 refuses a package without it). Scripts (`#!/bin/sh`, ending
+  `exit 0`, mode 755) are written only with a command, each under both names:
+  `.pre-install`/`.pre-upgrade` create the accounts the configuration creates
+  (`addgroup -S` per created group, then per created user `addgroup -S`,
+  `adduser -S -D -H -h HOME -s SHELL -G NAME [-g GECOS] NAME` with home `/` and
+  shell `/sbin/nologin` by default, and `addgroup NAME GROUP` per supplementary
+  group, each ending `2>/dev/null || :`) when the package ships
+  `/usr/lib/sysusers.d/NAME.conf` or holds an entry such an account owns, since
+  names resolve while the package is extracted;
+  `.post-install`/`.post-upgrade` create each ghost directory (`mkdir -p`,
+  `chown OWNER:GROUP`, `chmod MODE` when the mode is set; Alpine has no
+  tmpfiles) then run `setcap CAPS PATH`, so `apk audit` reports `x` (an
+  attribute the database lacks) for a path with a capability. Units are not
+  enabled.
 - **`ArchFormat`** — `NAME = "arch"`, `COMPRESSIONS = ("zst", "xz", "gz")`,
   `REQUIRED = ("version", "summary")`, `SUB_REQUIRED = ("summary",)`,
   `ALL_ARCH = "any"`, `MACHINES` mapping `x86_64`/`amd64` to `x86_64`,
@@ -1412,7 +1446,7 @@ there with a `UsageError`. See [Environment variables](#environment-variables).
 
 - **`pkgforge package -f FORMAT [-o DIR] [--arch NAME] [--compression KIND]`** —
   `Project.package`: build one package per declared package from the file DB and
-  the build root. `-f` is `arch`, `deb`, `rpm` or `tar`; `-o` defaults to `.` and is created when
+  the build root. `-f` is `apk`, `arch`, `deb`, `rpm` or `tar`; `-o` defaults to `.` and is created when
   missing. Prints each path written on stdout, one per line, the main package
   first. `--arch` names the architecture of an `any` package in the format's own
   spelling (default: this machine's); `--compression` is one the format offers.
