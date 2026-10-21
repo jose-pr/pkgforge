@@ -9,7 +9,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 - `pkgforge.package.PackageWriter`, and the `BuildContext.writer` field: a
   `PackageFormat.build` creates the files it writes through it, which is what
-  keeps a build all or nothing.
+  keeps a build all or nothing; a directory in the way of any package fails
+  the build before a single package is renamed into place.
 - `pkgforge package -f apk` builds each package as an Alpine package (apk v2)
   itself, with no `abuild`: `NAME-VERSION-rREL.apk`, two gzip members holding
   `.PKGINFO` (with the `datahash` of the data member) and, when they have a

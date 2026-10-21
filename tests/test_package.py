@@ -572,6 +572,21 @@ def test_writer_commit_replaces_the_targets_together(tmp_path):
     assert (tmp_path / "a").read_bytes() == b"new a"
 
 
+def test_writer_commit_renames_nothing_when_a_directory_is_in_the_way(tmp_path):
+    (tmp_path / "a").write_bytes(b"old")
+    (tmp_path / "b").mkdir()
+    writer = PackageWriter()
+    with writer.create(tmp_path / "a") as handle:
+        handle.write(b"new a")
+    with writer.create(tmp_path / "b") as handle:
+        handle.write(b"new b")
+    with pytest.raises(UsageError, match="directory is in the way"):
+        writer.commit()
+    writer.abort()
+    assert (tmp_path / "a").read_bytes() == b"old"
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["a", "b"]
+
+
 # -- refusals -------------------------------------------------------------
 
 

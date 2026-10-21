@@ -936,7 +936,8 @@ Importing `pkgforge.package` loads no optional dependency.
   Path) -> BinaryIO` opens `.NAME.pkgforge-tmp` beside `path` for writing (the
   caller closes it), making `path`'s directory and any missing parent first;
   `move(source: Path, path: Path)` takes a finished file as `path`'s content;
-  `commit()` renames every file over its path, in creation order; `abort()`
+  `commit()` renames every file over its path, in creation order, after checking
+  that no target is a directory (`UsageError`, nothing renamed); `abort()`
   removes the temporary files and the directories `create` made. `build` calls
   `commit()` once the format returns and `abort()` on any exception (including
   Ctrl-C), so a failed build leaves no new directory and no partial file, and an

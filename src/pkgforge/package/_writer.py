@@ -8,6 +8,8 @@ import shutil
 import typing
 from pathlib import Path
 
+from ..exceptions import UsageError
+
 
 class PackageWriter:
     """Creates the package files of one :func:`~pkgforge.package.build`.
@@ -50,9 +52,16 @@ class PackageWriter:
         shutil.move(os.fspath(source), os.fspath(self._temp(path)))
 
     def commit(self) -> None:
-        """Rename every file to its path, in creation order."""
+        """Rename every file to its path, in creation order.
+
+        Every target is checked before the first rename, so a directory in the
+        way fails the build with nothing renamed.
+        """
         for handle in self._open:
             handle.close()
+        for path in self._temps:
+            if path.is_dir():
+                raise UsageError(f"cannot write {path}: a directory is in the way")
         for path, temp in self._temps.items():
             os.replace(temp, path)
         self._temps.clear()
