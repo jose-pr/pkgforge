@@ -535,7 +535,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   The `apk` data member is spooled to an unnamed scratch file in the output
   directory while it is built. A zstd package is compressed as a stream, so its
   bytes can differ from those of earlier builds of the same files (builds stay
-  reproducible; gzip, xz and uncompressed output is unchanged).
+  reproducible; xz and uncompressed output is unchanged, and gzip output is too
+  except that Python 3.11 and 3.12 now write the header's OS byte as 255, as
+  every other version does).
 - `pkgforge package` shipped each file of a hardlinked set as a separate copy. In
   a `tar`, `deb`, `arch` or `apk` package the first one (by DB path) is a regular
   file and the others are hardlinks to it, so they install as one inode and the

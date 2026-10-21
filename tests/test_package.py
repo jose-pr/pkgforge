@@ -388,7 +388,10 @@ def test_compressor_output_does_not_depend_on_the_write_sizes(kind):
     assert len(outputs) == 1
     (blob,) = outputs
     if kind == "gz":
-        assert blob == gzip.compress(data, 9, mtime=0)
+        # gzip.compress writes OS byte 3 on 3.11 and 3.12 and 255 elsewhere.
+        reference = bytearray(gzip.compress(data, 9, mtime=0))
+        reference[9] = 0xFF
+        assert blob == bytes(reference)
     elif kind == "xz":
         assert blob == lzma.compress(
             data, format=lzma.FORMAT_XZ, check=lzma.CHECK_CRC64
