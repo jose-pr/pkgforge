@@ -127,6 +127,23 @@ Each element is one step. A step names what it stages with exactly one of
 
 A key that does not apply to a step's kind is an error.
 
+### `[[users]]` and `[[groups]]`
+
+Accounts the package's files belong to. An owner or group that is not in Debian's
+base-passwd set must be declared here, or recording it is an error (exit 2), a name
+read from disk with `--` included.
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `name` | text | required | the account name. A created name matches `[a-z_][a-z0-9_-]{0,30}` and is not a base-passwd name |
+| `description` | text | none | `[[users]]` only: no control character and no `"` |
+| `home`, `shell` | text | none | `[[users]]` only: absolute, with no whitespace |
+| `groups` | list of text | none | `[[users]]` only: supplementary groups, base-passwd or declared |
+| `create` | boolean | `true` | `false` when the account already exists on the target |
+
+A created account needs `[package] name`. A created user's group of the same name is
+implied, so a `[[groups]]` element may not repeat it.
+
 ## Values
 
 - A mode is text of one to four octal digits: `mode = "0644"`, never `0o644` or
@@ -149,6 +166,9 @@ name = "hello"
 [defaults]
 owner = "root"
 group = "${package.name}"
+
+[[users]]
+name = "${package.name}"
 ```
 
 ## How an entry gets its mode, owner and group

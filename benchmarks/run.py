@@ -34,8 +34,10 @@ from pathlib import Path
 
 import pkgforge
 from pkgforge import Project
+from pkgforge.config import GroupAccount, ProjectConfig, UserAccount
 from pkgforge.db import open_db
 from pkgforge.dbdump import DebianFiles, RPMSpecFiles
+from pkgforge.entry import BASE_GROUPS, BASE_USERS, _group_name, _user_name
 
 # Per-metric inner iteration counts, sized so each metric runs in ~1s regardless
 # of how expensive one call is (YAML load of a 1000-entry DB is ~100x a render).
@@ -131,6 +133,27 @@ def _assert_scanned(db: Path, fmt: str, expected: int) -> None:
         )
 
 
+def _host_accounts_config() -> ProjectConfig:
+    """A config declaring the running user and group, which a scan reading
+    owners from disk (``--``) records; empty when they are base-passwd names
+    or the platform has no accounts."""
+    if not hasattr(os, "getuid"):
+        return ProjectConfig()
+    user, group = _user_name(os.getuid()), _group_name(os.getgid())
+    return ProjectConfig(
+        users=(
+            (UserAccount(name=user, create=False),)
+            if user not in BASE_USERS and user != "-"
+            else ()
+        ),
+        groups=(
+            (GroupAccount(name=group, create=False),)
+            if group not in BASE_GROUPS and group != "-"
+            else ()
+        ),
+    )
+
+
 def measure():
     db = _make_db(DB_SIZE)
     entries = list(db.items())
@@ -182,7 +205,9 @@ def measure():
         def _scan_setup(fmt: str, db_path: Path, **overrides):
             def _setup() -> typing.Callable[[], object]:
                 open_db(db_path, fmt).init()
-                project = Project(root, db_path, db_format=fmt)
+                project = Project(
+                    root, db_path, db_format=fmt, config=_host_accounts_config()
+                )
                 return lambda: project.scan("/", **overrides)
 
             return _setup

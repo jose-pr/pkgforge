@@ -174,6 +174,9 @@ class _Installer(_RecordTree, _Staging):
                 except KeyError:
                     raise UsageError(f"--chown: unknown group {group!r}") from None
 
+        if not self.noentry:
+            self.project._check_names("install", self.owner, self.group)
+
         if not self.noentry and not self._no_file_db():
             if not Path(self.db).parent.is_dir():
                 raise UsageError(f"--db {self.db}: directory does not exist")

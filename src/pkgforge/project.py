@@ -19,10 +19,18 @@ from pathlib import Path, PurePath, PurePosixPath
 from . import dbdump
 from ._install import _Installer
 from ._scan import scan as _scan
-from .config import EntryDefaults, EntryRule, ProjectConfig, StageStep, _owned
+from .config import (
+    EntryDefaults,
+    EntryRule,
+    ProjectConfig,
+    StageStep,
+    _accounts,
+    _owned,
+)
 from .config import load as _load_config
 from .db import Db, DbProvider, open_db
 from .entry import (
+    AUTO,
     DEFAULT,
     FileEntries,
     FileEntry,
@@ -42,6 +50,7 @@ _INSTALL_METHODS = ("copy", "link", "move")
 #: The entry fields ``[[rules]]`` fill when they are unset (``[defaults]`` has no
 #: ``kind`` or ``caps``).
 _RESOLVED = ("mode", "owner", "group", "kind", "caps")
+_UNSET = frozenset((DEFAULT, AUTO))
 
 _INIT_LOGGER = logging.getLogger("pkgforge.initdb")
 _COMPACT_LOGGER = logging.getLogger("pkgforge.compact")
@@ -113,6 +122,10 @@ class Project:
             typing.Tuple[typing.Tuple[PathMatch, EntryRule], ...],
             bool,
         ]
+    ] = None
+    # The owner and group names the config allows, with the config they came from.
+    _names: typing.Optional[
+        typing.Tuple[ProjectConfig, typing.FrozenSet[str], typing.FrozenSet[str]]
     ] = None
     # Owned parents: the paths the DB held when the operation first needed to
     # know (None until then) and the paths the operation has written since.
@@ -317,6 +330,26 @@ class Project:
             self._rules = cache
         return cache[1], cache[2]
 
+    def _check_names(self, where: str, owner: str, group: str) -> None:
+        """Refuse an ``owner`` or ``group`` that is neither unset (``-``,
+        ``--``) nor a base-passwd name nor declared in ``[[users]]`` or
+        ``[[groups]]``; ``where`` leads the message."""
+        cache = self._names
+        if cache is None or cache[0] is not self.config:
+            users, groups = _accounts(self.config)
+            cache = (self.config, users | _UNSET, groups | _UNSET)
+            self._names = cache
+        if owner not in cache[1]:
+            raise UsageError(
+                f"{where}: owner {owner!r} is neither a base-passwd account "
+                "nor declared in [[users]]"
+            )
+        if group not in cache[2]:
+            raise UsageError(
+                f"{where}: group {group!r} is neither a base-passwd group "
+                "nor declared in [[groups]]"
+            )
+
     def _configured(
         self, dbpath: str, entry: FileEntry, local: typing.Optional[Path] = None
     ) -> FileEntry:
@@ -443,9 +476,11 @@ class Project:
         appended to ``records``.
 
         A ``kind`` still unset becomes ``file``; a kind or caps that does not
-        fit the entry's type is a :class:`UsageError`."""
+        fit the entry's type, or an owner or group that is neither a
+        base-passwd name nor declared, is a :class:`UsageError`."""
         entry = self._configured(dbpath, entry)
         entry = self._resolved_kind(dbpath, entry)
+        self._check_names(dbpath, entry["owner"], entry["group"])
         if self.config.own:
             self._record_parents(dbpath, records)
         return entry

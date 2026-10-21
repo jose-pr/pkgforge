@@ -205,6 +205,64 @@ def project(tmp_path: Path):
     return _make
 
 
+def _host_declarations() -> typing.Tuple[typing.List[str], typing.List[str]]:
+    """The names of the running user and of its primary group that are not
+    base-passwd names, so a name read from disk with ``--`` can be recorded."""
+    from pkgforge.entry import BASE_GROUPS, BASE_USERS, _group_name, _user_name
+
+    user, group = _user_name(os.getuid()), _group_name(os.getgid())
+    return (
+        [user] if user not in BASE_USERS and user != "-" else [],
+        [group] if group not in BASE_GROUPS and group != "-" else [],
+    )
+
+
+@pytest.fixture
+def host_accounts() -> typing.Dict[str, tuple]:
+    """``users=`` and ``groups=`` for a :class:`~pkgforge.config.ProjectConfig`
+    that declares the running user and group as existing accounts
+    (``create = false``); empty for root or without ``pwd``."""
+    from pkgforge.config import GroupAccount, UserAccount
+
+    if not hasattr(os, "getuid"):
+        return {"users": (), "groups": ()}
+    users, groups = _host_declarations()
+    return {
+        "users": tuple(UserAccount(name=n, create=False) for n in users),
+        "groups": tuple(GroupAccount(name=n, create=False) for n in groups),
+    }
+
+
+@pytest.fixture
+def host_accounts_data() -> typing.Dict[str, typing.List[typing.Dict[str, object]]]:
+    """The mapping a command keeps as ``_config_data`` (the shape of the
+    file) declaring the running user and group as existing accounts."""
+    users, groups = _host_declarations() if hasattr(os, "getuid") else ([], [])
+    return {
+        "users": [{"name": n, "create": False} for n in users],
+        "groups": [{"name": n, "create": False} for n in groups],
+    }
+
+
+@pytest.fixture
+def host_accounts_cfg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Factory writing a ``pkgforge.cfg`` made of ``body`` and then the
+    declarations of the running user and group as existing accounts, and pointing
+    ``PKGFORGE_CONFIG`` at it. Returns the file's path."""
+
+    def _write(body: str = "", name: str = "host-accounts.cfg") -> Path:
+        users, groups = _host_declarations() if hasattr(os, "getuid") else ([], [])
+        text = "".join(
+            f'[[users]]\nname = "{n}"\ncreate = false\n\n' for n in users
+        ) + "".join(f'[[groups]]\nname = "{n}"\ncreate = false\n\n' for n in groups)
+        path = tmp_path / name
+        path.write_text(body + "\n" + text, encoding="utf-8")
+        monkeypatch.setenv("PKGFORGE_CONFIG", str(path))
+        return path
+
+    return _write
+
+
 @pytest.fixture
 def restore_registries():
     """Snapshot/restore the pluggable-class registries around a test that

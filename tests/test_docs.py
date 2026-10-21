@@ -59,6 +59,8 @@ REQUIRED_API_TARGETS = (
     "pkgforge.config.EntryDefaults",
     "pkgforge.config.EntryRule",
     "pkgforge.config.StageStep",
+    "pkgforge.config.UserAccount",
+    "pkgforge.config.GroupAccount",
     "pkgforge.config.load",
     "pkgforge.exceptions.PkgForgeError",
     "pkgforge.exceptions.UsageError",

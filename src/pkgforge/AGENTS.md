@@ -182,6 +182,11 @@ tool's last stderr line.
   - **`check_meta(meta: Mapping[str, str]) -> None`** — raises `UsageError`
     for the key `rpmprefix`, which nothing reads any more: use `kind` or
     `caps`.
+- **`BASE_USERS`** / **`BASE_GROUPS`** — `frozenset[str]` of the account names
+  every Debian system has (base-passwd's static `passwd.master` and
+  `group.master`, e.g. `root`, `daemon`, `www-data`; `adm` is a group only). An
+  owner or group outside them must be declared in `pkgforge.cfg`
+  (`[[users]]`/`[[groups]]`) before an entry carrying it is recorded.
 - **`AUTO = "--"`** / **`DEFAULT = "-"`** — module-level sentinels: `AUTO`
   means "resolve from the file on disk" (used by `resolve_entry`); `DEFAULT`
   means "leave at the OS/system default, do not set explicitly" (used by
@@ -216,6 +221,12 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   Raises `TypeError` (a non-path `buildroot`/`db`, or a `config` that is not a
   `ProjectConfig`), `ValueError` (`db="-"`, or a `DbProvider` together with
   `db_format`), `UsageError` (unknown `db_format`).
+  Every write checks the entry's owner and group: one that is neither `-`/`--`,
+  a base-passwd name nor declared in `config.users`/`config.groups` (a created
+  user's own name counts as a group) is `UsageError` (`PATH: owner 'x' is
+  neither a base-passwd account nor declared in [[users]]`), a name read from
+  disk with `--` included. `install` and `scan` check their explicit arguments
+  before staging or walking.
 - **`Project.from_config(path: StrPath, *, buildroot: StrPath | None = None,
   db: StrPath | DbProvider | None = None, db_format: str | None = None) ->
   Project`** — a project described by the file at `path` (see
@@ -360,6 +371,8 @@ Tables, all optional (`ProjectConfig` fields in this order):
 | `[package]` | `PackageInfo` | `name` (required), `version`, `release`, `arch`, `summary`, `license`, `maintainer`, `description`, `depends` (list); values to name once and reuse as `${package.KEY}` |
 | `[defaults]` | `EntryDefaults` | `owner`, `group`, `file_mode`, `exec_mode`, `dir_mode` |
 | `[[rules]]` | `EntryRule` | `match` (non-empty list of `-X` statements), `mode`, `owner`, `group`, `kind`, `caps` |
+| `[[users]]` | `UserAccount` | `name` (required), `description`, `home`, `shell` (absolute, no whitespace), `groups` (list of supplementary groups), `create` (boolean, default `true`) |
+| `[[groups]]` | `GroupAccount` | `name` (required), `create` (boolean, default `true`) |
 | `[[stage]]` | `StageStep` | `src` + `dest`, or `dir`, or `file`, or `symlink` + `target`; `mode`, `owner`, `group`, `kind`, `meta` (table); `caps` with `src` or `file` only; with `src` only: `type`, `into`, `decompress`, `method`, `exclude`, `record_tree` (the `install` options) |
 
 A mode is 1-4 octal digits and an owner or group an account name (`-`, `--` and
@@ -380,6 +393,18 @@ down from the prefix, and `dbdump --dirs owned` keeps only directories at or
 below one. `[[stage]]` is stored on `Project.config` and run by
 `Project.stage` (`pkgforge stage`). Command tables such as `[install]` and any
 other key are not part of the schema.
+
+An owner or group an entry carries must be a base-passwd name
+(`pkgforge.entry.BASE_USERS`/`BASE_GROUPS`) or declared. `[[users]]` and
+`[[groups]]` declare them: `create = true` (the default) means the package makes
+the account, `create = false` that it exists on the target already. A created
+name matches `[a-z_][a-z0-9_-]{0,30}`, a created user's group of the same name is
+implied, and a created account needs `[package] name`. Refused when the file is
+read: a base-passwd name, a duplicate, a `[[groups]]` element named like a
+created user, a supplementary group nothing defines, a `description` with a
+control character or `"`, a `home` or `shell` that is not absolute or holds
+whitespace, and an owner or group named by `[defaults]`, `[[rules]]` or
+`[[stage]]` that is neither base-passwd nor declared.
 
 Which file the command line reads: `--config/-c FILE`, else `PKGFORGE_CONFIG`
 (the file must exist; empty means no file), else `pkgforge.cfg` in the working

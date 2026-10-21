@@ -46,6 +46,8 @@ def scan(
     stmts = _statements(exclude)
     project._begin_operation()
     meta = dict(meta or {})
+    base = _new_entry(mode=mode, owner=owner, group=group, type=AUTO, meta=meta)
+    project._check_names("scan", base["owner"], base["group"])
     # follow_final=False (unlike install's DESTINATION): the leaf is
     # never followed here, only realpath(parent) is checked, so a
     # symlink PATH pointing at a directory outside the root is recorded
@@ -63,7 +65,6 @@ def scan(
     # skipped for it.
     is_root = scanpath == Path(project.buildroot)
     db = project.load() if missing else {}
-    base = _new_entry(mode=mode, owner=owner, group=group, type=AUTO, meta=meta)
     # -m/--mode applies to regular files only. A directory takes the
     # new --dir-mode instead: the explicit value if given; else AUTO
     # (read from disk) when --mode itself is AUTO, so --mode=-- still

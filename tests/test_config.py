@@ -13,9 +13,11 @@ from pkgforge import Project
 from pkgforge.config import (
     EntryDefaults,
     EntryRule,
+    GroupAccount,
     PackageInfo,
     ProjectConfig,
     StageStep,
+    UserAccount,
     load,
 )
 from pkgforge.exceptions import UsageError
@@ -84,6 +86,17 @@ mode = "600"
 [[stage]]
 symlink = "/usr/bin/hi"
 target = "hello"
+
+[[users]]
+name = "${package.name}"
+description = "The ${package.name} daemon"
+home = "/var/lib/${package.name}"
+shell = "/usr/sbin/nologin"
+groups = ["adm", "hello-data"]
+
+[[groups]]
+name = "hello-data"
+create = false
 """
 
 
@@ -145,6 +158,16 @@ def test_full_document_loads_into_the_dataclasses(tmp_path):
             StageStep(file="/etc/hello.conf", mode="600"),
             StageStep(symlink="/usr/bin/hi", target="hello"),
         ),
+        users=(
+            UserAccount(
+                name="hello",
+                description="The hello daemon",
+                home="/var/lib/hello",
+                shell="/usr/sbin/nologin",
+                groups=("adm", "hello-data"),
+            ),
+        ),
+        groups=(GroupAccount(name="hello-data", create=False),),
     )
 
 
@@ -178,7 +201,7 @@ def test_configured_values_reach_a_yaml_db(tmp_path, yaml_module):
     (tmp_path / "a").write_bytes(b"a")
     cfg = write(
         tmp_path,
-        'own = ["/opt/p"]\n[package]\nname = "p"\n'
+        'own = ["/opt/p"]\n[package]\nname = "p"\n[[users]]\nname = "p"\n'
         '[defaults]\nowner = "root"\ngroup = "${package.name}"\n'
         '[[stage]]\nsrc = "a"\ndest = "/opt/p"\nkind = "doc"\n',
     )
@@ -309,6 +332,8 @@ def test_references_are_replaced_everywhere(tmp_path):
 [package]
 name = "demo"
 description = "$${x} stays"
+[[users]]
+name = "${package.name}"
 [[rules]]
 match = ["/a"]
 owner = "${package.name}"

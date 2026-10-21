@@ -33,6 +33,8 @@ from .exceptions import UsageError
 
 __all__ = [
     "AUTO",
+    "BASE_GROUPS",
+    "BASE_USERS",
     "DEFAULT",
     "FileEntries",
     "FileEntry",
@@ -67,6 +69,20 @@ _CONTROL_PATTERN = "[\x00-\x1f\x7f]"
 #: capability names, then one or more ``=``/``+``/``-`` runs of ``e``, ``i``,
 #: ``p``. It is a single argument of ``setcap`` and of rpm's ``%caps``.
 _CAPS_PATTERN = r"(?:all|cap_[a-z0-9_]+)(?:,(?:all|cap_[a-z0-9_]+))*(?:[=+-][eip]*)+"
+
+#: The user names every Debian system has: the static ``passwd.master`` of the
+#: ``base-passwd`` package (3.6.9). An owner outside this set must be declared.
+BASE_USERS: typing.FrozenSet[str] = frozenset(
+    "root daemon bin sys sync games man lp mail news uucp proxy www-data "
+    "backup list irc _apt nobody".split()
+)
+#: The group names every Debian system has: the static ``group.master`` of the
+#: ``base-passwd`` package (3.6.9). A group outside this set must be declared.
+BASE_GROUPS: typing.FrozenSet[str] = frozenset(
+    "root daemon bin sys adm tty disk lp mail news uucp man proxy kmem dialout "
+    "fax voice cdrom floppy tape sudo audio dip www-data backup operator list "
+    "irc src shadow utmp video sasl plugdev staff games users nogroup".split()
+)
 
 _NAME_RE = re.compile(_NAME_PATTERN)
 _CAPS_RE = re.compile(_CAPS_PATTERN)

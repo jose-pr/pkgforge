@@ -42,7 +42,10 @@ def test_scan_records_below_path_not_path_itself(tmp_path, cli):
 
 
 @pytest.mark.posix
-def test_scan_fields_default_to_dash_and_auto_reads_disk(tmp_path, cli):
+def test_scan_fields_default_to_dash_and_auto_reads_disk(
+    tmp_path, cli, host_accounts_cfg
+):
+    host_accounts_cfg()
     root = tmp_path / "root"
     (root / "usr" / "share" / "tool").mkdir(parents=True)
     f = root / "usr" / "share" / "tool" / "s.txt"
@@ -427,7 +430,10 @@ def test_scan_default_makes_no_name_lookups(tmp_path, monkeypatch, cli):
 
 
 @pytest.mark.posix
-def test_scan_auto_owner_looks_up_each_id_once(tmp_path, monkeypatch, cli):
+def test_scan_auto_owner_looks_up_each_id_once(
+    tmp_path, monkeypatch, cli, host_accounts_cfg
+):
+    host_accounts_cfg()
     import grp
     import pwd
 
@@ -470,7 +476,10 @@ def test_scan_auto_owner_looks_up_each_id_once(tmp_path, monkeypatch, cli):
 
 
 @pytest.mark.posix
-def test_scan_exclude_does_not_repeat_lookups(tmp_path, monkeypatch, cli):
+def test_scan_exclude_does_not_repeat_lookups(
+    tmp_path, monkeypatch, cli, host_accounts_cfg
+):
+    host_accounts_cfg()
     import grp
     import pwd
 

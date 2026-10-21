@@ -80,8 +80,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `postinst` (`#DEBHELPER#` plus a `setcap` line per capability; the package
   needs `Depends: libcap2-bin`). Ghost entries are left out of `install`, `dirs`
   and `fixperms`.
+- `[[users]]` and `[[groups]]` in `pkgforge.cfg` declare the accounts the
+  package's files belong to (`UserAccount`, `GroupAccount` in `pkgforge.config`;
+  `ProjectConfig.users` and `.groups`): `name`, and for a user `description`,
+  `home`, `shell` and supplementary `groups`; `create = false` marks an account
+  that already exists on the target. `pkgforge.entry.BASE_USERS` and
+  `BASE_GROUPS` are Debian's base-passwd names, which need no declaration.
 
 ### Changed
+- An owner or group outside Debian's base-passwd set must be declared in
+  `[[users]]` or `[[groups]]`, or recording it is an error (exit 2). The check
+  covers `-o`/`-g`, `[defaults]`, `[[rules]]`, `[[stage]]` and the names that
+  `--` reads from disk, so `scan --owner=--` over files owned by an ordinary
+  account needs that account declared (`create = false`). Before, any name was
+  recorded as written.
 - `install --record-tree` (and `record_tree = true` in a `[[stage]]` step)
   chmods each child to the mode a `[[rules]]` element or `[defaults]` gives it.
   Before, the mode was only recorded and the file kept its own, so the package

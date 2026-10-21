@@ -93,13 +93,13 @@ def test_defaults_tell_an_executable_from_a_file(tmp_path):
 def test_a_flag_beats_a_rule_beats_defaults(tmp_path):
     p = project(
         tmp_path,
-        defaults=EntryDefaults(owner="d", group="d", dir_mode="755"),
-        rules=(rule("/etc/**", mode="700", owner="r", group="r"),),
+        defaults=EntryDefaults(owner="daemon", group="daemon", dir_mode="755"),
+        rules=(rule("/etc/**", mode="700", owner="bin", group="bin"),),
     )
-    got = p._configured("/etc/x", entry("directory", mode="600", owner="flag"))
-    assert (got["mode"], got["owner"], got["group"]) == ("600", "flag", "r")
+    got = p._configured("/etc/x", entry("directory", mode="600", owner="sys"))
+    assert (got["mode"], got["owner"], got["group"]) == ("600", "sys", "bin")
     got = p._configured("/usr/x", entry("directory"))
-    assert (got["mode"], got["owner"], got["group"]) == ("755", "d", "d")
+    assert (got["mode"], got["owner"], got["group"]) == ("755", "daemon", "daemon")
 
 
 def test_the_first_matching_rule_only_and_per_field(tmp_path):
@@ -107,14 +107,14 @@ def test_the_first_matching_rule_only_and_per_field(tmp_path):
         tmp_path,
         defaults=EntryDefaults(dir_mode="755"),
         rules=(
-            rule("/a/**", group="first"),
-            rule("/a/**", mode="700", group="second"),
+            rule("/a/**", group="tty"),
+            rule("/a/**", mode="700", group="disk"),
         ),
     )
     got = p._configured("/a/x", entry("directory"))
     # The first rule sets only the group: the mode is not taken from the
     # second rule but from [defaults].
-    assert (got["mode"], got["group"]) == ("755", "first")
+    assert (got["mode"], got["group"]) == ("755", "tty")
 
 
 def test_rules_see_the_type_and_honour_negation(tmp_path):
@@ -143,6 +143,7 @@ def test_a_rule_owner_comes_from_the_package_name(tmp_path):
     cfg.write_bytes(
         b'[package]\nname = "hello"\n[[rules]]\nmatch = ["/var/**"]\n'
         b'owner = "${package.name}"\n'
+        b'[[users]]\nname = "${package.name}"\n'
     )
     p = Project.from_config(cfg, buildroot=tmp_path / "root")
     assert p._configured("/var/lib", entry("directory"))["owner"] == "hello"

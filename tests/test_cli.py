@@ -699,7 +699,7 @@ def test_install_remove_source_file(tmp_path, cli):
 
 
 @pytest.mark.posix
-def test_install_chown_current_user(tmp_path, cli):
+def test_install_chown_current_user(tmp_path, cli, host_accounts_cfg):
     import grp
     import pwd
 
@@ -709,6 +709,7 @@ def test_install_chown_current_user(tmp_path, cli):
         pytest.skip("current gid has no group name")
     user_name = pwd.getpwuid(os.getuid()).pw_name
 
+    host_accounts_cfg()
     root = tmp_path / "root"
     db = tmp_path / "files.jsonl"
     src = _write(tmp_path / "a")

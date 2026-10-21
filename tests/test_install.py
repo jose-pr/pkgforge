@@ -1221,8 +1221,8 @@ def test_install_bad_args_touch_nothing(tmp_path, bad):
 
 @pytest.mark.posix
 def test_install_owner_without_chown_recorded(tmp_path):
-    # Without --chown, an owner/group name is only recorded, never resolved
-    # -- packaging commonly names an account created later by %pre.
+    # Without --chown, a declared owner name is only recorded, never looked up
+    # -- the account may be created later by the package's own scriptlets.
     root = tmp_path / "root"
     root.mkdir()
     src = tmp_path / "f.conf"
@@ -1242,13 +1242,16 @@ def test_install_owner_without_chown_recorded(tmp_path):
             "/etc",
         ]
     )
+    inst._config_data = {
+        "users": [{"name": "nosuchuser_pkgforge_xyz", "create": False}]
+    }
     inst()
     assert inst._project().load()["/etc/f.conf"]["owner"] == "nosuchuser_pkgforge_xyz"
 
 
 @pytest.mark.posix
 @pytest.mark.parametrize("attached", ["--owner=--", "--group=--"])
-def test_install_chown_attached_auto_owner(tmp_path, attached):
+def test_install_chown_attached_auto_owner(tmp_path, attached, host_accounts_data):
     import grp
     import pwd
 
@@ -1271,6 +1274,7 @@ def test_install_chown_attached_auto_owner(tmp_path, attached):
             "/etc",
         ]
     )
+    inst._config_data = host_accounts_data
     inst()  # must not raise: py3.9 strips the attached "--" to []
 
     staged = root / "etc" / "f.conf"

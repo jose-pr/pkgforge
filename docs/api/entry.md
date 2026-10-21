@@ -42,6 +42,14 @@
     options:
       show_root_heading: true
 
+::: pkgforge.entry.BASE_USERS
+    options:
+      show_root_heading: true
+
+::: pkgforge.entry.BASE_GROUPS
+    options:
+      show_root_heading: true
+
 ::: pkgforge.entry.AUTO
     options:
       show_root_heading: true

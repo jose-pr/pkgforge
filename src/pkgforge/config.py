@@ -19,6 +19,8 @@ from pathlib import Path
 
 from .entry import (
     AUTO,
+    BASE_GROUPS,
+    BASE_USERS,
     DEFAULT,
     FileType,
     StrPath,
@@ -36,9 +38,11 @@ from .exclude import PathMatchStmt
 __all__ = [
     "EntryDefaults",
     "EntryRule",
+    "GroupAccount",
     "PackageInfo",
     "ProjectConfig",
     "StageStep",
+    "UserAccount",
     "load",
 ]
 
@@ -303,6 +307,160 @@ class StageStep:
         _set(self, "exclude", _statements(self.exclude, "exclude"))
 
 
+#: The names a package may create: what ``systemd-sysusers`` accepts.
+_CREATED_NAME = re.compile(r"[a-z_][a-z0-9_-]{0,30}")
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _declared_name(value: str, created: bool, base: typing.FrozenSet[str]) -> str:
+    """``value`` as the name of a declared account; ``base`` is the set of
+    base-passwd names of its kind, which need no declaration."""
+    name = _name(value, "name")
+    assert name is not None  # value is not None
+    if created and not _CREATED_NAME.fullmatch(name):
+        raise UsageError(
+            f"name: {name!r} cannot be created: expected "
+            "[a-z_][a-z0-9_-]{0,30}; use create = false for an existing account"
+        )
+    if name in base:
+        raise UsageError(f"name: {name!r} is a base-passwd account: it needs no entry")
+    return name
+
+
+def _absolute_word(
+    value: typing.Optional[str], field_name: str
+) -> typing.Optional[str]:
+    """``value`` when it is an absolute path with no whitespace or control
+    character."""
+    if value is None:
+        return None
+    if not value.startswith("/") or re.search(r"[\s\x00-\x1f\x7f]", value):
+        raise UsageError(
+            f"{field_name}: {value!r} must be an absolute path with no whitespace"
+        )
+    return value
+
+
+@dataclass(frozen=True)
+class UserAccount:
+    """One ``[[users]]`` element: an account that owns files of the package.
+
+    With ``create = true`` the package creates it at install time (a
+    ``systemd-sysusers`` ``u`` line, which also makes the group of the same
+    name) with ``description`` as its GECOS text, ``home`` and ``shell``, and
+    adds it to the supplementary ``groups``. With ``create = false`` the
+    account exists on the target already, made by a dependency: no line is
+    written, but its files are still owned by it at install time. Either way
+    the name may own recorded files.
+    """
+
+    name: _Text
+    description: typing.Optional[_Text] = None
+    home: typing.Optional[_Text] = None
+    shell: typing.Optional[_Text] = None
+    groups: typing.Tuple[_Text, ...] = ()
+    create: bool = True
+
+    def __post_init__(self) -> None:
+        name = _declared_name(self.name, self.create, BASE_USERS)
+        if self.create and name in BASE_GROUPS:
+            raise UsageError(
+                f"name: {name!r} is a base-passwd group, which its own group "
+                "would clash with"
+            )
+        _set(self, "name", name)
+        if self.description is not None and (
+            _CONTROL.search(self.description) or '"' in self.description
+        ):
+            raise UsageError(
+                "description: must hold no control character and no double quote"
+            )
+        _set(self, "home", _absolute_word(self.home, "home"))
+        _set(self, "shell", _absolute_word(self.shell, "shell"))
+        _set(self, "groups", tuple(_name(group, "groups") for group in self.groups))
+
+
+@dataclass(frozen=True)
+class GroupAccount:
+    """One ``[[groups]]`` element: a group that owns files of the package.
+
+    With ``create = true`` the package creates it at install time (a
+    ``systemd-sysusers`` ``g`` line); with ``create = false`` it exists on the
+    target already, and its files are still owned by it at install time. The
+    group of a created user needs no element: it is implied.
+    """
+
+    name: _Text
+    create: bool = True
+
+    def __post_init__(self) -> None:
+        _set(self, "name", _declared_name(self.name, self.create, BASE_GROUPS))
+
+
+def _accounts(
+    config: "ProjectConfig",
+) -> typing.Tuple[typing.FrozenSet[str], typing.FrozenSet[str]]:
+    """The owner names and the group names ``config`` allows an entry to
+    carry: the base-passwd sets, what is declared, and the group of each
+    created user."""
+    users = BASE_USERS | {user.name for user in config.users}
+    groups = (
+        BASE_GROUPS
+        | {group.name for group in config.groups}
+        | {user.name for user in config.users if user.create}
+    )
+    return frozenset(users), frozenset(groups)
+
+
+def _check_account_names(config: "ProjectConfig") -> None:
+    """Refuse a declared name that is repeated or clashes, a supplementary
+    group nothing defines, and an owner or group the tables name that is
+    neither base-passwd nor declared."""
+    for table, items in (("users", config.users), ("groups", config.groups)):
+        names: typing.Set[str] = set()
+        for index, item in enumerate(items):
+            if item.name in names:
+                raise UsageError(f"{table}[{index}]: {item.name!r} is declared twice")
+            names.add(item.name)
+    created = {user.name for user in config.users if user.create}
+    for index, group in enumerate(config.groups):
+        if group.name in created:
+            raise UsageError(
+                f"groups[{index}]: {group.name!r} is the group of the created user "
+                "of the same name: drop the [[groups]] element"
+            )
+    users, groups = _accounts(config)
+    for index, user in enumerate(config.users):
+        for name in user.groups:
+            if name not in groups:
+                raise UsageError(
+                    f"users[{index}]: group {name!r} is neither a base-passwd "
+                    "group nor declared in [[groups]]"
+                )
+    if (created or any(g.create for g in config.groups)) and config.package is None:
+        raise UsageError(
+            "[[users]] and [[groups]] that create an account need [package] name"
+        )
+
+    def check(where: str, owner: typing.Optional[str], group: typing.Optional[str]):
+        if owner is not None and owner not in users:
+            raise UsageError(
+                f"{where}: owner {owner!r} is neither a base-passwd account "
+                "nor declared in [[users]]"
+            )
+        if group is not None and group not in groups:
+            raise UsageError(
+                f"{where}: group {group!r} is neither a base-passwd group "
+                "nor declared in [[groups]]"
+            )
+
+    check("defaults", config.defaults.owner, config.defaults.group)
+    for index, rule in enumerate(config.rules):
+        check(f"rules[{index}]", rule.owner, rule.group)
+    for index, step in enumerate(config.stage):
+        check(f"stage[{index}]", step.owner, step.group)
+
+
 def _own_prefix(prefix: str) -> str:
     """``prefix`` normalized, or :class:`UsageError` unless it is a ``/``-rooted
     path below ``/`` with no ``..``."""
@@ -326,8 +484,12 @@ class ProjectConfig:
     ``buildroot``, ``db`` and ``db_format`` set the options of the same name
     (``db = "-"`` means no file DB), ``own`` lists the directory prefixes the
     package owns, and the tables are ``[package]``, ``[defaults]``,
-    ``[[rules]]`` and ``[[stage]]``. A key that is not listed here is an error.
-    Build one with :func:`load` or :meth:`from_dict`.
+    ``[[rules]]``, ``[[stage]]``, ``[[users]]`` and ``[[groups]]``. A key that
+    is not listed here is an error. An owner or group named by ``[defaults]``,
+    a rule or a step must be a base-passwd account (``BASE_USERS``,
+    ``BASE_GROUPS``) or declared in ``[[users]]``/``[[groups]]``; a created
+    account needs ``[package] name``. Build one with :func:`load` or
+    :meth:`from_dict`.
     """
 
     buildroot: typing.Optional[_Text] = None
@@ -338,9 +500,12 @@ class ProjectConfig:
     defaults: EntryDefaults = field(default_factory=EntryDefaults)
     rules: typing.Tuple[EntryRule, ...] = ()
     stage: typing.Tuple[StageStep, ...] = ()
+    users: typing.Tuple[UserAccount, ...] = ()
+    groups: typing.Tuple[GroupAccount, ...] = ()
 
     def __post_init__(self) -> None:
         _set(self, "own", tuple(_own_prefix(prefix) for prefix in self.own))
+        _check_account_names(self)
 
     @classmethod
     def from_dict(cls, data: typing.Mapping[str, typing.Any]) -> "ProjectConfig":

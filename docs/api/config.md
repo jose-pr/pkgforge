@@ -33,6 +33,14 @@ project = Project.from_config("pkgforge.cfg", buildroot="build/root")
     options:
       show_root_heading: true
 
+::: pkgforge.config.UserAccount
+    options:
+      show_root_heading: true
+
+::: pkgforge.config.GroupAccount
+    options:
+      show_root_heading: true
+
 ::: pkgforge.config.load
     options:
       show_root_heading: true
