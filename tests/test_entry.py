@@ -126,7 +126,7 @@ def test_install_symlink_with_mode_records_entry(tmp_path):
             "/usr/bin",
         ]
     )
-    inst()  # must not raise (the regression: NotImplementedError on Linux)
+    inst()  # must not raise NotImplementedError (no-follow chmod on Linux)
 
     staged = root / "usr" / "bin" / "app.link"
     assert staged.is_symlink()
@@ -328,8 +328,7 @@ def test_mode_attached_auto_sentinel(field, argv):
 
 
 def test_detached_mode_sentinel_exits_2():
-    # Guard: a detached "-m --" is argparse's own end-of-options marker and
-    # already exited 2 before this change; it must keep doing so.
+    # A detached "-m --" is argparse's own end-of-options marker: exit 2.
     from pkgforge.cli.install import Install
 
     parser = Install._parser_()
@@ -499,7 +498,7 @@ def test_install_type_auto_sentinel_detects(tmp_path):
         db=db,
         parents=True,
     )
-    inst()  # must not raise (the regression: NotImplementedError on the API)
+    inst()  # must not raise NotImplementedError through the Python API
 
     loaded = Project(root, db, db_format=None).load()
     assert loaded["/a/src"]["type"] == "file"

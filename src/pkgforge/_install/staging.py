@@ -151,10 +151,9 @@ def _copy_ignore(
                         ignored.append(name)
                         continue
                 except TypeError as exc:
-                    # FileType.from_path raises TypeError for a fifo/socket.
-                    # A glob-only -X (e.g. '*.fifo') already excluded such a
-                    # path above without ever reaching here; this is a
-                    # test-bearing statement whose glob still hit one.
+                    # FileType.from_path raises TypeError for a fifo/socket,
+                    # reached only by a statement with inline tests (a
+                    # glob-only -X excludes one without typing it).
                     raise PkgForgeError(
                         f"{path}: unsupported file type (not a "
                         "file, directory or symlink); exclude it "
@@ -202,10 +201,9 @@ class _Staging(_Transfer):
         tmp = Path(tmp_name)
         try:
             if not src:
-                # An empty file (-t file, no source). mkstemp already
-                # created it 0600; give it the umask-adjusted default mode
-                # a plain touch() would have, since apply_entry() skips
-                # chmod entirely when mode is left at DEFAULT.
+                # An empty file (-t file, no source): mkstemp made it 0600 and
+                # apply_entry() skips chmod for a DEFAULT mode, so give it the
+                # umask-adjusted mode touch() would.
                 os.chmod(tmp, 0o666 & ~_umask())
             elif self.decompress:
                 os.chmod(tmp, 0o666 & ~_umask())
@@ -218,10 +216,8 @@ class _Staging(_Transfer):
                             # (e.g. "-v.gz") is never read as an option.
                             "-" if from_stdin else os.fspath(src.absolute()),
                         ],
-                        # Only a "-" source reads stdin. Passing the file
-                        # object (not a bare .fileno()) lets subprocess
-                        # resolve it even when stdin has been replaced with
-                        # a wrapped file object (as the tests do).
+                        # The file object, not .fileno(): subprocess then
+                        # resolves it even when sys.stdin is a wrapper.
                         what=(
                             "cannot decompress "
                             f"{'standard input' if from_stdin else src}"
@@ -231,14 +227,9 @@ class _Staging(_Transfer):
                     )
             elif not from_stdin:
                 if stat.S_ISREG(os.stat(src).st_mode):
-                    # mkstemp already created tmp 0600; os.link/copyfile/
-                    # os.replace each want to create/replace the name
-                    # themselves, so remove the placeholder first (matches
-                    # the plain-copy path below, which relied on this
-                    # already). A mode set by -m still wins over the
-                    # staged one, applied later by apply_entry() -- true
-                    # for all three methods, including link, where it also
-                    # lands on the shared inode.
+                    # os.link/copyfile/os.replace create the name themselves,
+                    # so drop mkstemp's placeholder. apply_entry() applies -m
+                    # afterwards, for a link onto the shared inode too.
                     tmp.unlink()
                     if self.method == "move":
                         # os.replace/shutil.move: consumes src.
@@ -249,15 +240,9 @@ class _Staging(_Transfer):
                     else:
                         if self.method == "link":
                             self._warn_link_fallback()
-                        # Copy src -> tmp: content, permission bits and
-                        # modification time only -- never shutil.copy2, which
-                        # (via copystat) also copies BSD file flags and
-                        # extended attributes (e.g. an SELinux label).
-                        # Staging should not carry either: on macOS,
-                        # copystat's chflags() call raises PermissionError
-                        # for a source with any of the user-immutable/
-                        # no-dump flags set, even though this process only
-                        # reads the source.
+                        # Content, mode and mtime only: copy2's copystat also
+                        # copies file flags and xattrs (an SELinux label), and
+                        # on macOS raises PermissionError for an immutable source.
                         shutil.copyfile(os.fspath(src), os.fspath(tmp))
                         shutil.copymode(os.fspath(src), os.fspath(tmp))
                         src_stat = os.stat(src)
@@ -289,11 +274,9 @@ class _Staging(_Transfer):
             copystat_from = None
         else:
             target = os.fspath(src.readlink())
-            # Rebind, never mutate: self.meta may be the caller's own dict,
-            # a shared class-level default, or a parser -O action's stored
-            # default. Mutating it in place leaked "target" into every
-            # entry recorded after this one, in the same multi-source
-            # install and beyond it.
+            # Rebind, never mutate: self.meta may be the caller's dict or a
+            # shared default, and an in-place "target" would leak into every
+            # entry recorded after this one.
             self.meta = {**self.meta, "target": target}
             copystat_from = src
 
@@ -376,11 +359,8 @@ class _Staging(_Transfer):
             os.chmod(tmp, 0o777 & ~_umask())
             try:
                 archive.extract(src, tmp, self._logger_)
-                # `-X` prunes matched members from the extracted tree
-                # before anything is merged or renamed onto dst -- the
-                # same PathMatch a directory copy applies via
-                # _copy_ignore, evaluated directly over the on-disk
-                # extraction instead of copytree's own ignore= callback.
+                # `-X` prunes the extracted tree before anything reaches dst:
+                # the same PathMatch a directory copy applies via _copy_ignore.
                 matcher = self._exclude_matcher(tmp)
                 if matcher is not None:
                     archive._prune_excluded(tmp, matcher, dict(self.meta))
@@ -401,10 +381,8 @@ class _Staging(_Transfer):
 
         crossed_filesystems = False
         if self.method == "move" and not dst.exists() and not self.exclude:
-            # Fast path: the whole tree becomes the destination in one
-            # rename -- nothing left to stage further, and (unlike the
-            # merge path below) a single reversible unit a failure in
-            # apply/replace/record can still move back onto self.source.
+            # Fast path: one rename, which (unlike the merge path below) a
+            # later apply/replace/record failure can still move back.
             try:
                 os.rename(src, dst)
             except OSError as exc:
@@ -417,14 +395,9 @@ class _Staging(_Transfer):
                 self._move_atomic = True
                 return dst
 
-        # A directory source: copytree onto dst, merging if dst already
-        # exists (also every move that isn't the fast path above -- an
-        # existing dst, or an --exclude that must leave some source files
-        # behind). Only roll back dst on failure if this call created it --
-        # a partial merge into a pre-existing directory is not rolled back;
-        # for a move specifically, files already consumed from self.source
-        # into dst by the time of that failure would be lost outright if
-        # dst were then deleted too, so a move never does that cleanup.
+        # copytree onto dst, merging into an existing one. On failure dst is
+        # removed only if this call created it, and never for a move: files
+        # it already consumed from self.source would be lost.
         created = not dst.exists()
         try:
             dst.mkdir(exist_ok=True)
@@ -435,12 +408,8 @@ class _Staging(_Transfer):
                 copy_function_kwargs["copy_function"] = self._move_copy_function
             elif self.method == "link":
                 copy_function_kwargs["copy_function"] = self._link_copy_function
-            # copytree stamps the top directory's own stat (mode, mtime)
-            # once it finishes, unconditionally -- a copystat here first
-            # would only be overwritten by that one, so there is none. The
-            # dangling-symlink flag copytree also accepts is not passed
-            # either: it only has any effect when symlinks=False, so it
-            # would be a silent no-op here (symlinks=True below).
+            # copytree copies the top directory's stat itself when it
+            # finishes; ignore_dangling_symlinks only acts with symlinks=False.
             shutil.copytree(
                 src,
                 dst,
@@ -450,12 +419,9 @@ class _Staging(_Transfer):
                 **copy_function_kwargs,
             )
             if self.method == "move":
-                # Every file copy_function actually moved is already gone
-                # from src; a symlink was recreated fresh at dst instead
-                # (copytree never routes one through copy_function) and so
-                # is still in src -- only directories left with nothing
-                # else in them are removed, so an --exclude (or a symlink)
-                # leaves exactly its own path behind, as documented.
+                # Moved files are gone from src, but copytree recreates a
+                # symlink rather than moving it; only emptied directories go,
+                # so an excluded path or a symlink stays behind.
                 self._remove_empty_dirs(src)
                 if crossed_filesystems and os.path.lexists(src):
                     # Nothing was excluded, so what is left are the symlinks
@@ -474,7 +440,7 @@ class _Staging(_Transfer):
         an in-place no-op, or an already-empty directory) or a sibling temp
         the caller must ``os.replace`` onto ``dst`` after applying the
         entry. Writes nothing to ``dst`` directly for a file or symlink
-        type, so a failure here never touches a previously staged copy.
+        type, so a failure here never touches a copy already at ``dst``.
         """
         self._logger_.info(
             "Installing %s at %s",
@@ -486,10 +452,9 @@ class _Staging(_Transfer):
             and os.path.lexists(dst)
             and os.path.samestat(os.lstat(src), os.lstat(dst))
         ):
-            # src already IS the staged dst (e.g. an in-place build, or a
-            # hardlink left by an earlier run): nothing to stage. Uses
-            # samestat on lstat, not resolve()/exists(), so a stale host
-            # symlink that merely resolves to src does not count as "same".
+            # src already IS dst (an in-place build, or an earlier run's
+            # hardlink). lstat, not resolve(): a host symlink that merely
+            # resolves to src is not the same file.
             if self.type == FileType.Symlink:
                 self.meta = {**self.meta, "target": os.fspath(src.readlink())}
             return dst

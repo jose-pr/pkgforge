@@ -768,10 +768,9 @@ class Project:
         if sum(1 for item in items if item == DEFAULT) > 1:
             raise UsageError("only one source may read stdin ('-') per invocation")
 
-        # Resolve every clone (type, decompress kind, destination --
-        # writes no file) before staging any of them, so a collision
-        # between two sources -- or a bad argument on a later source --
-        # is caught with nothing on disk yet.
+        # Resolve every clone (writes nothing) before staging any, so a
+        # collision or a bad argument on a later source fails with nothing
+        # on disk yet.
         resolved: typing.List[typing.Tuple[_Installer, Path]] = []
         for item in items:
             inst = _Installer(

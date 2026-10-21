@@ -8,8 +8,10 @@ __all__ = ["Stage"]
 
 
 class Stage(ProjectCmd):
-    """Run the [[stage]] steps of pkgforge.cfg: install each source, directory,
-    file and link into the build root and record its entry."""
+    """Run the [[stage]] steps of pkgforge.cfg.
+
+    Installs each source, directory, file and link into the build root and
+    records its entry."""
 
     _parsername_ = "stage"
     _logger_name_ = "pkgforge.stage"

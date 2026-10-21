@@ -7,11 +7,9 @@ import os
 import shutil
 from pathlib import Path
 
-#: errnos `os.link` can raise for a source it just can't hardlink (a
-#: different filesystem, ``fs.protected_hardlinks``, the per-inode link
-#: limit, or a permission error) -- ``--method link`` falls back to copying
-#: that one file/entry instead of failing the whole install. Anything else
-#: propagates.
+#: errnos for a source `os.link` cannot hardlink (another filesystem,
+#: ``fs.protected_hardlinks``, the link limit, permissions): ``--method link``
+#: copies that one file instead. Any other errno propagates.
 _LINK_FALLBACK_ERRNOS = frozenset(
     (errno.EXDEV, errno.EPERM, errno.EMLINK, errno.EACCES)
 )
@@ -42,13 +40,9 @@ class _Transfer:
     #: fallback files (or a multi-source install with several such clones)
     #: gets one WARNING each, not one per file.
     _link_fallback_warned: bool = False
-    #: Set by :meth:`_stage_file`/:meth:`_stage_directory` only for the
-    #: staging actions that consume ``self.source`` as a single reversible
-    #: unit (a file move, or a directory's whole-tree rename fast path) --
-    #: never for a merge move, which is not atomic and, like a partial
-    #: copy merge, is not rolled back. ``_Installer._stage`` reads this to
-    #: decide whether a later apply/replace/record failure can still move
-    #: the data back to ``self.source``.
+    #: True when staging consumed ``self.source`` as one reversible unit (a file
+    #: move or a whole-tree rename, never a merge move), so a later failure can
+    #: move the data back (:meth:`_rollback_move`).
     _move_atomic: bool = False
 
     def _warn_link_fallback(self) -> None:
@@ -151,7 +145,7 @@ class _Transfer:
 
     def _remove_empty_dirs(self, root: Path) -> None:
         """Bottom-up: remove every directory under (and including) ``root``
-        that is empty right now. Used after a ``--method move`` merge,
+        that is empty when the walk reaches it. Used after a ``--method move`` merge,
         where an ``--exclude`` (or a symlink ``copytree`` recreated at the
         destination without consuming the source's own copy) can leave some
         files behind in ``root`` -- unlike ``shutil.rmtree``, this never

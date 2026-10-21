@@ -88,10 +88,9 @@ requires_deb_build = pytest.mark.skipif(
     "adm group) not available",
 )
 
-#: The rpm dump format this host's own rpm can actually use: below 4.19 a
-#: quoted `%files -f` name is macro-expanded twice and an unquoted name's
-#: glob characters are matched by rpm's own globbing, so `rpmspecfiles`'
-#: quoting (targets 4.19+) is not safe there -- `rpmspecfiles-pre419` is.
+#: The rpm dump format this host's rpm can use: below 4.19 a quoted `%files -f`
+#: name is macro-expanded twice and an unquoted one globbed, so only
+#: `rpmspecfiles-pre419` is safe there.
 _HOST_FORMAT = "rpmspecfiles-pre419" if _RPM_BELOW_419 else "rpmspecfiles"
 #: The spec format this host's own rpm can build, for the same reason.
 _HOST_SPEC = "rpmspec-pre419" if _RPM_BELOW_419 else "rpmspec"
@@ -100,10 +99,9 @@ _OTHER_FORMAT = {
     "rpmspecfiles": "rpmspecfiles-pre419",
     "rpmspecfiles-pre419": "rpmspecfiles",
 }
-#: Character classes each format is measured `exact` for, on every leg it
-#: targets (from `tests/rpm_probe.py --analyze`, measured 2026-09-29 on rpm
-#: 4.14.3/4.16.1/4.18.2/6.0.2): a class not listed here is refused by
-#: `dbdump` for that format rather than risking the wrong file.
+#: Character classes `tests/rpm_probe.py --analyze` measures `exact` for each
+#: format on rpm 4.14.3/4.16.1/4.18.2/6.0.2; `dbdump` refuses any other class
+#: for that format rather than risk the wrong file.
 _SUPPORTED = {
     "rpmspecfiles": frozenset(
         {
@@ -327,11 +325,9 @@ def test_rpmbuild_accepts_manifest(tmp_path, cli):
 
 @requires_rpmbuild
 def test_rpmbuild_quoted_glob_is_literal(tmp_path, cli):
-    # Guard: rpm's own quoted-string globbing matches a glob character
-    # literally, so a supporting format never needs to escape one; a class
-    # the format doesn't support must be refused outright instead of
-    # overmatching a sibling -- this passed even before rpmspecfiles was
-    # rpm-quoted at all (json.dumps also left glob characters alone).
+    # rpm's quoted-string globbing matches a glob character literally, so a
+    # supporting format packages only the named file; a class the format does
+    # not support is refused rather than overmatching a sibling.
     root = tmp_path / "root"
     src = tmp_path / "src"
     src.mkdir()
@@ -443,10 +439,9 @@ def test_rpmbuild_packages_pinned_attrs_config_and_symlink(tmp_path, cli):
 
 @requires_rpmbuild
 def test_rpmbuild_other_format_never_silently_wrong(tmp_path, cli):
-    # rpmspecfiles-pre419 used with rpm 4.19+ may fail the build, but must
-    # never silently package a sibling (overmatch) or the wrong file. The
-    # reverse does not hold: rpmspecfiles on rpm below 4.19 is measured to
-    # overmatch glob names, which is why rpmspecfiles-pre419 exists.
+    # rpmspecfiles-pre419 on rpm 4.19+ may fail the build but never packages
+    # a sibling or the wrong file. Not the reverse: rpmspecfiles below 4.19
+    # overmatches glob names.
     if _RPM_BELOW_419:
         pytest.skip("rpmspecfiles on rpm < 4.19 overmatches glob names by design")
     other_format = _OTHER_FORMAT[_HOST_FORMAT]
@@ -828,13 +823,9 @@ def test_dh_install_fixperms_builds_deb(tmp_path, cli):
         cwd=pkgroot,
         capture_output=True,
         text=True,
-        # dh_builddeb is invoked directly here, not through dpkg-buildpackage,
-        # so Rules-Requires-Root: binary-targets in debian/control is never
-        # read into DEB_RULES_REQUIRES_ROOT -- debhelper then treats it as
-        # "no" and dh_builddeb runs dpkg-deb --root-owner-group, which
-        # normalizes every owner/group to root:root regardless of what
-        # fixperms just chowned. Export it explicitly, mirroring what
-        # dpkg-buildpackage itself would export from the control file.
+        # Exported as dpkg-buildpackage would from debian/control: without it
+        # dh_builddeb runs dpkg-deb --root-owner-group, resetting every owner
+        # fixperms set to root:root.
         env={**os.environ, "DEB_RULES_REQUIRES_ROOT": "binary-targets"},
     )
     assert build_result.returncode == 0, build_result.stdout + build_result.stderr
@@ -919,11 +910,9 @@ def _doc_rules_recipe(marker: str) -> str:
     raise AssertionError(f"no make recipe containing {marker!r} in {FORMATS_MD}")
 
 
-#: What a user's stage.sh holds: one ``pkgforge install`` per artifact. A
-#: man page (renamed to .gz by dh_compress when pinned), a doc over 4 KiB
-#: (compressed too), a setuid helper, a root:adm config, a recorded empty
-#: state directory, and a directory under /usr/local (removed by
-#: dh_usrlocal).
+#: A user's stage.sh, one ``pkgforge install`` per artifact: a man page and a
+#: doc over 4 KiB (dh_compress renames both), a setuid helper, a root:adm
+#: config, an empty state directory, and a /usr/local directory dh_usrlocal removes.
 _STAGE_SH = """\
 set -eu
 pf() { pkgforge -q "$@"; }

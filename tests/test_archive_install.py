@@ -1,12 +1,11 @@
 """Tests for archive and directory install: extraction safety and re-runs.
 
-Every regression test for the archive/directory-install security-review pass
-lands here (``tests/test_install.py`` keeps the tests that predate it).
-Tests that need POSIX facilities (symlinks, bsdtar, chmod/chown, device
-nodes) are marked ``@pytest.mark.posix``; root-only tests are additionally
-gated on ``os.geteuid() == 0`` and must be run as root (e.g. in the CI
-``glibc-floor`` container, or a local root shell) to actually execute --
-they are silently skipped on a non-root runner.
+``tests/test_install.py`` holds the other ``install`` tests. Tests that
+need POSIX facilities (symlinks, bsdtar, chmod/chown, device nodes) are
+marked ``@pytest.mark.posix``; root-only tests are additionally gated on
+``os.geteuid() == 0`` and must be run as root (e.g. in the CI ``glibc-floor``
+container, or a local root shell) to actually execute -- they are silently
+skipped on a non-root runner.
 """
 
 from __future__ import annotations
@@ -333,8 +332,7 @@ def test_bsdtar_as_root_rejects_char_device(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# bsdtar's own extraction pins path/symlink containment for the formats
-# (zip, iso, cpio, stdin) that never go through the tarfile staging filter
+# bsdtar containment for formats the tarfile filter never sees (zip, iso, cpio)
 # --------------------------------------------------------------------------
 
 
@@ -462,8 +460,7 @@ def test_bsdtar_refuses_write_through_symlink_escape(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# Tar extraction filter: absolute/climbing symlinks kept, escapes refused,
-# re-extraction stays idempotent
+# Tar filter: in-root absolute/climbing links kept, escapes refused, idempotent
 # --------------------------------------------------------------------------
 
 
@@ -771,8 +768,7 @@ def test_tar_as_root_drops_owner(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# Archive-to-directory naming: an extracted archive drops its suffix,
-# a directory source keeps its own name
+# Directory naming: an extracted archive drops its suffix, a directory keeps its name
 # --------------------------------------------------------------------------
 
 
@@ -838,8 +834,7 @@ def test_install_archive_strips_suffix(tmp_path, suffix):
 @pytest.mark.posix
 @pytest.mark.parametrize("suffix", [".tar", ".tar.gz", ".tar.bz2", ".tar.xz"])
 def test_install_archive_strips_suffix_guard(tmp_path, suffix):
-    # Guard: the old loop already stripped a literal .tar/.tar.gz/.tar.bz2/
-    # .tar.xz suffix before this fix.
+    # A literal .tar/.tar.gz/.tar.bz2/.tar.xz suffix is stripped.
     root = tmp_path / "root"
     root.mkdir()
     db = tmp_path / "files.jsonl"
@@ -876,8 +871,8 @@ def test_install_directory_source_keeps_dotted_name(tmp_path):
 @requires_tar_filter
 @pytest.mark.posix
 def test_install_tar_routes_through_tarfile_guard(tmp_path, monkeypatch):
-    # Guard: a plain .tar.gz source still goes through the stdlib tarfile
-    # path, not bsdtar, after the naming rework.
+    # A plain .tar.gz source goes through the stdlib tarfile path, not
+    # bsdtar.
     import pkgforge._install.archive as install_mod
 
     calls = []
@@ -928,9 +923,8 @@ def test_install_zip_via_bsdtar(tmp_path):
 @pytest.mark.posix
 @pytest.mark.skipif(shutil.which("bsdtar") is None, reason="bsdtar not available")
 def test_install_archive_from_stdin_via_bsdtar_guard(tmp_path):
-    # Guard: -x/-T stdin archive install already worked through bsdtar
-    # before this fix; naming a stdin destination never goes through
-    # _archive_dir_name at all (it always needs an explicit -T name).
+    # A -x/-T stdin archive installs through bsdtar; a stdin destination
+    # never goes through _archive_dir_name (it needs an explicit -T name).
     root = tmp_path / "root"
     root.mkdir()
     db = tmp_path / "files.jsonl"

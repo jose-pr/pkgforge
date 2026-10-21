@@ -152,10 +152,8 @@ def test_dbdump_stdout_honours_redirect(tmp_path, fmt, package_cfg):
 
 
 def test_dbdump_stdout_keeps_print_order(tmp_path):
-    # A subprocess so stdout is a real (block-buffered, non-tty) pipe: the
-    # old fdopen-on-fd-1 approach wrote the manifest straight to the fd,
-    # bypassing Python's own stdout buffer, so text already print()-ed but
-    # not yet flushed came out AFTER it.
+    # A subprocess so stdout is a real block-buffered pipe: a manifest
+    # written straight to fd 1 would overtake print()-ed text still buffered.
     db = tmp_path / "files.jsonl"
     _seed_tool_entry(db)
     script = (
@@ -177,10 +175,8 @@ def test_dbdump_stdout_keeps_print_order(tmp_path):
 
 @pytest.mark.posix
 def test_dbdump_closed_pipe_is_quiet(tmp_path):
-    # Piping a large manifest into `head -1` closes the read end early: a
-    # raw fd write there raised BrokenPipeError from inside dbdump AND again
-    # from the fdopen's own finally-flush, producing a traceback plus an
-    # "Exception ignored" message at interpreter shutdown.
+    # `head -1` closes the read end early: neither the write nor the final
+    # flush may print a traceback or an "Exception ignored" message.
     db = tmp_path / "files.jsonl"
     provider = open_db(db)
     for i in range(20000):
@@ -299,11 +295,8 @@ def test_dbdump_debian_onto_file_exits_2(tmp_path, cli):
     ids=["ctrl", "pct"],
 )
 def test_dbdump_unrepresentable_exits_1_without_output(tmp_path, cli, row, ident):
-    # A row rpm cannot represent must stop the whole dump before OUTPUT is
-    # touched, and the message must never echo the untrusted path text back
-    # (only describe the problem) -- rpm's %(...) macro is a shell-command
-    # channel, so a message that reflected it verbatim would be one more
-    # place that content could resurface.
+    # An unrepresentable row stops the dump before OUTPUT is touched, and the
+    # message never echoes the path: rpm's %(...) macro runs a shell command.
     db = tmp_path / "files.jsonl"
     open_db(db).add(
         "/o/%(echo PWNED >&2)",

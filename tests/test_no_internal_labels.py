@@ -34,11 +34,8 @@ import pytest
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _THIS_FILE = Path(__file__).resolve()
 
-# --------------------------------------------------------------------------
-# Label shapes
-# --------------------------------------------------------------------------
-# Each entry is (name, compiled pattern). Kept as data, not inlined into the
-# scanner, so the planted-label test below can drive every shape generically.
+# Label shapes as (name, compiled pattern): data, so the planted-label test
+# below can drive every shape generically.
 
 _PATTERNS = [
     ("numbered-plan", re.compile(r"\b[Pp]lan[ _-]?\d")),
@@ -66,10 +63,8 @@ _PATTERNS = [
     ("private-working-dir", re.compile(r"\." + r"agents\b")),
 ]
 
-# (path, substring, reason) -- a match on `path` whose offending line
-# contains `substring` is a genuine domain use, not an internal-artefact
-# reference. `_DOTTED_DIR` is assembled the same way as the pattern above,
-# for the same reason.
+# (path, substring, reason): a match on `path` whose line contains `substring`
+# is a genuine domain use. `_DOTTED_DIR` is concatenated like the pattern above.
 _DOTTED_DIR = "." + "agents"
 _ALLOWLIST = [
     (

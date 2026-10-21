@@ -1,10 +1,10 @@
 """Guards that pin the docs site and the shipped API header to the CLI's
-real behavior, so they cannot drift the way they did before this module
-existed: the quick-start blocks stay identical and private, every
-documented ``pkgforge`` invocation actually parses, the shipped sequences
-actually run, README/header links stay absolute (PyPI has no repo to
-resolve them against), the API reference covers the full public surface,
-and the header documents every exported name plus one exit-status section.
+real behavior, so they cannot drift from it: the quick-start blocks stay
+identical and private, every documented ``pkgforge`` invocation actually
+parses, the shipped sequences actually run, README/header links stay
+absolute (PyPI has no repo to resolve them against), the API reference
+covers the full public surface, and the header documents every exported
+name plus one exit-status section.
 """
 
 from __future__ import annotations
@@ -49,11 +49,9 @@ _CUT_TOKENS = {"|", ">", "<", ";", "&&"}
 
 API_DIR = ROOT / "docs" / "api"
 
-# The dotted mkdocstrings target (`{obj.__module__}.{obj.__qualname__}`) for
-# every class/function the API reference must cover: everything in
-# ``pkgforge.__all__`` that isn't ``__version__`` or a leaf-module re-export,
-# plus the built-in DB/dump backends and leaf commands the shipped header
-# documents by name but ``pkgforge.__all__`` only exposes as submodules.
+# mkdocstrings targets (`module.qualname`) the API reference must cover:
+# ``pkgforge.__all__`` (bar ``__version__`` and re-exports), plus the backends
+# and commands the shipped header names but ``__all__`` exposes only as modules.
 REQUIRED_API_TARGETS = (
     "pkgforge.project.Project",
     "pkgforge.project.VerifyIssue",
@@ -241,7 +239,7 @@ def test_doc_sequences_run(page, tmp_path, monkeypatch):
     text = page.read_text(encoding="utf-8")
     anchor = "## Quick start" if page is README else "A typical staging sequence"
     block = _fence_after(anchor, text)
-    # Old docs (a fixed /tmp path) must fail this test unrun, not silently pass.
+    # Docs with a fixed /tmp path must fail this test unrun, not silently pass.
     assert 'work="$(mktemp -d)"' in block
     assert 'PKGFORGE_ROOT="$work/' in block
 

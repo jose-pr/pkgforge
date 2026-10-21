@@ -221,7 +221,7 @@ def test_scan_logs_one_info_summary(tmp_path, caplog):
 
 
 def test_scan_default_buildroot_does_not_crash(tmp_path, monkeypatch):
-    # Regression: buildroot default must be Path("."), not the str ".", or
+    # The buildroot default must be Path("."), not the str ".", or
     # scan.py's `self.buildroot / path` is str/str -> TypeError.
     from pkgforge.cli.scan import ScanCmd
 
@@ -233,7 +233,7 @@ def test_scan_default_buildroot_does_not_crash(tmp_path, monkeypatch):
     # Drive through the parser with NO --buildroot (default applies).
     parser = ScanCmd._parser_()
     inst = parser.parse_args(["--db", str(db), "sub"])
-    inst()  # must not raise (the regression: str "." / str -> TypeError)
+    inst()  # must not raise (str "." / str -> TypeError)
     recorded = inst._project().load()
     assert {k.replace("\\", "/") for k in recorded} == {"/sub/f"}
 
@@ -307,7 +307,7 @@ def test_scan_root_path_ok(tmp_path):
 
 @pytest.mark.posix
 def test_install_remove_source_directory(tmp_path):
-    # Regression: --remove-source on a directory must rmtree, not unlink.
+    # --remove-source on a directory must rmtree, not unlink.
     from pkgforge.cli.install import Install
 
     root = tmp_path / "root"
@@ -611,19 +611,15 @@ def test_nonmatching_recursive_dir_statement_falls_through(make_entry):
 
 
 def test_single_nonmatching_recursive_dir_still_keeps(make_entry):
-    # The fix must not change single-statement behavior: no decision -> _default.
+    # A single statement that decides nothing returns _default.
     m = PathMatch([PathMatchStmt.parse("**/*.pyc")])
     assert m.match(Path("/a/tmp"), make_entry(type=FileType.Directory)) is None
 
 
 def test_pathmatch_keeps_statements_unchanged(tmp_path, make_entry):
-    # Guards: PathMatch stores statements exactly as parsed -- no rebasing,
-    # no copying -- so two constructions over the same parsed list (what a
-    # multi-source install does: one PathMatch per source) share the exact
-    # same PathMatchStmt objects and never interfere with each other. This
-    # is what makes the old rebasing bug (a pattern re-prefixed once per
-    # source: /a/** -> /src1/a/** -> /src2/src1/a/**) structurally
-    # impossible now: there is nothing left to rebase.
+    # PathMatch keeps statements as parsed, so one PathMatch per source shares
+    # the same PathMatchStmt objects and a pattern is never re-prefixed per
+    # source (/a/** -> /src2/src1/a/**).
     src1 = tmp_path / "src1"
     src2 = tmp_path / "src2"
     pattern = "/a/**"

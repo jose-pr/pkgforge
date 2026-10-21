@@ -48,30 +48,22 @@ def scan(
     meta = dict(meta or {})
     base = _new_entry(mode=mode, owner=owner, group=group, type=AUTO, meta=meta)
     project._check_names("scan", base["owner"], base["group"])
-    # follow_final=False (unlike install's DESTINATION): the leaf is
-    # never followed here, only realpath(parent) is checked, so a
-    # symlink PATH pointing at a directory outside the root is recorded
-    # as a symlink below, not refused. An escaping *ancestor* component
-    # is still refused by _rootpath itself.
+    # follow_final=False: a symlink PATH pointing outside the root is
+    # recorded as a symlink below, not refused; an escaping ancestor
+    # component is still refused by _rootpath.
     scanpath = project._rootpath(path, follow_final=False)
     if not os.path.lexists(scanpath):
         raise UsageError(
             f"{path!r} does not exist under build root "
             f"{os.fspath(project.buildroot)!r}"
         )
-    # True when PATH normalizes to the root itself ("/", or a plain
-    # "."): PATH "/" must still be walked even when --buildroot itself
-    # resolves through a symlink, so the symlink-leaf check below is
-    # skipped for it.
+    # PATH "/" (or ".") is walked even when --buildroot itself is a
+    # symlink, so the symlink-leaf check below skips it.
     is_root = scanpath == Path(project.buildroot)
     db = project.load() if missing else {}
-    # -m/--mode applies to regular files only. A directory takes the
-    # new --dir-mode instead: the explicit value if given; else AUTO
-    # (read from disk) when --mode itself is AUTO, so --mode=-- still
-    # reads directories from disk too; else DEFAULT ('-') -- an
-    # explicit file mode is never inherited by directories. A symlink's
-    # mode is always DEFAULT: Linux ignores it, and rpm/debian consumers
-    # warn about (or reject) an explicit mode on one.
+    # -m applies to regular files only; a directory takes --dir-mode, else
+    # AUTO when -m is AUTO, else DEFAULT. A symlink's mode is always DEFAULT:
+    # Linux ignores it and rpm/debian warn about or reject an explicit one.
     if dir_mode is not None:
         dirmode = normalize_mode(dir_mode)
     elif base["mode"] == AUTO:
@@ -103,17 +95,12 @@ def scan(
         project, bases, matcher, meta, db, logger=_LOGGER, write=write
     )
 
-    # Batches the walk's own writes (a no-op except for sqlite, where it
-    # holds one connection and commits periodically instead of once per
-    # file); committed before --drop-stale's own reload below, which
-    # needs a fresh load() to see what this walk just wrote.
+    # Batched (a no-op except sqlite, which commits periodically), and
+    # committed before --drop-stale's reload needs to see these writes.
     with project._batch():
         if not is_root and scanpath.is_symlink():
-            # A symlink PATH (a link to a directory included) is
-            # recorded as a single symlink entry, never followed --
-            # otherwise its target's contents would be recorded under
-            # the link's own path, and an absolute target would walk
-            # the build HOST's filesystem instead of the build root.
+            # Never followed: an absolute target would walk the build
+            # host's filesystem and record it under the link's path.
             recorder.record(scanpath)
         elif not scanpath.is_dir():
             recorder.record(scanpath)

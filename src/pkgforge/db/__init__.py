@@ -76,10 +76,8 @@ class DbProvider(Registered, abc.ABC):
         self.path = path
 
     def __init_subclass__(cls, **kwargs: typing.Any) -> None:
-        # Normalize/validate this class's OWN suffixes BEFORE Registered's
-        # __init_subclass__ runs (which does the actual NAME/ALIASES
-        # registration): a bad suffix must raise before anything about this
-        # class is registered, never leaving a name half-registered.
+        # Validate this class's own suffixes before Registered registers its
+        # NAME/ALIASES, so a bad suffix never leaves a name half-registered.
         if "SUFFIXES" in cls.__dict__:
             normalized = []
             for suffix in cls.__dict__["SUFFIXES"]:

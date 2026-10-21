@@ -489,10 +489,8 @@ def _surviving_entries(
             "0 of %d entries survived --exclude filtering; dumping an empty manifest",
             live,
         )
-    # Sorted by DB path (code-point order), not backend/insertion/readdir
-    # order: neither rpm nor dh_install give the output order any
-    # meaning, so this is what makes a staged tree give byte-identical
-    # manifests on any filesystem and any backend.
+    # Code-point order by DB path, which rpm and dh_install ignore, so a
+    # staged tree gives byte-identical manifests on any filesystem/backend.
     entries.sort(key=lambda pathentry: pathentry[0])
     return entries
 

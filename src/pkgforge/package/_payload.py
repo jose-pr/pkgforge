@@ -294,7 +294,7 @@ def _write_record(out: Sink, record: _Record) -> None:
     is what keeps a payload of many small files cheap.
 
     Raises:
-        OSError: the file is not ``record.size`` bytes long any more.
+        OSError: the file's length differs from ``record.size``.
     """
     size = record.size
     if not size:

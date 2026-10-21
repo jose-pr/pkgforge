@@ -1,8 +1,7 @@
 """Tests for the ``scan`` subcommand.
 
-``tests/test_pkgforge.py`` keeps the ``scan`` tests that predate this file
-(parser wiring, build-root containment, the default-buildroot regression).
-Every new ``scan`` regression test lands here. Tests that need POSIX
+``tests/test_pkgforge.py`` holds more ``scan`` tests (parser wiring,
+build-root containment, the default build root). Tests that need POSIX
 facilities (chmod, real owner/group names, symlinks) are marked
 ``@pytest.mark.posix``.
 """
@@ -18,8 +17,7 @@ from pkgforge import Project
 from pkgforge.dbdump import RPMSpecFiles
 
 # --------------------------------------------------------------------------
-# What scan records: below PATH, not PATH itself; '-' unless AUTO; replaces
-# existing entries unless --missing.
+# scan records below PATH (not PATH), '-' unless AUTO, replacing unless --missing
 # --------------------------------------------------------------------------
 
 
@@ -212,8 +210,7 @@ def test_scan_documented_recipe_owns_no_shared_dirs(tmp_path, cli):
 
 
 # --------------------------------------------------------------------------
-# A missing PATH is a clean usage error; a symlink PATH is recorded as a
-# symlink, never followed.
+# A missing PATH is a usage error; a symlink PATH is recorded, never followed
 # --------------------------------------------------------------------------
 
 
@@ -265,7 +262,7 @@ def test_scan_symlinked_path_recorded_as_link(tmp_path, kind):
 
 @pytest.mark.posix
 def test_scan_dangling_symlink_path_recorded(tmp_path, cli):
-    # Regression guard: a dangling symlink PATH was, and stays, recordable.
+    # A dangling symlink PATH is recordable.
     root = tmp_path / "root"
     root.mkdir()
     link = root / "dangling"
@@ -294,8 +291,7 @@ def test_scan_symlinked_ancestor_escape_rejected(tmp_path, cli):
 
 @pytest.mark.posix
 def test_scan_symlinked_buildroot_still_walked(tmp_path, cli):
-    # Regression guard: PATH "/" is always walked, even through a
-    # symlinked --buildroot.
+    # PATH "/" is always walked, even through a symlinked --buildroot.
     real_root = tmp_path / "real_root"
     (real_root / "usr").mkdir(parents=True)
     (real_root / "usr" / "a").write_text("x")
@@ -309,8 +305,7 @@ def test_scan_symlinked_buildroot_still_walked(tmp_path, cli):
 
 
 # --------------------------------------------------------------------------
-# scan never records its own file DB (cross-platform: no chmod/owner
-# involved, only path comparison).
+# scan never records its own file DB (path comparison only: cross-platform)
 # --------------------------------------------------------------------------
 
 
@@ -361,7 +356,7 @@ def test_scan_skips_sqlite_sidecars(tmp_path, monkeypatch, caplog):
 
 
 def test_scan_db_outside_root_changes_nothing(tmp_path):
-    # Regression guard: a DB outside --buildroot still records everything.
+    # A DB outside --buildroot records everything.
     root = tmp_path / "root"
     (root / "usr").mkdir(parents=True)
     (root / "usr" / "a").write_text("x")
@@ -378,8 +373,7 @@ def test_scan_db_outside_root_changes_nothing(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# scan looks up user/group names only for fields set to AUTO, and caches
-# each lookup for the process's life.
+# scan looks up names only for AUTO fields, caching each for the process
 # --------------------------------------------------------------------------
 
 
@@ -496,10 +490,8 @@ def test_scan_exclude_does_not_repeat_lookups(
         (root / "usr" / "share" / "app" / f"f{i}").write_text("x")
     db = tmp_path / "files.jsonl"
 
-    # The glob matches every file (an inline type test forces PathMatch to
-    # build an entry for it), but the test itself never excludes a file, so
-    # every file is still recorded -- exercising both the lookup inside
-    # PathMatch.match and the one scan makes to actually record the entry.
+    # The inline type test makes PathMatch build an entry for every file but
+    # excludes none, so both PathMatch.match and the recording look names up.
     assert (
         cli(
             "--db",
@@ -523,8 +515,7 @@ def test_scan_exclude_does_not_repeat_lookups(
 
 
 # --------------------------------------------------------------------------
-# -m applies to regular files only; directories take --dir-mode; symlinks
-# never record a mode.
+# -m: regular files only; directories take --dir-mode; symlinks get no mode
 # --------------------------------------------------------------------------
 
 
@@ -647,8 +638,7 @@ def test_scan_dir_mode_auto_sentinel(tmp_path, cli):
 
 
 # --------------------------------------------------------------------------
-# scan --drop-stale tombstones a DB entry whose file is gone from the build
-# root, bounded to PATH and honoring -X.
+# --drop-stale tombstones entries whose file is gone, within PATH, honoring -X
 # --------------------------------------------------------------------------
 
 
@@ -873,8 +863,8 @@ def test_scan_drop_stale_needs_file_db(tmp_path, cli):
 
 @pytest.mark.posix
 def test_scan_missing_readds_removed_file(tmp_path, cli):
-    # Regression guard: --missing's own "not yet recorded" rule is
-    # unaffected by --drop-stale -- a tombstoned path is still re-added.
+    # --missing's "not yet recorded" rule ignores --drop-stale: a
+    # tombstoned path is re-added.
     root = tmp_path / "root"
     (root / "usr" / "share" / "app").mkdir(parents=True)
     (root / "usr" / "share" / "app" / "a").write_text("x")

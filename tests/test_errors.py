@@ -118,13 +118,9 @@ def test_main_broken_pipe_is_silent(monkeypatch, capsys):
 
 @pytest.mark.posix
 def test_broken_pipe_subprocess(tmp_path):
-    # A real subprocess: `--db - scan /` over 3000 files, with the reader
-    # closing its end after one line, must never surface a traceback.
-    #
-    # stderr goes to a real file, not a second pipe: scan logs one INFO line
-    # per file, and reading only stdout here (as the reader would) can
-    # otherwise deadlock the child on a full, undrained stderr pipe before it
-    # ever writes enough to stdout for our single readline() to return.
+    # `--db - scan /` with the reader closing after one line: no traceback.
+    # stderr goes to a file, since an undrained stderr pipe (one INFO line per
+    # file) could block the child before stdout has a line to read.
     root = tmp_path / "root"
     root.mkdir()
     for i in range(3000):

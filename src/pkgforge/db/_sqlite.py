@@ -108,9 +108,8 @@ class SQLiteDb(DbProvider):
         """Hold one connection open across many ``add``/``remove`` calls,
         committing every :data:`_BATCH_ROWS` rows and once more on exit
         (exception included, so a killed batch keeps whatever it already
-        committed -- the same partial-progress behavior the append-log
-        backends have always had) instead of connecting, creating the
-        schema and committing once per call.
+        committed, like the append-log backends) instead of connecting,
+        creating the schema and committing once per call.
 
         Not reentrant (a nested ``with provider.batch():`` reuses the same
         connection and row counter, which is harmless but pointless);

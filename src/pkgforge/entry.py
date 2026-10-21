@@ -501,11 +501,9 @@ def apply_entry(
             if os.chmod in os.supports_follow_symlinks:
                 os.chmod(path, mode_int, follow_symlinks=False)
             else:
-                # Plain chmod(2): every glibc supports this. Passing
-                # follow_symlinks=False here is unsupported on Linux for ANY
-                # path (not just symlinks) below glibc 2.32, and CPython
-                # refuses it outright (NotImplementedError) regardless of
-                # glibc version, since it never advertises the capability.
+                # Plain chmod(2): where CPython does not advertise
+                # follow_symlinks for chmod (Linux), passing it raises
+                # NotImplementedError for every path.
                 os.chmod(path, mode_int)
     elif restore_mode is not None:
         if logger:

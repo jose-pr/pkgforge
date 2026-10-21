@@ -1,7 +1,6 @@
-"""New regression/guard tests added while fixing the ``--exclude`` grammar.
+"""Tests for the ``--exclude`` grammar and :class:`~pkgforge.exclude.PathMatch`.
 
-The older exclude tests stay in ``test_pkgforge.py``; the tests added with
-the grammar fix live here, so that change's coverage stays in one place.
+More exclude tests live in ``test_pkgforge.py``.
 """
 
 from __future__ import annotations
@@ -111,10 +110,8 @@ def test_glob_matrix(pattern, path, expected, make_entry):
 
 
 def test_relative_pattern_stays_inside_root(tmp_path, make_entry):
-    # A relative pattern is matched against the path taken relative to the
-    # ROOT, not right-anchored against the full local path -- it can no
-    # longer reach a component above the root just because the root shares
-    # a name with the pattern's own leading segment.
+    # A relative pattern matches the path relative to ROOT, so it never reaches
+    # a component above the root that shares the pattern's leading segment.
     root = tmp_path / "srv" / "app"
     m = PathMatch([PathMatchStmt.parse("app/*.conf")], root)
     assert m.match(root / "main.conf", make_entry()) is None
@@ -319,10 +316,8 @@ def test_overrides_do_not_mutate_entry(make_entry):
 
 
 def test_empty_entry_is_used():
-    # An explicit empty dict counts as "the caller supplied an entry" (`is
-    # not None`, not a truthiness check) -- no real lstat happens for a
-    # nonexistent path, and an override can still fill it in for a test to
-    # read.
+    # An empty dict still counts as a supplied entry: no lstat of the
+    # nonexistent path, and an override fills in what the test reads.
     m = PathMatch([PathMatchStmt.parse("(?type:file)*.x")])
     assert m.match(Path("/nonexistent/b.x"), {}, type="file") is True
 
@@ -399,8 +394,8 @@ def test_scan_fifo_error_is_one_line(tmp_path, cli):
 @pytest.mark.posix
 @pytest.mark.parametrize("command", ["scan", "install"])
 def test_meta_test_sees_O(tmp_path, cli, command):
-    # (?meta:k=v) in install -X and scan -X now sees the -O values -- it
-    # never matched there before, and (?!meta:k=v) excluded everything.
+    # (?meta:k=v) in install -X and scan -X sees the -O values, so it
+    # matches them and (?!meta:k=v) does not exclude everything.
     src = tmp_path / "src"
     src.mkdir()
     (src / "a.conf").write_text("x")
@@ -766,10 +761,8 @@ def test_relative_pattern_ignores_destination(tmp_path, cli, command):
 
 @pytest.mark.posix
 def test_exclude_parity_install_scan_dbdump(tmp_path, cli):
-    # Excluding at install time, at scan time, or at dbdump-render time
-    # decides the same surviving entries, each command reading the same
-    # three statements relative to its own input: the source directory
-    # (install), PATH (scan) and the DB path (dbdump).
+    # install, scan and dbdump keep the same entries for the same statements,
+    # each relative to its own input: the source, PATH, the DB path.
     def flags(prefix):
         out = []
         for stmt in (f"{prefix}/tmp", f"{prefix}/tmp/**", "**/*.pyc"):
@@ -1138,7 +1131,7 @@ def test_keep_rule_needs_pair(make_entry):
     ],
 )
 def test_pathological_patterns_are_fast(pattern, candidate):
-    # Backtracking in the old translation took seconds here; the bound is
+    # A backtracking glob translation takes seconds here; the bound is
     # loose so a slow runner does not flake it, yet far below that.
     import time
 

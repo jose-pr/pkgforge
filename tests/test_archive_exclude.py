@@ -136,11 +136,9 @@ def test_archive_exclude_prunes_members(tmp_path, cli, route):
 @pytest.mark.posix
 @pytest.mark.parametrize("route", ROUTES)
 def test_archive_exclude_implicit_directory(tmp_path, cli, route):
-    # A tar has no member at all for a directory unless one was added
-    # explicitly -- here only "a/tmp/f" exists, so "a/tmp" is an implicit
-    # directory the extraction itself creates. The prune walks the
-    # extracted tree on disk, not the archive's own member list, so it
-    # still finds and removes "a/tmp".
+    # The archive has no "a/tmp" member, only "a/tmp/f": the prune walks
+    # the extracted tree, not the member list, so it still removes the
+    # implicit "a/tmp".
     archive = _archive_path(tmp_path, route)
     _write_archive(archive, lambda tf: _add_file(tf, "a/tmp/f", b"data"))
 
@@ -200,7 +198,7 @@ def test_archive_exclude_keeps_hardlink_to_excluded_member(tmp_path, cli, route)
 
     staged = root / "opt" / "app"
     assert not (staged / "a" / "tmp").exists()
-    # h was hardlinked to the same inode as the now-pruned a/tmp/x: pruning
+    # h is a hardlink to the pruned a/tmp/x's inode: pruning
     # one directory entry never deletes the underlying data while another
     # link to it still exists.
     assert (staged / "h").read_text() == "payload"

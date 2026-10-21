@@ -45,8 +45,7 @@ _TARFILE_HAS_FILTER = hasattr(tarfile, "data_filter")
 
 #: Suffixes stripped from an extracted archive's destination directory name
 #: (``app-1.0.tgz`` -> ``app-1.0``): every :data:`TAR_SUFFIXES` entry plus the
-#: formats only ``bsdtar`` extracts. Matched case-insensitively by
-#: :func:`_archive_dir_name`, longest match first.
+#: formats only ``bsdtar`` extracts.
 ARCHIVE_SUFFIXES: typing.Tuple[str, ...] = (
     *TAR_SUFFIXES,
     ".tar.zst",
@@ -91,13 +90,9 @@ def _is_tar_source(src: Path | str) -> bool:
     return name.endswith(TAR_SUFFIXES)
 
 
-#: Flags always passed to ``bsdtar -x``, so an extraction never restores an
-#: archive's ownership, setuid/setgid bit, group/other write bit, xattrs,
-#: ACLs or file flags -- even when this process runs as root, where bsdtar's
-#: own defaults (``--same-owner``, ``-p``) would otherwise apply them. Needs
-#: libarchive 3.3+ for the xattr/ACL/fflags flags; every extraction is still
-#: followed by :func:`_reject_special_files`, since these flags alone do not
-#: stop bsdtar from creating a device node or FIFO as root.
+#: Flags for ``bsdtar -x`` (libarchive 3.3+) so that even as root an extraction
+#: never restores ownership, setuid/setgid, group/other write, xattrs, ACLs or
+#: file flags; device nodes and FIFOs are left to :func:`_reject_special_files`.
 BSDTAR_EXTRACT_FLAGS: typing.Tuple[str, ...] = (
     "--no-same-owner",
     "--no-same-permissions",

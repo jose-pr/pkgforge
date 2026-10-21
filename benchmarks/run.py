@@ -44,9 +44,9 @@ from pkgforge.entry import BASE_GROUPS, BASE_USERS, _group_name, _user_name
 LOAD_INNER = 10
 RENDER_INNER = 500
 SCAN_INNER = 20
-#: A scan.cmd_* call walks a real directory tree and commits to a real DB file
-#: on every call (the sqlite backend fsyncs per row) -- seconds, not
-#: milliseconds, on a real disk -- so each sample times a single call.
+#: A scan.cmd_* call walks a real directory tree and writes a real DB file (the
+#: sqlite backend commits every 1000 rows) -- seconds, not milliseconds, on a
+#: real disk -- so each sample times a single call.
 SCAN_CMD_INNER = 1
 #: An install.tree_* call needs a fresh source tree per call (--method move
 #: consumes it) and a fresh destination -- kept small since each one is a
@@ -237,11 +237,9 @@ def measure():
         )
         _assert_scanned(auto_owner_db, "jsonl", SCAN_TREE_SIZE)
 
-    # install.tree_{copy,link,move}: staging the same synthetic directory
-    # tree with each --method, so the relative cost is comparable within
-    # this one run (a local timing is noisy machine-to-machine; compare
-    # copy/link/move against each other here, not against another run --
-    # see benchmarks/README.md Caveats).
+    # install.tree_{copy,link,move}: the same tree with each --method, to be
+    # compared with each other within one run, not across runs
+    # (benchmarks/README.md, Caveats).
     with tempfile.TemporaryDirectory() as td:
         template = Path(td) / "template"
         template.mkdir()
@@ -268,10 +266,8 @@ def measure():
                 setup=_install_setup(method, db_path),
             )
 
-        # install.tree_record: the same tree, staged with the plain "copy"
-        # method, but with --record-tree also recording every child --
-        # compared against install.tree_copy above (same run) to see the
-        # walk's own added cost.
+        # install.tree_record: install.tree_copy plus --record-tree, so the
+        # difference within one run is the walk's own cost.
         record_db_path = Path(td) / "install.record.jsonl"
         metrics["install.tree_record"] = sample(
             _run,

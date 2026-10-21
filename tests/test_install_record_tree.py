@@ -422,11 +422,8 @@ def test_record_tree_multi_source_merge(tmp_path, cli):
         json.loads(line)["path"] for line in db.read_text().splitlines() if line.strip()
     ]
     counts = Counter(keys)
-    # /opt/x itself is written once per clone (each of the two merging
-    # sources records its own top entry) -- only each CHILD key, walked by
-    # both clones' own --record-tree pass over the shared destination, must
-    # appear exactly once (the second clone's own loaddb() already sees the
-    # first clone's child writes as known).
+    # Each clone records /opt/x itself, but each child key once: the second
+    # clone's loaddb() sees the first clone's child writes as known.
     assert counts["/opt/x/from_a.txt"] == 1
     assert counts["/opt/x/from_b.txt"] == 1
 

@@ -11,11 +11,9 @@ from ..exceptions import DbError
 from . import Db, _check_record, _fields, _format_hint, _record_ok
 from ._appendlog import AppendLogDb, _read_text
 
-#: Reused across every line of every load: a bare :func:`json.loads` call
-#: builds a fresh ``JSONDecoder`` (and, for an object, its own regexes) each
-#: time, which dominated the cost of loading a large, entirely-valid file.
-#: :meth:`~json.JSONDecoder.raw_decode` is the same C scanner without that
-#: per-call setup or the trailing-whitespace re-match ``loads`` also does.
+#: Shared by every line of every load: :meth:`~json.JSONDecoder.raw_decode` is
+#: the C scanner :func:`json.loads` uses, without its per-call checks and
+#: trailing-whitespace re-match.
 _DECODER = json.JSONDecoder()
 
 

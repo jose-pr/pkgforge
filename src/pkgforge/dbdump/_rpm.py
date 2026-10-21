@@ -44,31 +44,19 @@ def _rpm_escape(path: str) -> str:
     backslash and double quote are escaped, glob characters
     (``* ? [ ]``) are left alone -- rpm's own shell-globbing quoting rules
     make a quoted glob character match only the literal path anyway.
-
-    Two chained ``.replace`` calls, not ``str.translate``: ``translate``
-    only has a fast single-character path when every replacement is a
-    single character (or deletion) -- a table whose values are
-    *multi*-character strings (both of these are: ``\\`` -> ``\\\\``, ``"``
-    -> ``\\"``) falls onto a much slower generic path. Measured on
-    3.9/3.14: swapping in ``translate`` here made a 1000-entry render
-    slower, not faster, on both.
     """
+    # Not str.translate: with multi-character replacements it takes a slower
+    # generic path, slower than two .replace calls on CPython 3.9 and 3.14.
     escaped = path.replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
 
 
-#: Characters :func:`_rpm_reject_pre419` refuses outright: a space (ends rpm's
-#: unquoted token early), every glob character (unquoted, so rpm's own
-#: globbing may match a sibling instead of the literal name), and ``%`` (rpm
-#: macro-expands every ``%files -f`` line, on every version). Measured
-#: 2026-09-29 against real rpmbuild runs on rpm 4.14.3, 4.16.1 and 4.18.2: a
-#: bare ``"`` or ``\`` survives an unquoted token unescaped and literal, so
-#: neither is refused here.
+#: Refused below rpm 4.19: a space ends the unquoted token, a glob character is
+#: globbed, ``%`` is macro-expanded. rpmbuild 4.14.3, 4.16.1 and 4.18.2 keep a
+#: bare ``"`` or ``\`` literal in an unquoted token, so neither is refused.
 _REFUSED_PRE419 = frozenset(" *?[]{}%")
-#: A single-character class matching anything in :data:`_REFUSED_PRE419` --
-#: the batch pre-check for the pre-4.19 format (one search over every path
-#: joined together, instead of the per-character loop below run once per
-#: entry).
+#: :data:`_REFUSED_PRE419` as one character class: the pre-4.19 batch check,
+#: one search over every path joined together.
 _REFUSED_PRE419_RE = re.compile("[" + re.escape("".join(_REFUSED_PRE419)) + "]")
 #: A lone surrogate (``surrogateescape``'s stand-in for a non-UTF-8 byte).
 _SURROGATE_RE = re.compile("[\udc80-\udcff]")
@@ -148,17 +136,10 @@ class RPMSpecFiles(PerEntryFormat):
         batch never runs a rejection check per entry. Byte-identical to
         rendering each entry through :meth:`render_entry` alone.
 
-        One pass builds every line AND collects the paths for the batch
-        check; the check itself (and, on a hit, the per-entry fallback) runs
-        only after, on the collected list -- rejecting a bad entry only
-        after also having escaped it wastes a little work on the rare bad
-        batch, but a second full pass over ``entries`` up front cost more
-        than that on every batch, clean ones included (measured on 3.9).
-        The per-line body is inlined here rather than split into a helper:
-        this is the hot loop, and ``x or DEFAULT`` is exactly what
-        :func:`~pkgforge.entry._or_default` does for every string value
-        (``apply_entry`` still calls that function directly; this loop just
-        skips the extra call).
+        One pass builds every line and collects the paths; the batch check
+        runs after it, since a second pass over ``entries`` up front costs
+        every batch. The per-line body is inlined because this is the hot
+        loop (``x or DEFAULT`` is :func:`~pkgforge.entry._or_default`).
         """
         escape = self._escape
         kinds = _RPM_KIND
@@ -186,11 +167,8 @@ class RPMSpecFiles(PerEntryFormat):
                 )
             )
         if self._batch_reject_needed("".join(paths)):
-            # Something in the batch is bad -- run today's exact per-entry
-            # check in entry order so the first offending entry raises
-            # exactly the error it would raise rendered alone (nothing was
-            # returned yet, so no partial output can have escaped this
-            # method).
+            # Per entry, in order, so the first bad entry raises the error it
+            # would raise rendered alone; nothing has been returned yet.
             for path in paths:
                 self._reject(path)
         return b"".join(lines)

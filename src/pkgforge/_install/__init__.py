@@ -259,21 +259,16 @@ class _Installer(_RecordTree, _Staging):
         if self.type == FileType.Symlink and (
             str(self.source) == DEFAULT or not self.source
         ):
-            # Checked here, right after type resolution: before the
-            # destination is computed, before any -p mkdir, and before
-            # _install() reaches its own check. On Windows a "/"-rooted
-            # destination fails inside Project.dbpath() (and -p would mkdir
-            # outside the build root) before _install() ever runs.
+            # Checked before the destination is computed or any -p mkdir:
+            # a "/"-rooted destination fails inside Project.dbpath() on
+            # Windows (and -p would mkdir outside the root) before _install().
             if not self.meta.get("target"):
                 raise UsageError("a symlink with no source needs -O target=PATH")
 
         if self.type != FileType.Symlink and str(self.source) == DEFAULT:
-            # A file or directory "-" source actually reads stdin; a
-            # symlink type/source never does (its "-" is just the
-            # positional placeholder -O target=PATH uses). Validated here,
-            # once, before any staging -- both the plain-copy path and the
-            # decompress/bsdtar subprocess paths below rely on this having
-            # already run.
+            # Only a file or directory "-" source reads stdin (a symlink's "-"
+            # is the -O target=PATH placeholder). Checked once, before any
+            # staging: the copy and decompress/bsdtar paths rely on it.
             _require_stdin()
 
         if self.decompress is True:
@@ -377,11 +372,9 @@ class _Installer(_RecordTree, _Staging):
         replaced onto ``dest`` -- so a failed chmod/chown/record leaves an
         earlier good ``dest`` exactly as it was, never a partial temp.
         """
-        # Re-checked here, right before any mkdir: a multi-source
-        # Project.install resolves every clone (and its containment check) before staging
-        # any of them, so an earlier clone's own staging -- e.g. an absolute
-        # in-root symlink left by copytree(symlinks=True) -- can plant a new
-        # escape between this clone's own _resolve() and this call.
+        # Re-checked before any mkdir: an earlier clone's staging (e.g. an
+        # absolute symlink copytree(symlinks=True) left in the root) can plant
+        # an escape after this clone's own _resolve() ran.
         dest = self.project._rootpath(
             self.project.dbpath(dest), follow_final=(self.type == FileType.Directory)
         )
@@ -431,10 +424,8 @@ class _Installer(_RecordTree, _Staging):
                 os.replace(staged, dest)
         except BaseException:
             if self._move_atomic:
-                # --method move already consumed self.source into `staged`
-                # (or, for a symlink/no-op staging that reused dest itself,
-                # never set this at all); restore it instead of deleting the
-                # only copy.
+                # --method move consumed self.source into `staged`: restore
+                # it instead of deleting the only copy.
                 self._rollback_move(staged)
             elif staged != dest and (staged.is_symlink() or staged.exists()):
                 if staged.is_dir() and not staged.is_symlink():
@@ -454,7 +445,7 @@ class _Installer(_RecordTree, _Staging):
                     if self._move_atomic:
                         # The entry is already applied and (if it needed
                         # one) a temp already replaced onto dest -- the
-                        # moved data now lives at dest itself.
+                        # moved data lives at dest itself.
                         self._rollback_move(dest)
                     raise
                 # After the top entry is committed: a --record-tree failure
@@ -463,17 +454,12 @@ class _Installer(_RecordTree, _Staging):
                 self._record_tree(dest)
 
         if self.remove_source and self.source not in [DEFAULT, None]:
-            # Runs LAST: after apply/replace/record succeed, so a failure
-            # anywhere above (a bad --chown name past preflight, a disk-full
-            # DB append) leaves the source in place and the command
-            # re-runnable. Skipped, not refused, only when the source IS
-            # dest (an in-place build): a --method link hardlink shares the
-            # data, so removing the source name leaves the staged copy intact.
+            # Runs last, so any failure above leaves the source in place and
+            # the command re-runnable. Skipped only when the source IS dest; a
+            # --method link source shares its data, so removing its name is safe.
             if not os.path.lexists(self.source):
-                # --method move already consumed it -- redundant with move,
-                # so this is a no-op rather than an error. A source
-                # --exclude left partially in place (the merge path) still
-                # reaches the branches below, same as without move.
+                # --method move consumed it. A source --exclude left partly in
+                # place (the merge path) still reaches the branches below.
                 pass
             elif os.path.realpath(self.source) == os.path.realpath(dest):
                 self._logger_.warning(

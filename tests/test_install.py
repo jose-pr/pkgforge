@@ -1,10 +1,10 @@
 """Tests for the ``install`` subcommand.
 
-Every new ``install`` regression test from the staging-semantics rework lands
-here (``tests/test_pkgforge.py`` keeps the tests that predate it). Tests that
-need POSIX facilities (chmod, chown, symlinks, subprocess decompressors) are
-marked ``@pytest.mark.posix``; a handful that only exercise argument parsing
-or in-memory state run on any platform and say so in a comment.
+More ``install`` tests live in ``tests/test_pkgforge.py`` and
+``tests/test_archive_install.py``. Tests that need POSIX facilities (chmod,
+chown, symlinks, subprocess decompressors) are marked ``@pytest.mark.posix``;
+a handful that only exercise argument parsing or in-memory state run on any
+platform and say so in a comment.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from pkgforge.cli.install import Install
 
 @pytest.mark.posix
 def test_install_file_copies_and_records(tmp_path):
-    # install copies file sources; it no longer hardlinks them.
+    # By default install copies a file source; it does not hardlink it.
     root = tmp_path / "root"
     root.mkdir()
     db = tmp_path / "files.jsonl"
@@ -165,9 +165,8 @@ def test_install_direct_construction_does_not_decompress_list():
 
 @pytest.mark.posix
 def test_install_direct_construction_never_runs_source(tmp_path):
-    # Before the fix, leaving `decompress` out made __call__ infer a
-    # decompressor from the source's suffix and run it as a subprocess --
-    # for a `.sh` source that means executing it.
+    # Leaving `decompress` out must never infer a decompressor from the
+    # source's suffix and run it: for a `.sh` source that means executing it.
     root = tmp_path / "root"
     root.mkdir()
     marker = tmp_path / "marker"
@@ -289,8 +288,8 @@ def test_install_decompress_kinds(tmp_path, kind):
 @pytest.mark.posix
 @pytest.mark.parametrize("name", ["nosuffix", "notes.txt", "x.evil"])
 def test_install_bare_x_unknown_suffix_refused(tmp_path, monkeypatch, name):
-    # Bare -x on a suffix that names no known kind must raise, and -- unlike
-    # the old suffix-as-command fallback -- never run anything on PATH.
+    # Bare -x on a suffix that names no known kind must raise, and never run
+    # the suffix as a command on PATH.
     root = tmp_path / "root"
     root.mkdir()
     src = tmp_path / name
@@ -507,8 +506,8 @@ def test_install_stdin_closed_refused(tmp_path, monkeypatch):
 
 
 def test_install_stdin_keeps_fd0_open(tmp_path, monkeypatch):
-    # x-plat: reading '-' must not close the underlying stream (the old
-    # os.fdopen(sys.stdin.fileno()) wrapping did, taking fd 0 with it).
+    # x-plat: reading '-' must not close the underlying stream (wrapping
+    # os.fdopen(sys.stdin.fileno()) would, taking fd 0 with it).
     root = tmp_path / "root"
     root.mkdir()
     wrapped = io.TextIOWrapper(io.BytesIO(b"stdin data"))
@@ -825,9 +824,8 @@ def test_install_colliding_sources_refused(tmp_path, mode):
 
 @pytest.mark.posix
 def test_install_directory_sources_still_merge(tmp_path):
-    # Regression guard: several directory (or archive) sources sharing a
-    # destination must keep merging -- only non-directory collisions
-    # are refused.
+    # Several directory (or archive) sources sharing a destination merge;
+    # only non-directory collisions are refused.
     root = tmp_path / "root"
     root.mkdir()
     d1 = tmp_path / "d1"
@@ -1479,10 +1477,9 @@ def test_install_d_conflicts_with_type(tmp_path):
     ids=["abs_dotdot", "rel_dotdot", "empty_prefix"],
 )
 def test_install_dotdot_escape_refused(tmp_path, cli, dest):
-    # A '..' that climbs above --buildroot -- spelled directly, as a
-    # relative destination, or produced by an empty shell variable
-    # ("$EMPTY/../esc" with EMPTY="") -- must be refused before anything is
-    # written, not silently normalized to a path beside the build root.
+    # A '..' above --buildroot (direct, relative, or "$EMPTY/../esc" with an
+    # empty variable) is refused before anything is written, never
+    # normalized to a path beside the root.
     root = tmp_path / "root"
     root.mkdir()
     src = tmp_path / "f"
@@ -1615,8 +1612,7 @@ def test_install_T_victim_outside_root_survives(tmp_path, cli):
 
 @pytest.mark.posix
 def test_install_relative_inroot_symlink_ok(tmp_path):
-    # Regression: a relative in-root link (e.g. lib64 -> usr/lib64) must
-    # keep working.
+    # A relative in-root link (e.g. lib64 -> usr/lib64) is followed.
     root = tmp_path / "root"
     root.mkdir()
     (root / "usr" / "lib64").mkdir(parents=True)
@@ -1634,7 +1630,7 @@ def test_install_relative_inroot_symlink_ok(tmp_path):
 
 @pytest.mark.posix
 def test_install_symlinked_buildroot_ok(tmp_path):
-    # Regression: a --buildroot that is itself a symlink must keep working.
+    # A --buildroot that is itself a symlink works.
     real_root = tmp_path / "real_root"
     real_root.mkdir()
     root = tmp_path / "root_link"
@@ -1676,10 +1672,9 @@ def test_install_directory_to_root_ok(tmp_path):
 @pytest.mark.posix
 @pytest.mark.parametrize("root_env", ["unset", "empty_env"])
 def test_install_relative_root_at_slash_refused(tmp_path, monkeypatch, cli, root_env):
-    # With no --buildroot, PKGFORGE_ROOT unset (or explicitly empty, which
-    # counts as unset) falls back to the cwd -- if that cwd is '/' (a
-    # container's default WORKDIR), an unattended job that lost the
-    # variable must not silently map onto the live filesystem.
+    # No --buildroot and an unset or empty PKGFORGE_ROOT fall back to the cwd;
+    # a cwd of '/' (a container's default WORKDIR) must never map onto the
+    # live filesystem.
     if root_env == "empty_env":
         monkeypatch.setenv("PKGFORGE_ROOT", "")
     monkeypatch.chdir("/")
@@ -1712,8 +1707,7 @@ def test_install_explicit_root_slash_allowed(tmp_path, monkeypatch, cli):
 
 
 # --------------------------------------------------------------------------
-# Directory staging: top mode/mtime and a dangling symlink survive the
-# cleanup of install.py's dead/redundant code (no behavior change)
+# Directory staging keeps the top directory's mode and a dangling symlink
 # --------------------------------------------------------------------------
 
 
@@ -1741,23 +1735,16 @@ def test_install_directory_keeps_top_mode_and_dangling_link(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# install stages without a no-follow chmod (glibc < 2.32 has no
-# fchmodat(AT_SYMLINK_NOFOLLOW), and real Linux CPython never lists
-# os.chmod in os.supports_follow_symlinks in the first place)
+# install stages without a no-follow chmod, which Linux CPython does not offer
 # --------------------------------------------------------------------------
 
 
 @pytest.mark.posix
 @pytest.mark.parametrize("kind", ["file", "symlink"])
 def test_install_mode_without_nofollow_chmod(tmp_path, monkeypatch, kind):
-    # Simulate glibc < 2.32: os.chmod(..., follow_symlinks=False) raises
-    # NotImplementedError for ANY path there, not just a symlink. The real
-    # os.supports_follow_symlinks is left untouched -- on Linux it already
-    # never lists os.chmod as a member (no lchmod; verified separately), and
-    # since fake_chmod is a brand new function object it is certainly not a
-    # member of that set either. Replacing the whole set with an empty one
-    # would also strip os.stat's own follow_symlinks support, which
-    # shutil.copystat (used by the symlink-source staging path) relies on.
+    # A no-follow chmod raises NotImplementedError for any path; fake_chmod is
+    # not in os.supports_follow_symlinks, which stays intact because
+    # shutil.copystat needs its os.stat entry.
     real_chmod = os.chmod
     calls = []
 
@@ -1820,16 +1807,9 @@ def test_install_mode_without_nofollow_chmod(tmp_path, monkeypatch, kind):
 
 @pytest.mark.posix
 def test_install_file_source_chflags_denied(tmp_path, monkeypatch):
-    # On macOS, a source with any BSD file flag set (e.g. a system binary)
-    # makes shutil.copy2's copystat() call os.chflags(), which raises
-    # PermissionError for a non-owner/non-root caller even though this
-    # process only reads the source. Staging must not need chflags (or any
-    # other file-flag/xattr copy) at all.
-    #
-    # os.chflags and stat_result.st_flags both don't exist on Linux, so
-    # both are faked here (creating them if absent) -- this is what makes
-    # the *old* copy2-based staging code actually attempt the call on every
-    # platform, this box's Linux included, not only on macOS.
+    # On macOS copystat's os.chflags() raises PermissionError for a flagged
+    # source this process only reads, so staging must never copy file flags.
+    # chflags and st_flags are faked so copy2 would call it on any platform.
     def fake_chflags(path, flags, *, follow_symlinks=True):
         raise PermissionError("simulated: flags not settable by this user")
 

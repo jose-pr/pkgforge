@@ -145,7 +145,7 @@ def _glob_regex(pattern: str) -> "re.Pattern[str]":
     An anchored pattern (``PurePath(pattern).anchor``, e.g. a leading ``/``
     or a Windows drive) matches from that anchor exactly. A relative
     pattern gets an implicit ``(?:.*/)?`` prefix, so it keeps matching at
-    any depth -- today's behavior for a plain ``*.pyc``/``a/b`` pattern.
+    any depth (``*.pyc``, ``a/b``).
     """
     anchor = PurePath(pattern).anchor
     posix = PurePath(pattern).as_posix()
@@ -278,10 +278,8 @@ class PathMatchStmt(argparse.Namespace):
             pattern = pattern[test.span()[1] :]
 
         if pattern.startswith("(?"):
-            # _FILTER_TEST_RE stopped matching partway through a "(?...": the
-            # rest would silently become a literal glob that excludes
-            # nothing. A leading "(" meant as a literal
-            # character is written as the glob class "[(]" instead.
+            # A malformed "(?..." would otherwise become a literal glob that
+            # excludes nothing; a literal leading "(" is written "[(]".
             raise ExcludeSyntaxError(
                 f"unterminated or malformed inline test in {original!r}"
             )
@@ -338,15 +336,9 @@ class PathMatch(typing.List[PathMatchStmt]):
 
         candidate = self._candidate(path)
 
-        # The entry is built lazily -- at most once, and only for a
-        # statement whose glob ALREADY matched and that actually has inline
-        # tests -- so a glob-only "-X '*.fifo'" excludes a FIFO or socket
-        # without ever lstat-ing/typing/pwd-grp-looking-up it (and without
-        # ever risking FileType.from_path's TypeError for one). `overrides`
-        # are layered onto a COPY, so the caller's `entry` dict (e.g. a live
-        # DB record in dbdump) is never mutated; `entry is not None` (not a
-        # truthiness check) so an explicitly empty `{}` still counts as
-        # "the caller supplied one" rather than triggering a real lstat.
+        # Built at most once, only after a glob matched a statement with
+        # tests, so a glob-only "-X '*.fifo'" never lstats a FIFO. Overrides
+        # go onto a copy; an empty `entry` {} still counts as supplied.
         fileentry: typing.Optional[FileEntry] = None
 
         for stmt in self:

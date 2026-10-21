@@ -503,10 +503,8 @@ def test_db_provider_subclass_rejects_multi_dot_suffix(restore_registries):
 def test_db_provider_subclass_inherits_neither_aliases_nor_suffixes(
     restore_registries, tmp_path
 ):
-    # A subclass that does not redeclare ALIASES/SUFFIXES in its OWN body
-    # must not silently claim its parent's: registration (and therefore
-    # get/format_for_suffix) reads only what a class's own __dict__ sets,
-    # never what plain attribute access would show as inherited.
+    # A subclass that does not redeclare ALIASES/SUFFIXES never claims its
+    # parent's: registration reads only the class's own __dict__.
     Base = type(
         "TsvDb",
         (_TsvDb,),
@@ -946,7 +944,7 @@ def test_compact_rewrites_flow_yaml_to_block(tmp_path, make_entry):
     rewritten = path.read_text(encoding="utf-8").lstrip()
     assert not rewritten.startswith("{")
 
-    # An append now succeeds against the rewritten block-style file.
+    # An append succeeds against the rewritten block-style file.
     p.add("/new", make_entry())
     db = open_db(path, "yaml").load()
     assert db["/usr/bin/x"]["mode"] == "0755"

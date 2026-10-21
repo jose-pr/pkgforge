@@ -32,10 +32,9 @@ rpm_probe = _load_rpm_probe()
 @pytest.mark.parametrize(
     "spelling, arg, expected",
     [
-        # G escapes each glob character with a backslash; rpm's own
-        # quoted-string globbing already matches such a character literally
-        # (see src/pkgforge/dbdump/_rpm.py), so this spelling exists only to
-        # measure whether escaping it anyway changes rpm's behavior.
+        # G backslash-escapes each glob character, which rpm's quoted-string
+        # globbing already matches literally: it measures whether escaping
+        # changes anything.
         ("quoted_glob", "star*", '"star\\*"'),
         # GS additionally escapes a space; unquoted, so no surrounding
         # quotes are added.
@@ -77,10 +76,8 @@ def test_probe_dedupes_identical_lines():
     lines = rpm_probe._case_lines(path)
     groups = rpm_probe._group_lines(lines)
 
-    # "plain" has no character any spelling needs to escape, so every
-    # unquoted spelling collapses to one line and every quoted spelling
-    # (including pkgforge's own, which is unescaped `quoted`) collapses to
-    # another -- exactly one build for each of the two groups.
+    # "plain" needs no escaping, so the unquoted spellings collapse to one
+    # line and the quoted ones (pkgforge's `quoted` included) to another.
     assert len(groups) == 2
     grouped_spellings = [frozenset(v) for v in groups.values()]
     assert frozenset({"bare", "bare_glob", "bare_p2", "bare_p4"}) in grouped_spellings
@@ -145,10 +142,9 @@ def test_probe_analyze_synthetic(tmp_path, capsys):
     assert "base_switch: none" in out
     assert "pre419: none" in out
 
-    # Make `quoted` unsafe for `star` on both OLD legs (and disqualify
-    # `quoted_glob` there and on NEW too), while leaving `bare`/`bare_glob`
-    # untouched (still exact everywhere) -- `bare` should both replace the
-    # base family and win the pre419 slot, since it recovers `star`.
+    # `quoted` overmatches `star` on both OLD legs and `quoted_glob` fails
+    # everywhere, while `bare`/`bare_glob` stay exact: `bare` recovers `star`,
+    # so it replaces the base family and wins the pre419 slot.
     overrides = {
         ("el9", "star", "quoted"): "overmatch",
         ("el8", "star", "quoted"): "overmatch",

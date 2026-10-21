@@ -427,9 +427,7 @@ def test_rpmspecfile_empty_fields_render_default():
 
 
 # --------------------------------------------------------------------------
-# rpm: a whole batch rendered together (validate-once-per-batch, not per
-# entry) -- pins the aggregate byte output, one entry per feature, dirs
-# interleaved with files.
+# rpm: one batch's exact bytes, one entry per feature, dirs among files
 # --------------------------------------------------------------------------
 
 
@@ -743,9 +741,7 @@ def test_debian_dirs_artifact():
 
 
 # --------------------------------------------------------------------------
-# debian: a whole batch rendered together (validate-once-per-batch, not per
-# entry) -- pins every artifact's aggregate byte output, dirs interleaved
-# with files.
+# debian: one batch's exact bytes for every artifact, dirs among files
 # --------------------------------------------------------------------------
 
 
@@ -886,11 +882,8 @@ def test_debian_render_pinned():
 
 
 def test_debian_render_matches_entries_rendered_alone():
-    # Guard: batching the validation and the debhelper escaping must not
-    # change any entry's own contribution -- rendering the whole corpus
-    # together must equal the union of rendering each artifact-relevant
-    # subset one entry at a time, entry by entry, for install/dirs (order
-    # preserved) built from a single-entry batch each.
+    # Batching never changes an entry's own line: each install/dirs line of
+    # the whole corpus equals that entry rendered alone, in order.
     entries = _debian_corpus_entries()
     fmt = DebianFiles()
     whole = fmt.render(entries, _CTX)
@@ -941,8 +934,7 @@ def test_debian_render_empty_list():
 
 
 # --------------------------------------------------------------------------
-# validate-once-per-batch: a clean batch runs each control/whitespace regex
-# exactly once, never once per entry.
+# A clean batch runs each control/whitespace regex once, not once per entry
 # --------------------------------------------------------------------------
 
 
@@ -1219,10 +1211,8 @@ def test_debian_fixperms_script_applies_pins(tmp_path, monkeypatch):
         )
     )
 
-    # A symlink whose target lies outside the tree, with a known initial
-    # mode: fixperms must never chmod it (chmod is skipped for a symlink
-    # entry entirely) and must chown/chgrp -h (the link itself, not the
-    # target) -- either slip would leave this target's mode changed.
+    # A symlink to a target outside the tree: fixperms never chmods it and
+    # uses chown/chgrp -h, so the target's mode stays as set here.
     outside = tmp_path / "outside.txt"
     outside.write_text("x", encoding="utf-8")
     os.chmod(outside, 0o644)

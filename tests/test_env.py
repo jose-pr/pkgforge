@@ -32,8 +32,8 @@ def test_env_db_read_at_main_time(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("order", ["before", "after"])
 def test_cli_db_beats_env(order, tmp_path, monkeypatch):
-    # Guard: a global --db, whichever side of the subcommand it's on, must
-    # keep winning over env now that env is read at parse time too.
+    # A global --db, on either side of the subcommand, wins over the env
+    # variable, which is also read at parse time.
     cli_db = tmp_path / "cli.jsonl"
     env_db = tmp_path / "env.jsonl"
     monkeypatch.setenv("PKGFORGE_DB", str(env_db))
@@ -143,7 +143,7 @@ def test_dbpath_roundtrip(tmp_path):
 
 def test_scan_str_buildroot(tmp_path):
     # buildroot is annotated Path, but a str buildroot from the Python
-    # API must not TypeError (self.buildroot / ... on a str used to).
+    # API must work too (`str / ...` would raise TypeError).
     from pkgforge.cli.scan import ScanCmd
 
     root = tmp_path / "root"

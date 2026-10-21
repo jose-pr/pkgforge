@@ -400,7 +400,7 @@ def test_method_move_tree_merge_keeps_excluded(tmp_path):
     assert not (src / "sub").exists()
 
     # ...but an excluded file, and the directory holding it, stay behind in
-    # the source; copytree still creates the (now empty) destination
+    # the source; copytree still creates the (empty) destination
     # counterpart of that directory, same as a plain --exclude copy would.
     assert not (dest_dir / "skip.pyc").exists()
     assert (src / "skip.pyc").read_text() == "skip"

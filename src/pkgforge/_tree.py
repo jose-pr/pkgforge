@@ -47,11 +47,8 @@ class _TreeWalk:
         self.project = project
         self.matcher = matcher
         self.logger = logger
-        # Precomputed once (never per walked path): the file DB's own
-        # directory (realpath) and the basenames that matter -- the DB file
-        # itself, and a sqlite backend's -journal/-wal/-shm sidecars, which
-        # exist only transiently during a write but cost nothing to name
-        # here too.
+        # Computed once, not per walked path: the DB's real directory and its
+        # basenames, including sqlite's transient -journal/-wal/-shm sidecars.
         self._db_skip_dir: typing.Optional[str] = None
         self._db_skip_names: typing.Optional[typing.Set[str]] = None
         if project.db is not None:

@@ -22,8 +22,8 @@ def _stdin_bytes(data: bytes) -> io.TextIOWrapper:
 
 
 class _NeverRead:
-    """A ``sys.stdin`` stand-in that raises if ever actually read from --
-    used to prove a code path never touches stdin."""
+    """A ``sys.stdin`` stand-in that raises if ever actually read from, so a
+    test proves a code path never touches stdin."""
 
     def read(self, *args, **kwargs):
         raise AssertionError("stdin.read() must not be called")

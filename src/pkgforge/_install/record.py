@@ -32,13 +32,9 @@ class _RecordTree:
         if not self.record_tree or self.type != FileType.Directory:
             return
 
-        # A child's mode comes from a matching rule or `[defaults]` and the
-        # child is chmod'ed to it (apply_mode), else the mode is read from
-        # disk (the fallback) -- DESTINATION's own `-m` never inherits down,
-        # and there is no per-child `--dir-mode` equivalent.
-        # owner/group/meta are this install's own -o/-g/-O, `--` resolved per
-        # child from disk the same as -m/-o/-g always resolve AUTO. kind, caps
-        # and package come from rules only, never from this install's flags.
+        # A child's mode comes from a rule or `[defaults]`, else from disk:
+        # DESTINATION's own -m never inherits down. owner/group/meta are this
+        # install's -o/-g/-O; kind, caps and package come from rules only.
         base: FileEntry = {
             "mode": DEFAULT,
             "owner": _normalize_field(self.owner),
