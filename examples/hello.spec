@@ -9,10 +9,19 @@ BuildArch:      noarch
 A sample package whose file list, modes and owners come from a pkgforge file
 DB. Build it from this directory with
 rpmbuild -bb --define "proj $PWD" hello.spec
+The hello user comes from the sysusers.d file in the package. rpm 4.19 and
+later creates it before unpacking; the pre-install script below does the same
+on older rpm.
 
 %install
 export PKGFORGE_ROOT=%{buildroot} PKGFORGE_DB=%{_builddir}/files.jsonl
 pkgforge -q --config %{proj}/pkgforge.cfg stage --init
 pkgforge -q dbdump -f rpmspecfiles %{_builddir}/files.txt
+{ echo "systemd-sysusers - <<'PKGFORGE_SYSUSERS' || :"; cat %{buildroot}/usr/lib/sysusers.d/hello.conf; echo PKGFORGE_SYSUSERS; } > %{_builddir}/pre.sh
+
+%pre -f %{_builddir}/pre.sh
+
+%post
+systemd-tmpfiles --create /usr/lib/tmpfiles.d/hello.conf >/dev/null 2>&1 || :
 
 %files -f %{_builddir}/files.txt

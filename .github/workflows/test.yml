@@ -222,15 +222,18 @@ jobs:
           - image: fedora:latest
             label: fedora:latest
             python: python3
-            packages: "rpm-build python3"
+            packages: "rpm-build python3 systemd libcap"
+            install: "1"
           - image: rockylinux:9
             label: rockylinux:9
             python: python3
-            packages: "rpm-build python3 python3-pip"
+            packages: "rpm-build python3 python3-pip systemd libcap"
+            install: "1"
           - image: rockylinux:8
             label: rockylinux:8
             python: python3.9
             packages: "rpm-build python39 python39-pip"
+            install: ""
     steps:
       - uses: actions/checkout@v7
         with:
@@ -244,7 +247,12 @@ jobs:
           ${{ matrix.python }} -m venv /tmp/venv
           /tmp/venv/bin/pip install -U pip
           /tmp/venv/bin/pip install -e ".[dev]"
+      # The containers (and the runner of consumers-deb) are thrown away after
+      # the job, which is why only CI lets the tests install the example
+      # packages: they add an account and files to the host.
       - name: Run the rpmbuild consumer tests
+        env:
+          PKGFORGE_CONSUMER_INSTALL: ${{ matrix.install }}
         run: /tmp/venv/bin/python -m pytest -p no:cacheprovider -q -rxs -k rpmbuild tests/test_consumers.py
 
   # Ubuntu's own "rpm" apt package (not a container image): a fourth
@@ -280,10 +288,12 @@ jobs:
         with:
           python-version: "3.14"
       - name: Install debhelper
-        run: sudo apt-get update && sudo apt-get install -y debhelper fakeroot
+        run: sudo apt-get update && sudo apt-get install -y debhelper fakeroot libcap2-bin
       - name: Install package with dev extras
         run: python -m pip install -e ".[dev]"
       - name: Run the dh_install consumer tests
+        env:
+          PKGFORGE_CONSUMER_INSTALL: "1"
         run: python -m pytest -p no:cacheprovider -q -rxs -k dh_install tests/test_consumers.py
 
   # Measures how each rpm version's %files parser handles a quoted/escaped

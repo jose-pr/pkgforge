@@ -305,8 +305,9 @@ pkgforge --config pkgforge.cfg stage [--init]
 
 Every `src` is checked before the first step runs, so a missing source stages
 nothing (exit 2), and a project file with no `[[stage]]` steps is exit 2. Each step
-logs one INFO line on `pkgforge.stage`, then `staged N step(s), M record(s)`. With
-no file DB the records are printed to standard output as JSON Lines.
+logs one INFO line on `pkgforge.stage`, then `generated N system file(s)` (see
+[`sysfiles`](#sysfiles)) and `staged N step(s), M record(s)`. With no file DB the
+records are printed to standard output as JSON Lines.
 
 ## `mkdir`
 
@@ -348,3 +349,23 @@ pkgforge symlink [-o OWNER] [-g GROUP] [-O KEY=VALUE]... [-p] TARGET LINK
 ```bash
 pkgforge symlink -p tool /usr/bin/t
 ```
+
+## `sysfiles`
+
+Write the files that create the package's accounts and directories at install
+time, and record them. `/usr/lib/sysusers.d/NAME.conf` holds the accounts that
+`[[users]]` and `[[groups]]` create; `/usr/lib/tmpfiles.d/NAME.conf` has a line
+for each ghost directory in the file DB. NAME is `[package] name`. A file with
+nothing to say is not written, and one recorded earlier is removed with its
+entry. `stage` runs this after its steps, so it is only needed when the files
+are recorded by other commands.
+
+```bash
+pkgforge --config pkgforge.cfg sysfiles
+```
+
+It takes no options. Writing a file without `[package] name` is exit 2, and so
+is a ghost directory whose path `tmpfiles.d` cannot spell (whitespace, `"`, a
+backslash or a control character). It logs one INFO line per file on
+`pkgforge.sysfiles`; with no file DB the records are printed to standard output
+as JSON Lines.

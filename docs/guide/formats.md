@@ -265,7 +265,7 @@ export PKGFORGE_ROOT := $(CURDIR)/stage
 export PKGFORGE_DB := $(CURDIR)/debian/pkgforge.jsonl
 
 %:
-	dh $@
+	dh $@ --with installsysusers
 
 override_dh_auto_build:
 	sh stage.sh
@@ -292,7 +292,7 @@ export PKGFORGE_ROOT := $(CURDIR)/debian/tmp
 export PKGFORGE_DB := $(CURDIR)/debian/pkgforge.jsonl
 
 %:
-	dh $@
+	dh $@ --with installsysusers
 
 override_dh_auto_install:
 	sh stage.sh

@@ -1176,7 +1176,9 @@ def test_dh_install_example_debian_builds(tmp_path):
     pinned("usr/bin/hello", 0o755, "root", "root")
     pinned("usr/libexec/hello/helper", 0o755, "root", "root")
     pinned("etc/hello/hello.conf", 0o640, "root", "adm")
-    pinned("var/lib/hello", 0o750, "root", "adm")
+    # Owned by the hello account, which does not exist while dpkg unpacks:
+    # dh_fixperms' root-owned mode is what ships, and postinst applies the rest.
+    pinned("var/lib/hello", 0o755, "root", "root")
     assert members["usr/bin/hi"].issym()
     # The ghost log is neither shipped nor reported as missing, and the
     # capability is set by the maintainer script.
@@ -1266,8 +1268,9 @@ def test_rpmbuild_example_hello_spec(tmp_path):
 #: shell-staged packages must come out the same.
 _EXAMPLE_SHELL_STAGING = """#!/bin/sh
 set -eu
-S="$(dirname "$0")/src"
-pf() { pkgforge -q "$@"; }
+D="$(dirname "$0")"
+S="$D/src"
+pf() { pkgforge -q --config "$D/stage.cfg" "$@"; }
 
 pf initdb
 
@@ -1275,7 +1278,8 @@ E="$(mktemp -d)"
 for d in /usr/libexec/hello /etc/hello /usr/share/licenses/hello /usr/share/doc/hello; do
   pf install -D -d -m 755 -o root -g root "$E" "$d"
 done
-pf install -D -d -m 750 -o root -g adm "$E" /var/lib/hello
+pf install -D -d -m 750 -o hello -g hello "$E" /var/lib/hello
+pf install -D -d -m 755 -o hello -g hello -k ghost "$E" /run/hello
 rmdir "$E"
 
 pf install -p -m 755 -o root -g root "$S/hello" /usr/bin
@@ -1286,6 +1290,20 @@ pf install -p -m 644 -o root -g root "$S/hello.service" /usr/lib/systemd/system
 pf install -p -m 644 -o root -g root -k license "$S/LICENSE" /usr/share/licenses/hello
 pf install -p -m 644 -o root -g root -k doc "$S/README" /usr/share/doc/hello
 pf install -D -m 640 -o root -g adm -k ghost - /var/log/hello.log < /dev/null
+
+pf sysfiles
+"""
+
+#: The two tables of examples/pkgforge.cfg that the shell staging still needs:
+#: the package name for the generated files and the account they create.
+_EXAMPLE_SHELL_CFG = """\
+[package]
+name = "hello"
+
+[[users]]
+name = "hello"
+description = "hello example daemon"
+home = "/var/lib/hello"
 """
 
 _STAGE_ONLY_SPEC = "pkgforge -q --config %{proj}/pkgforge.cfg stage --init\n"
@@ -1300,6 +1318,7 @@ def _example_tree(dest: Path, *, shell: bool) -> Path:
     (dest / "debian" / "rules").chmod(0o755)
     if shell:
         (dest / "stage.sh").write_text(_EXAMPLE_SHELL_STAGING, encoding="utf-8")
+        (dest / "stage.cfg").write_text(_EXAMPLE_SHELL_CFG, encoding="utf-8")
         for name, old, new in (
             ("hello.spec", _STAGE_ONLY_SPEC, "sh %{proj}/stage.sh\n"),
             ("debian/rules", _STAGE_ONLY_RULES, "\tsh stage.sh\n"),
@@ -1317,10 +1336,9 @@ _RPM_ROWS = (
 )
 
 
-def _example_rpm_rows(base: Path, *, shell: bool) -> typing.List[str]:
-    """Build examples/hello.spec under ``base`` and return the sorted
-    per-file rows of the RPM."""
-    base.mkdir()
+def _build_example_rpm(base: Path, *, shell: bool = False) -> Path:
+    """Build examples/hello.spec under ``base``; returns the .rpm."""
+    base.mkdir(exist_ok=True)
     tree = _example_tree(base / "examples", shell=shell)
     topdir = base / "top"
     for sub in ("BUILD", "RPMS", "SOURCES", "SPECS", "SRPMS", "BUILDROOT"):
@@ -1345,8 +1363,15 @@ def _example_rpm_rows(base: Path, *, shell: bool) -> typing.List[str]:
     assert result.returncode == 0, result.stdout + result.stderr
     rpms = list((topdir / "RPMS").rglob("*.rpm"))
     assert len(rpms) == 1, rpms
+    return rpms[0]
+
+
+def _example_rpm_rows(base: Path, *, shell: bool) -> typing.List[str]:
+    """Build examples/hello.spec under ``base`` and return the sorted
+    per-file rows of the RPM."""
+    rpm_path = _build_example_rpm(base, shell=shell)
     listing = subprocess.run(
-        ["rpm", "-qp", "--qf", _RPM_ROWS, str(rpms[0])],
+        ["rpm", "-qp", "--qf", _RPM_ROWS, str(rpm_path)],
         capture_output=True,
         text=True,
         check=True,
@@ -1361,19 +1386,26 @@ def test_rpmbuild_example_cfg_matches_shell_staging(tmp_path):
     shell staging it replaces."""
     staged = _example_rpm_rows(tmp_path / "stage", shell=False)
     shell = _example_rpm_rows(tmp_path / "shell", shell=True)
-    assert len(staged) == 13
+    assert len(staged) == 16
     assert staged == shell
 
 
-def _example_deb_members(base: Path, *, shell: bool) -> typing.Set[tuple]:
-    """Build examples/debian under ``base`` and return the payload's
-    ``(name, type, mode, uname, gname, linkname)`` set."""
-    base.mkdir()
+def _build_example_deb(base: Path, *, shell: bool = False):
+    """Build examples/debian under ``base``; returns the .deb and its payload's
+    tar members keyed by path."""
+    base.mkdir(exist_ok=True)
     pkgroot = _example_tree(base / "work" / "hello", shell=shell)
     # dh_strip_nondeterminism is a separate package some hosts lack.
     with (pkgroot / "debian" / "rules").open("a", encoding="utf-8") as rules:
         rules.write("\noverride_dh_strip_nondeterminism:\n")
     _result, members = _run_dpkg_buildpackage(base, pkgroot)
+    return next((base / "work").glob("*.deb")), members
+
+
+def _example_deb_members(base: Path, *, shell: bool) -> typing.Set[tuple]:
+    """Build examples/debian under ``base`` and return the payload's
+    ``(name, type, mode, uname, gname, linkname)`` set."""
+    _deb, members = _build_example_deb(base, shell=shell)
     return {
         (
             name,
@@ -1395,3 +1427,181 @@ def test_dh_install_example_cfg_matches_shell_staging(tmp_path):
     shell = _example_deb_members(tmp_path / "shell", shell=True)
     assert any(name == "usr/bin/hi" for name, *_ in staged)
     assert staged == shell
+
+
+# --------------------------------------------------------------------------
+# examples/: the account the package creates, and its install-time setup
+# --------------------------------------------------------------------------
+
+
+@requires_rpmbuild
+def test_rpmbuild_example_accounts_and_scripts(tmp_path):
+    """The RPM carries the sysusers.d and tmpfiles.d files, the pre-install
+    script that creates the account on rpm below 4.19, and the post-install
+    tmpfiles call; its rows keep the account, the ghost and the capability."""
+    rpm_path = _build_example_rpm(tmp_path)
+
+    def query(*args: str) -> str:
+        return subprocess.run(
+            ["rpm", "-qp", *args, str(rpm_path)],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+
+    if not _RPM_BELOW_419:
+        # rpm 4.19+ reads the shipped sysusers.d file itself.
+        assert "user(hello)" in query("--provides")
+    pre, _, post = query("--scripts").partition("postinstall scriptlet")
+    assert "systemd-sysusers -" in pre
+    assert "u hello - " in pre
+    assert "systemd-tmpfiles --create /usr/lib/tmpfiles.d/hello.conf" in post
+
+    rows = {}
+    for row in query(
+        "--qf",
+        "[%{FILENAMES}|%{FILEMODES:octal}|%{FILEUSERNAME}|%{FILEGROUPNAME}"
+        "|%{FILEFLAGS}|%{FILECAPS}\\n]",
+    ).splitlines():
+        path, mode, user, group, flags, caps = row.split("|")
+        rows[path] = (mode, user, group, int(flags), caps)
+    for name in ("sysusers", "tmpfiles"):
+        assert rows[f"/usr/lib/{name}.d/hello.conf"][:3] == ("100644", "root", "root")
+    assert rows["/var/lib/hello"][:3] == ("40750", "hello", "hello")
+    assert rows["/run/hello"][3] == 64
+    assert rows["/usr/libexec/hello/helper"][4] == "cap_net_bind_service=ep"
+
+
+@requires_dh_sequence
+def test_dh_install_example_accounts_and_scripts(tmp_path):
+    """The .deb ships the generated files; ``dh_installsysusers`` and
+    ``dh_installtmpfiles`` add their snippets to ``postinst``, which then
+    applies the ownership of ``/var/lib/hello`` before the capability is set."""
+    deb, members = _build_example_deb(tmp_path)
+    assert "usr/lib/sysusers.d/hello.conf" in members
+    assert "usr/lib/tmpfiles.d/hello.conf" in members
+    state = members["var/lib/hello"]
+    assert (stat.S_IMODE(state.mode), state.uname, state.gname) == (
+        0o755,
+        "root",
+        "root",
+    )
+    assert "run/hello" not in members
+
+    postinst = _control_member(deb, "postinst")
+    order = [
+        postinst.index(text)
+        for text in (
+            "systemd-sysusers",
+            "systemd-tmpfiles",
+            "dpkg-statoverride --update --add hello hello 750 /var/lib/hello",
+            "setcap -- cap_net_bind_service=ep",
+        )
+    ]
+    assert order == sorted(order), postinst
+    assert "dpkg-statoverride --remove /var/lib/hello" in _control_member(deb, "postrm")
+    depends = next(
+        line
+        for line in _control_member(deb, "control").splitlines()
+        if line.startswith("Depends:")
+    )
+    assert "systemd-sysusers" in depends and "libcap2-bin" in depends
+
+
+def _install_allowed() -> bool:
+    """Whether a test may install a package on this host: asked for with
+    ``PKGFORGE_CONSUMER_INSTALL=1`` and able to act as root."""
+    if os.environ.get("PKGFORGE_CONSUMER_INSTALL") != "1":
+        return False
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        return True
+    if shutil.which("sudo") is None:
+        return False
+    return subprocess.run(["sudo", "-n", "true"], capture_output=True).returncode == 0
+
+
+requires_install = pytest.mark.skipif(
+    not _install_allowed(),
+    reason="PKGFORGE_CONSUMER_INSTALL=1 and root (or sudo -n) required: "
+    "installs a package on this host",
+)
+
+
+def _as_root(*command: str) -> typing.List[str]:
+    """``command`` run as root: itself when already root, else through ``sudo -n``."""
+    if os.geteuid() == 0:
+        return list(command)
+    return ["sudo", "-n", *command]
+
+
+def _run_as_root(*command: str, check: bool = True):
+    result = subprocess.run(_as_root(*command), capture_output=True, text=True)
+    if check:
+        assert result.returncode == 0, f"{command}: {result.stdout}{result.stderr}"
+    return result
+
+
+def _assert_installed_example_state():
+    """What a host holds once the hello package is installed: the account,
+    the state directory it owns, and the capability on the helper."""
+    user = pwd.getpwnam("hello")
+    group = grp.getgrnam("hello")
+    state = os.stat("/var/lib/hello")
+    assert stat.S_IMODE(state.st_mode) == 0o750
+    assert (state.st_uid, state.st_gid) == (user.pw_uid, group.gr_gid)
+    caps = subprocess.run(
+        ["getcap", "/usr/libexec/hello/helper"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "cap_net_bind_service" in caps and "ep" in caps
+
+
+@requires_rpmbuild
+@requires_install
+def test_rpmbuild_example_installs_accounts(tmp_path):
+    """Installing the RPM on a host without the account creates it, owns
+    ``/var/lib/hello`` by it and has ``%post`` create ``/run/hello``."""
+    rpm_path = _build_example_rpm(tmp_path)
+    try:
+        _run_as_root("rpm", "-i", str(rpm_path))
+        _assert_installed_example_state()
+        run = os.stat("/run/hello")
+        assert run.st_uid == pwd.getpwnam("hello").pw_uid
+    finally:
+        _run_as_root("rpm", "-e", "hello", check=False)
+
+
+@requires_dh_sequence
+@requires_install
+def test_dh_install_example_installs_accounts(tmp_path):
+    """Installing the .deb creates the account, overrides the ownership of
+    ``/var/lib/hello`` once, keeps an administrator's override on reinstall
+    and drops it on purge."""
+    deb, _members = _build_example_deb(tmp_path)
+
+    def override() -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["dpkg-statoverride", "--list", "/var/lib/hello"],
+            capture_output=True,
+            text=True,
+        )
+
+    try:
+        _run_as_root("dpkg", "-i", str(deb))
+        _assert_installed_example_state()
+        assert override().stdout.strip() == "hello hello 750 /var/lib/hello"
+
+        _run_as_root("dpkg-statoverride", "--remove", "/var/lib/hello")
+        _run_as_root(
+            "dpkg-statoverride", "--update", "--add", "root", "adm", "0700",
+            "/var/lib/hello",
+        )  # fmt: skip
+        _run_as_root("dpkg", "-i", str(deb))
+        assert override().stdout.strip() == "root adm 700 /var/lib/hello"
+
+        _run_as_root("dpkg", "--purge", "hello")
+        assert override().returncode == 1
+    finally:
+        _run_as_root("dpkg", "--purge", "hello", check=False)

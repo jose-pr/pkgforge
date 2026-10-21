@@ -6,8 +6,10 @@
 export PKGFORGE_ROOT := $(CURDIR)/debian/tmp
 export PKGFORGE_DB := $(CURDIR)/debian/pkgforge.jsonl
 
+# --with installsysusers creates the accounts from the generated sysusers.d
+# file; it needs debhelper 13.10 or later.
 %:
-	dh $@
+	dh $@ --with installsysusers
 
 override_dh_auto_install:
 	pkgforge -q --config pkgforge.cfg stage --init
