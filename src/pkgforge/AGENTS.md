@@ -310,7 +310,8 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
 (imported only when a file is read) into frozen dataclasses. A key the schema
 does not list is an error, and so is a value of the wrong type: every text field
 must be a quoted string (`mode = 644` and `mode = 0o644` are refused, write
-`mode = "644"`).
+`mode = "644"`). A YAML file's `!include` and `!load` are refused
+(`UsageError`).
 
 - **`load(path: StrPath) -> ProjectConfig`** -- read and validate a file.
   `UsageError` (its text starts with the path, then `LINE:COL:` for a

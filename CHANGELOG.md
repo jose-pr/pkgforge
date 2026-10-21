@@ -66,6 +66,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stores.
 
 ### Changed
+- A `#!yaml` `pkgforge.cfg` can no longer `!include` other files: the file
+  describes one package, and an include is now an error (exit 2). Put the
+  content in the file itself.
 - `install --record-tree` children take the mode of a matching `[[rules]]`
   element or of `[defaults]` before the mode on disk; with neither, the mode is
   still read from disk.

@@ -34,7 +34,8 @@ before the first table. A relative `buildroot`, `db` (unless it is `"-"`) and a
 directory. A `dest`, `dir`, `file` and `symlink` are paths in the package, below
 the build root, and are not.
 
-Any other key is an error, in every table.
+Any other key is an error, in every table. The file describes one package, so
+`!include` and `!load` in a YAML file are refused (exit 2).
 
 ```toml
 buildroot = "build/root"

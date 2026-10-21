@@ -326,7 +326,12 @@ def _read(path: StrPath) -> typing.Dict[str, typing.Any]:
     """
     import anycfg
 
-    loader = anycfg.Loader(interpolate=anycfg.VarsInterpolator(strict=True))
+    # One file describes one package: a YAML !include would read a file the
+    # user never named, so includes are refused.
+    loader = anycfg.Loader(
+        interpolate=anycfg.VarsInterpolator(strict=True),
+        policy=anycfg.Policy.untrusted(allow_includes=False),
+    )
     try:
         data = loader.load(path, format="cfg")
     except anycfg.ParseError as exc:

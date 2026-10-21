@@ -179,6 +179,27 @@ def test_configured_values_reach_a_yaml_db(tmp_path, yaml_module):
     assert live["/opt/p/a"]["meta"] == {"rpmprefix": "%doc"}
 
 
+def _include_cfg(tmp_path: Path) -> Path:
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    (sub / "pkg.yaml").write_bytes(b"name: x\n")
+    return write(sub, "#!yaml\npackage: !include pkg.yaml\n")
+
+
+def test_a_yaml_include_is_refused(tmp_path, yaml_module):
+    with pytest.raises(UsageError, match="refusing !include"):
+        load(_include_cfg(tmp_path))
+
+
+def test_a_yaml_include_exits_two(cli, tmp_path, yaml_module):
+    cfg = _include_cfg(tmp_path)
+    result = cli("--config", str(cfg), "stage")
+    assert result.rc == 2
+    lines = result.err.decode().splitlines()
+    assert len(lines) == 1
+    assert lines[0].startswith("pkgforge: error: ") and "pkgforge.cfg" in lines[0]
+
+
 def test_empty_file_is_all_defaults(tmp_path):
     assert load(write(tmp_path, "")) == ProjectConfig()
 
