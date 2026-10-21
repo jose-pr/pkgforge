@@ -7,7 +7,6 @@ import tarfile
 import typing
 from pathlib import Path
 
-from ..dbdump import _write_files
 from ..entry import DEFAULT
 from . import BuildContext, PackageFormat, PackagePayload
 from ._compress import SUFFIXES, compress
@@ -32,7 +31,7 @@ class TarFormat(PackageFormat):
         self, payloads: typing.Sequence[PackagePayload], context: BuildContext
     ) -> typing.List[Path]:
         assert context.compression is not None
-        files: typing.Dict[Path, bytes] = {}
+        files = []
         for payload in payloads:
             items = members(payload.entries, context.buildroot, epoch=context.epoch)
             for item in items:
@@ -50,6 +49,8 @@ class TarFormat(PackageFormat):
             version = payload.main.version
             release = f"-{payload.main.release}" if payload.main.release else ""
             name = f"{payload.name}-{version}{release}.tar"
-            files[context.output / (name + SUFFIXES[context.compression])] = data
-        _write_files(files)
-        return list(files)
+            path = context.output / (name + SUFFIXES[context.compression])
+            with context.writer.create(path) as handle:
+                handle.write(data)
+            files.append(path)
+        return files

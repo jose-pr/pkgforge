@@ -34,6 +34,7 @@ from ..dbdump import (
 )
 from ..entry import FileEntries, FileEntry, StrPath
 from ..exceptions import UsageError
+from ._writer import PackageWriter
 
 _LOGGER = logging.getLogger("pkgforge.package")
 _ARCH_RE = re.compile(r"[a-z0-9_]+")
@@ -48,7 +49,9 @@ class BuildContext:
     into, ``compression`` the chosen payload compression (``None`` for a
     format that offers none), ``arch`` the ``--arch`` value, ``epoch`` the
     ``SOURCE_DATE_EPOCH`` seconds (``None`` when unset) and ``config_path`` the
-    file ``config`` was read from when known.
+    file ``config`` was read from when known. A format creates every file it
+    writes through ``writer``, which keeps the build all or nothing and makes
+    ``output`` only once there is a file to put in it.
     """
 
     config: ProjectConfig
@@ -58,6 +61,9 @@ class BuildContext:
     arch: typing.Optional[str]
     epoch: typing.Optional[int]
     config_path: typing.Optional[Path] = None
+    writer: PackageWriter = dataclasses.field(
+        default_factory=PackageWriter, repr=False, compare=False
+    )
 
 
 class PackagePayload(typing.NamedTuple):
@@ -157,9 +163,10 @@ def build(
     """Build one package per declared package from the live entries of ``db``
     and the files under ``buildroot``, in the format ``fmt``.
 
-    ``output`` is the directory the packages are written into (created if
-    missing). ``config`` names the packages (default: an empty configuration,
-    which no format accepts) and ``config_path`` is the file it was read from.
+    ``output`` is the directory the packages are written into (created with the
+    first package; a failed build leaves nothing behind). ``config`` names the
+    packages (default: an empty configuration, which no format accepts) and
+    ``config_path`` is the file it was read from.
     ``arch`` names the architecture of an ``any`` package in the format's own
     spelling (default: this machine's); ``compression`` is one the format
     offers (default: its first). Build-time stamps and file times are
@@ -198,18 +205,23 @@ def build(
     entries = _surviving_entries(db, ())
     _validate_entries(entries)
     payloads = _payloads(entries, config)
-    target = Path(os.fspath(output))
-    target.mkdir(parents=True, exist_ok=True)
+    writer = PackageWriter()
     context = BuildContext(
         config=config,
         buildroot=Path(os.fspath(buildroot)),
-        output=target,
+        output=Path(os.fspath(output)),
         compression=chosen,
         arch=arch,
         epoch=epoch,
         config_path=None if config_path is None else Path(os.fspath(config_path)),
+        writer=writer,
     )
-    written = cls().build(payloads, context)
+    try:
+        written = cls().build(payloads, context)
+        writer.commit()
+    except BaseException:
+        writer.abort()
+        raise
     for path in written:
         _LOGGER.info("Wrote %s", path)
     _LOGGER.info("built %d package(s) with %s", len(written), cls.NAME)
@@ -233,6 +245,7 @@ __all__ = [
     "DebFormat",
     "PackageFormat",
     "PackagePayload",
+    "PackageWriter",
     "RpmFormat",
     "TarFormat",
     "build",

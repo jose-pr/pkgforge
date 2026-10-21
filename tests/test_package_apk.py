@@ -438,3 +438,28 @@ def test_apk_library_call(staged, tmp_path):
     )
     paths = project.package("apk", tmp_path / "lib")
     assert [path.name for path in paths] == [HELLO, DOC]
+
+
+_HARDLINKS = "".join(
+    f'\n[[stage]]\nsrc = "src/README"\ndest = "/opt/{name}"\nmethod = "link"\n'
+    'mode = "644"\n'
+    for name in ("h1", "h2")
+)
+
+
+@pytest.mark.posix
+def test_apk_hardlinks(work, cli, tmp_path):
+    _edit_cfg(work, append=_HARDLINKS)
+    _stage(cli)
+    assert _package(cli, tmp_path / "out").rc == 0
+    hello = _read(tmp_path / "out" / HELLO)
+    first, second = hello.members["opt/h1/README"], hello.members["opt/h2/README"]
+    assert first.isreg() and second.islnk() and second.size == 0
+    assert second.linkname == "opt/h1/README"
+    digest = hashlib.sha1(hello.data["opt/h1/README"]).hexdigest()
+    assert first.pax_headers["APK-TOOLS.checksum.SHA1"] == digest
+    assert second.pax_headers["APK-TOOLS.checksum.SHA1"] == digest
+    size = int(dict(_info(hello))["size"])
+    assert size == sum(len(data) for data in hello.data.values()) + sum(
+        len(member.linkname) for member in hello.members.values() if member.issym()
+    )

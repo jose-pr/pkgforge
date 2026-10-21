@@ -112,6 +112,7 @@ REQUIRED_API_TARGETS = (
     "pkgforge.package.PackageFormat",
     "pkgforge.package.BuildContext",
     "pkgforge.package.PackagePayload",
+    "pkgforge.package.PackageWriter",
     "pkgforge.package.build",
     "pkgforge.package.ArchFormat",
     "pkgforge.package.ApkFormat",

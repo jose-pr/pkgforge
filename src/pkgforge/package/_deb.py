@@ -9,7 +9,7 @@ import typing
 from pathlib import Path
 
 from .._sysfiles import SYSUSERS_DIR, TMPFILES_DIR, unit_names
-from ..dbdump import _has_control, _reject_control, _write_files
+from ..dbdump import _has_control, _reject_control
 from ..dbdump._debian import (
     _SUBSTVAR_RE,
     _description_lines,
@@ -225,16 +225,18 @@ class DebFormat(PackageFormat):
     ) -> typing.List[Path]:
         assert context.compression is not None
         when = stamp(context.epoch)
-        files: typing.Dict[Path, bytes] = {}
+        files = []
         for payload in payloads:
             arch = self.arch_name(payload, context)
             main = payload.main
             version = f"{main.version}-{main.release}" if main.release else main.version
             assert version is not None  # REQUIRED
             data = self._deb(payload, context, version, arch, when)
-            files[context.output / f"{payload.name}_{version}_{arch}.deb"] = data
-        _write_files(files)
-        return list(files)
+            path = context.output / f"{payload.name}_{version}_{arch}.deb"
+            with context.writer.create(path) as handle:
+                handle.write(data)
+            files.append(path)
+        return files
 
     def _deb(
         self,

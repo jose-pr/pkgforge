@@ -224,15 +224,17 @@ def test_rpm_removes_its_topdir_after_a_failed_build(staged, recorder, cli, tmp_
     assert result.rc == 1
     assert b"rpmbuild failed (exit 1): boom" in result.err
     assert recorder.top is not None and not recorder.top.exists()
-    assert not list((tmp_path / "out").glob("*.rpm"))
+    assert not (tmp_path / "out").exists()
 
 
 @pytest.mark.posix
 def test_rpm_without_rpmbuild_is_an_error(staged, cli, tmp_path, monkeypatch):
-    monkeypatch.setattr(_rpm.shutil, "which", lambda name, *a, **k: None)
-    result = _package(cli, tmp_path / "out")
+    (tmp_path / "bin").mkdir()
+    monkeypatch.setenv("PATH", str(tmp_path / "bin"))
+    result = _package(cli, tmp_path / "new")
     assert result.rc == 1
     assert b"package -f rpm needs rpmbuild on PATH" in result.err
+    assert not (tmp_path / "new").exists()
 
 
 @pytest.mark.posix

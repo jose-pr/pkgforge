@@ -2084,20 +2084,22 @@ kind = "doc"
 """
 
 
-@requires_dpkg_root
-def test_dpkg_deb_installs_into_scratch_root(tmp_path):
-    """dpkg installs a package with no account, unit or capability into a scratch
-    root as an unprivileged user, and ``--verify`` finds nothing altered."""
-    deb = _build_direct_debs(tmp_path, _PLAIN_CFG)["plain"]
-    root = tmp_path / "target"
+def _scratch_dpkg_root(base: Path) -> Path:
+    """An empty dpkg database below ``base``, to install a package into."""
+    root = base / "target"
     (root / "var/lib/dpkg/info").mkdir(parents=True)
     (root / "var/lib/dpkg/updates").mkdir()
     (root / "var/lib/dpkg/status").write_bytes(b"")
     (root / "var/lib/dpkg/available").write_bytes(b"")
+    return root
+
+
+def _install_into_scratch_root(base: Path, root: Path, deb: Path) -> None:
+    """``dpkg -i`` of ``deb`` into ``root`` as an unprivileged user."""
     dpkg = [
         "dpkg",
         f"--root={root}",
-        f"--log={tmp_path / 'dpkg.log'}",
+        f"--log={base / 'dpkg.log'}",
         "--force-script-chrootless",
         "--force-not-root",
     ]
@@ -2105,6 +2107,15 @@ def test_dpkg_deb_installs_into_scratch_root(tmp_path):
         ["fakeroot", *dpkg, "-i", str(deb)], capture_output=True, text=True
     )
     assert install.returncode == 0, install.stdout + install.stderr
+
+
+@requires_dpkg_root
+def test_dpkg_deb_installs_into_scratch_root(tmp_path):
+    """dpkg installs a package with no account, unit or capability into a scratch
+    root as an unprivileged user, and ``--verify`` finds nothing altered."""
+    deb = _build_direct_debs(tmp_path, _PLAIN_CFG)["plain"]
+    root = _scratch_dpkg_root(tmp_path)
+    _install_into_scratch_root(tmp_path, root, deb)
     assert (root / "usr/bin/hello").is_file()
     assert os.readlink(root / "usr/bin/pl") == "hello"
     assert (root / "etc/plain/hello.conf").is_file()
@@ -2355,5 +2366,108 @@ def test_apk_example_installs(tmp_path):
         }
         reported -= {"usr/libexec/hello/helper"}
         assert not reported & packaged, audit.stdout + audit.stderr
+    finally:
+        _run_as_root("apk", "del", "hello", check=False)
+
+
+# --------------------------------------------------------------------------
+# package: a hardlink pair ships as one file and a link
+# --------------------------------------------------------------------------
+
+BSDTAR = shutil.which("bsdtar")
+requires_bsdtar = pytest.mark.skipif(BSDTAR is None, reason="bsdtar not installed")
+
+_HARDLINK_STAGES = "".join(
+    f'\n[[stage]]\nsrc = "src/README"\ndest = "/opt/{name}"\nmethod = "link"\n'
+    'mode = "644"\n'
+    for name in ("h1", "h2")
+)
+
+
+def _build_hardlinked(base: Path, fmt: str, cfg: typing.Optional[str] = None) -> Path:
+    """Stage the example (or the cfg text ``cfg``) with two hardlinks of one
+    file, ``/opt/h1/README`` and ``/opt/h2/README``, and build its ``fmt``
+    package; returns the main package."""
+    base.mkdir(exist_ok=True)
+    tree = _example_source(base / "work")
+    path = tree / "pkgforge.cfg"
+    text = path.read_bytes().decode("utf-8") if cfg is None else cfg
+    path.write_bytes((text + _HARDLINK_STAGES).encode("utf-8"))
+    project = Project.from_config(
+        path, buildroot=base / "root", db=base / "files.jsonl"
+    )
+    project.stage(init=True)
+    return project.package(fmt, base / "out")[0]
+
+
+def _assert_hardlinked(first: Path, second: Path) -> None:
+    assert first.stat().st_nlink == second.stat().st_nlink == 2
+    assert first.samefile(second)
+
+
+@requires_bsdtar
+@pytest.mark.parametrize("fmt", ["tar", "arch", "apk"])
+def test_bsdtar_extracts_package_hardlinks(tmp_path, fmt):
+    """bsdtar lists the second path as a link to the first and extracts the
+    pair as one inode."""
+    package = _build_hardlinked(tmp_path / "build", fmt)
+    listing = subprocess.run(
+        [BSDTAR, "-tvf", str(package)], capture_output=True, text=True, check=True
+    ).stdout
+    assert re.search(r"^h.* opt/h2/README link to opt/h1/README$", listing, re.M)
+    target = tmp_path / "x"
+    target.mkdir()
+    subprocess.run([BSDTAR, "-xf", str(package), "-C", str(target)], check=True)
+    _assert_hardlinked(target / "opt/h1/README", target / "opt/h2/README")
+
+
+@requires_dpkg_deb
+def test_dpkg_deb_lists_package_hardlinks(tmp_path):
+    deb = _build_hardlinked(tmp_path, "deb")
+    listing = _dpkg_deb("--contents", str(deb))
+    assert re.search(r"^h.* \./opt/h2/README link to \./opt/h1/README$", listing, re.M)
+
+
+@requires_dpkg_root
+def test_dpkg_deb_installs_package_hardlinks(tmp_path):
+    """dpkg unpacks the pair as one inode and ``--verify`` is clean."""
+    deb = _build_hardlinked(tmp_path / "build", "deb", _PLAIN_CFG)
+    root = _scratch_dpkg_root(tmp_path)
+    _install_into_scratch_root(tmp_path, root, deb)
+    _assert_hardlinked(root / "opt/h1/README", root / "opt/h2/README")
+    verify = subprocess.run(
+        ["dpkg", f"--root={root}", "--verify", "plain"], capture_output=True, text=True
+    )
+    assert (verify.returncode, verify.stdout, verify.stderr) == (0, "", "")
+
+
+@requires_rpmbuild
+def test_rpmbuild_package_keeps_hardlinks(tmp_path):
+    """rpmbuild sees the pair as hardlinks of one file."""
+    rpm_path = _build_hardlinked(tmp_path, "rpm")
+    rows = _query(rpm_path, "--qf", "[%{FILENAMES} %{FILENLINKS}\n]").splitlines()
+    links = dict(row.split() for row in rows)
+    assert links["/opt/h1/README"] == links["/opt/h2/README"] == "2"
+    assert links["/usr/bin/hello"] == "1"
+
+
+@requires_pacman
+@requires_install
+def test_pacman_installs_package_hardlinks(tmp_path):
+    package = _build_hardlinked(tmp_path, "arch")
+    try:
+        _run_as_root("pacman", "-U", "--noconfirm", str(package))
+        _assert_hardlinked(Path("/opt/h1/README"), Path("/opt/h2/README"))
+    finally:
+        _run_as_root("pacman", "-R", "--noconfirm", "hello", check=False)
+
+
+@requires_apk
+@requires_install
+def test_apk_installs_package_hardlinks(tmp_path):
+    package = _build_hardlinked(tmp_path, "apk")
+    try:
+        _run_as_root("apk", "add", "--allow-untrusted", str(package))
+        _assert_hardlinked(Path("/opt/h1/README"), Path("/opt/h2/README"))
     finally:
         _run_as_root("apk", "del", "hello", check=False)

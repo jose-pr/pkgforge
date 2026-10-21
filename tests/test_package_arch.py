@@ -465,3 +465,33 @@ def test_arch_library_call(staged, tmp_path):
         "hello-1.0-1-any.pkg.tar.xz",
         "hello-doc-1.0-1-any.pkg.tar.xz",
     ]
+
+
+_HARDLINKS = "".join(
+    f'\n[[stage]]\nsrc = "src/README"\ndest = "/opt/{name}"\nmethod = "link"\n'
+    'mode = "644"\n'
+    for name in ("h1", "h2")
+)
+
+
+@pytest.mark.posix
+def test_arch_hardlinks(work, cli, tmp_path):
+    _edit_cfg(work, append=_HARDLINKS)
+    _stage(cli)
+    assert _package(cli, tmp_path / "out").rc == 0
+    hello = _read(tmp_path / "out" / HELLO)
+    first, second = hello.members["opt/h1/README"], hello.members["opt/h2/README"]
+    assert first.isreg() and second.islnk() and second.size == 0
+    assert second.linkname == "opt/h1/README"
+    rows = _mtree(hello)
+    row = rows["./opt/h2/README"]
+    assert row["type"] == "file" and int(row["size"]) == first.size
+    assert row["md5digest"] == rows["./opt/h1/README"]["md5digest"]
+    size = int(dict(_info(hello))["size"])
+    plain = sum(len(data) for name, data in hello.data.items() if name[0] != ".")
+    links = sum(
+        len(member.linkname)
+        for member in hello.members.values()
+        if member.issym() and member.name[0] != "."
+    )
+    assert size == plain + links

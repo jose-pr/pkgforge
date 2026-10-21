@@ -920,21 +920,42 @@ Importing `pkgforge.package` loads no optional dependency.
   and `MACHINES: Mapping[str, str]` (`platform.machine()` in lowercase to its
   architecture name). `build(self, payloads: Sequence[PackagePayload], context:
   BuildContext) -> list[Path]` (abstract) writes one file per payload into
-  `context.output` and returns the paths in payload order. `arch_name(self,
+  `context.output`, creating each through `context.writer`, and returns the
+  paths in payload order. `arch_name(self,
   payload, context) -> str`: `ALL_ARCH` for an `all` package, else
   `context.arch` verbatim, else `MACHINES[platform.machine().lower()]`;
   `UsageError("FMT: no architecture name for machine 'm': pass --arch")` for a
   machine the table lacks.
 - **`BuildContext(config, buildroot, output, compression, arch, epoch,
-  config_path=None)`** — frozen dataclass: the project configuration, the build
-  root, the output directory, the chosen compression (`None` when the format
-  offers none), `--arch`, the `SOURCE_DATE_EPOCH` seconds (`None` when unset) and
-  the configuration file.
+  config_path=None, writer=PackageWriter())`** — frozen dataclass: the project
+  configuration, the build root, the output directory (which need not exist yet),
+  the chosen compression (`None` when the format offers none), `--arch`, the
+  `SOURCE_DATE_EPOCH` seconds (`None` when unset), the configuration file and the
+  `PackageWriter` a format creates its files through.
+- **`PackageWriter()`** — the files of one build, all or nothing. `create(path:
+  Path) -> BinaryIO` opens `.NAME.pkgforge-tmp` beside `path` for writing (the
+  caller closes it), making `path`'s directory and any missing parent first;
+  `move(source: Path, path: Path)` takes a finished file as `path`'s content;
+  `commit()` renames every file over its path, in creation order; `abort()`
+  removes the temporary files and the directories `create` made. `build` calls
+  `commit()` once the format returns and `abort()` on any exception (including
+  Ctrl-C), so a failed build leaves no new directory and no partial file, and an
+  existing package of the same name keeps its content until `commit()`. A format
+  that writes into `context.output` any other way gets neither.
 - **`PackagePayload(name, main, info, arch, entries)`** — a `NamedTuple`: the
   package name, the `[package]` table (`PackageInfo`, which holds the version and
   release), the package's own table (`PackageInfo` or `SubPackageInfo`), its
   architecture (`"all"` or `"any"`: its own, else the main's, else `"any"`) and
   its live entries sorted by DB path.
+- **Hardlinks** — within one package, regular files that share an inode and
+  record the same mode, owner, group and capability are written as the first
+  (by DB path) and, for each other one, a tar hardlink member (`LNKTYPE`, size 0,
+  naming the first as written in that archive: `./usr/bin/a` in a `.deb`,
+  `usr/bin/a` elsewhere) in `tar`, `deb`, `arch` and `apk`; `rpm` gets them
+  from `rpmbuild`, which sees the pair in its build root. A file that differs in
+  any of those, or whose partner is in another package or not recorded, stays a
+  copy. `Installed-Size`, `.PKGINFO` `size` and the apk `size` count a link as 0;
+  `md5sums`, `.MTREE` and the apk checksum list it like any file.
 - **`ApkFormat`** — `NAME = "apk"`, `COMPRESSIONS = ("gz",)`, `REQUIRED =
   ("version", "summary")`, `SUB_REQUIRED = ("summary",)`, `ALL_ARCH = "noarch"`,
   `MACHINES` mapping `x86_64`/`amd64` to `x86_64`, `aarch64`/`arm64` to

@@ -150,6 +150,15 @@ This writes `dist/hello-1.0-1.noarch.rpm` and `dist/hello-doc-1.0-1.noarch.rpm`.
   builds of the same build root produce identical `deb`, `arch`, `apk` and `tar`
   files. Without it, a file keeps its staged modification time and the build
   time is now.
+- A build is all or nothing: every package is written beside its final name and
+  renamed into place when all are built, and the `-o` directory is created only
+  with the first file. A failed build, `rpm` without `rpmbuild` included, leaves
+  no new directory, and a package already in `-o` keeps its content.
+- Files of one package that are hardlinks in the build root (one inode, and the
+  same recorded mode, owner, group and capability) ship as one file and
+  hardlinks to it in `deb`, `arch`, `apk` and `tar`, and `rpm` keeps them too, so
+  they install as one inode. A file whose partner is in another package ships as
+  a copy.
 - `--arch NAME` names the architecture of a package whose `arch` is `any`, in
   the format's own spelling (`arm64` for a `.deb`, `aarch64` for Arch and Alpine);
   without it, the architecture of the machine running `pkgforge`. An `all`

@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from pkgforge import PackageFormat, Project, UsageError, open_db
-from pkgforge.package import BuildContext, PackagePayload
+from pkgforge.package import BuildContext, PackagePayload, PackageWriter
 
 #: A hand-written DB record; a test overrides the fields it cares about.
 _RECORD = {
@@ -295,6 +295,118 @@ def test_tar_caps_warning(staged, cli, tmp_path, caplog):
     ]
 
 
+def _link(cli, dest: str, *args: str):
+    result = cli("install", "-p", "--method", "link", *args, "src/data", dest)
+    assert result.rc == 0, result.err
+
+
+@pytest.mark.posix
+def test_tar_hardlinks_are_one_file_and_links(staged, cli, tmp_path):
+    _link(cli, "/opt/h1")
+    _link(cli, "/opt/h2")
+    _link(cli, "/opt/h3")
+    assert _package(cli, tmp_path / "out").rc == 0
+    members = _members(tmp_path / "out/tool-1.2-3.tar.gz")
+    first = members["opt/h1/data"]
+    assert first.isreg() and first.size == 5
+    for name in ("opt/h2/data", "opt/h3/data"):
+        assert members[name].islnk() and members[name].size == 0
+        assert members[name].linkname == "opt/h1/data"
+    # The copy `stage` made has its own inode.
+    assert members["usr/share/tool/data"].isreg()
+
+
+@pytest.mark.posix
+def test_tar_hardlinks_with_other_metadata_stay_copies(staged, cli, tmp_path):
+    _link(cli, "/opt/h1", "-m", "640")
+    _link(cli, "/opt/h2", "-m", "600")
+    assert _package(cli, tmp_path / "out").rc == 0
+    members = _members(tmp_path / "out/tool-1.2-3.tar.gz")
+    assert members["opt/h1/data"].isreg() and members["opt/h2/data"].isreg()
+    assert (members["opt/h1/data"].mode, members["opt/h2/data"].mode) == (
+        0o640,
+        0o600,
+    )
+
+
+@pytest.mark.posix
+def test_tar_hardlink_target_in_another_package_is_a_copy(staged, cli, tmp_path):
+    _link(cli, "/opt/h1")
+    _link(cli, "/opt/h2", "-P", "tool-doc")
+    assert _package(cli, tmp_path / "out").rc == 0
+    assert _members(tmp_path / "out/tool-1.2-3.tar.gz")["opt/h1/data"].isreg()
+    assert _members(tmp_path / "out/tool-doc-1.2-3.tar.gz")["opt/h2/data"].isreg()
+
+
+@pytest.mark.posix
+def test_tar_hardlinks_extract_as_hardlinks(staged, cli, tmp_path):
+    _link(cli, "/opt/h1")
+    _link(cli, "/opt/h2")
+    assert _package(cli, tmp_path / "out").rc == 0
+    with tarfile.open(tmp_path / "out/tool-1.2-3.tar.gz") as archive:
+        for name in ("opt/h1/data", "opt/h2/data"):
+            archive.extract(archive.getmember(name), tmp_path / "x", filter="tar")
+    assert os.stat(tmp_path / "x/opt/h2/data").st_nlink == 2
+    assert os.path.samefile(tmp_path / "x/opt/h1/data", tmp_path / "x/opt/h2/data")
+
+
+# -- a failed build leaves nothing ----------------------------------------
+
+
+@pytest.mark.posix
+def test_package_failure_after_the_first_package_leaves_no_directory(
+    staged, cli, tmp_path
+):
+    result = cli(
+        "install", "-p", "-P", "tool-doc", "--owner", LONG_USER, "src/data", "/opt/d"
+    )
+    assert result.rc == 0, result.err
+    out = tmp_path / "deep" / "out"
+    result = _package(cli, out)
+    assert result.rc == 1
+    assert b"is longer than the 32 bytes" in result.err
+    assert not (tmp_path / "deep").exists()
+
+
+@pytest.mark.posix
+def test_package_failure_keeps_an_existing_output_as_it_was(staged, cli, tmp_path):
+    result = cli(
+        "install", "-p", "-P", "tool-doc", "--owner", LONG_USER, "src/data", "/opt/d"
+    )
+    assert result.rc == 0, result.err
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "tool-1.2-3.tar.gz").write_bytes(b"old")
+    assert _package(cli, out).rc == 1
+    assert [path.name for path in out.iterdir()] == ["tool-1.2-3.tar.gz"]
+    assert (out / "tool-1.2-3.tar.gz").read_bytes() == b"old"
+
+
+def test_writer_creates_directories_at_the_first_file_and_removes_them(tmp_path):
+    (tmp_path / "kept").mkdir()
+    writer = PackageWriter()
+    assert not (tmp_path / "kept" / "new").exists()
+    with writer.create(tmp_path / "kept" / "new" / "deeper" / "a.pkg") as handle:
+        handle.write(b"a")
+    assert (tmp_path / "kept/new/deeper/.a.pkg.pkgforge-tmp").is_file()
+    writer.abort()
+    assert not (tmp_path / "kept" / "new").exists()
+    assert list((tmp_path / "kept").iterdir()) == []
+
+
+def test_writer_commit_replaces_the_targets_together(tmp_path):
+    (tmp_path / "a").write_bytes(b"old")
+    writer = PackageWriter()
+    with writer.create(tmp_path / "a") as handle:
+        handle.write(b"new a")
+    with writer.create(tmp_path / "b") as handle:
+        handle.write(b"new b")
+    assert (tmp_path / "a").read_bytes() == b"old" and not (tmp_path / "b").exists()
+    writer.commit()
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["a", "b"]
+    assert (tmp_path / "a").read_bytes() == b"new a"
+
+
 # -- refusals -------------------------------------------------------------
 
 
@@ -336,7 +448,7 @@ def test_package_member_under_a_symlink_leaving_the_root_exit_2(staged, cli, tmp
     result = _package(cli, tmp_path / "out")
     assert result.rc == 2
     assert b"/opt/link/secret: a symlink leads outside --buildroot" in result.err
-    assert not list((tmp_path / "out").glob("*"))
+    assert not (tmp_path / "out").exists()
 
 
 @pytest.mark.posix

@@ -44,13 +44,13 @@ def _stage(cli) -> None:
     assert result.rc == 0, result.err
 
 
-def _edit_cfg(work: Path, *pairs: typing.Tuple[str, str]) -> None:
+def _edit_cfg(work: Path, *pairs: typing.Tuple[str, str], append: str = "") -> None:
     path = work / "pkgforge.cfg"
     text = path.read_bytes().decode("utf-8")
     for old, new in pairs:
         assert text.count(old) == 1, old
         text = text.replace(old, new)
-    path.write_bytes(text.encode("utf-8"))
+    path.write_bytes((text + append).encode("utf-8"))
 
 
 @pytest.fixture
@@ -465,3 +465,29 @@ def test_deb_library_call(staged, tmp_path):
     )
     paths = project.package("deb", tmp_path / "lib")
     assert [path.name for path in paths] == [HELLO, DOC]
+
+
+_HARDLINKS = "".join(
+    f'\n[[stage]]\nsrc = "src/README"\ndest = "/opt/{name}"\nmethod = "link"\n'
+    'mode = "644"\n'
+    for name in ("h1", "h2")
+)
+
+
+@pytest.mark.posix
+def test_deb_hardlinks(work, cli, tmp_path):
+    _edit_cfg(work, append=_HARDLINKS)
+    _stage(cli)
+    assert _package(cli, tmp_path / "out").rc == 0
+    hello = tmp_path / "out" / HELLO
+    _raw, payload = _tar(hello, "data.tar")
+    first, second = payload["./opt/h1/README"], payload["./opt/h2/README"]
+    assert first.isreg() and first.size > 0
+    assert second.islnk() and second.size == 0
+    assert second.linkname == "./opt/h1/README"
+    sums = _text(hello, "./md5sums")
+    assert sums.count("  opt/h1/README\n") == sums.count("  opt/h2/README\n") == 1
+    values = dict(_fields(_text(hello, "./control")))
+    assert int(values["Installed-Size"]) == _kib(
+        member for member in payload.values() if not member.islnk()
+    )

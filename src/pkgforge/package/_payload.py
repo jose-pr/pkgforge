@@ -44,6 +44,9 @@ class Member(typing.NamedTuple):
     #: The recorded entry; ``None`` for a parent directory the package does
     #: not record.
     entry: typing.Optional[FileEntry]
+    #: The DB path of the earlier member this regular file is a hardlink to
+    #: (the same inode, mode, owners and capability), else ``None``.
+    link: typing.Optional[str] = None
 
 
 class Blob(typing.NamedTuple):
@@ -76,6 +79,19 @@ def _clamp(st: os.stat_result, epoch: typing.Optional[int]) -> int:
     return seconds if epoch is None else min(seconds, epoch)
 
 
+def _same_file(first: Member, other: Member) -> bool:
+    """Whether ``other`` may be a hardlink to ``first``: a link shares one
+    inode, so it can carry neither another mode or owner nor a capability the
+    first lacks."""
+    assert first.entry is not None and other.entry is not None
+    return (first.mode, first.owner, first.group, first.entry["caps"]) == (
+        other.mode,
+        other.owner,
+        other.group,
+        other.entry["caps"],
+    )
+
+
 def members(
     entries: FileEntries,
     buildroot: Path,
@@ -89,7 +105,8 @@ def members(
     A mode left unset (``-``) is the staged file's permission bits (``0o777``
     for a symlink) and an unset owner or group is ``root``. With ``parents``,
     each ancestor directory the package does not record is added as a 755
-    root:root directory.
+    root:root directory. Regular files that share an inode, mode, owners and
+    capability become one file plus :attr:`Member.link` members that name it.
 
     Raises:
         UsageError: a recorded path is missing from ``buildroot``, is of
@@ -99,6 +116,7 @@ def members(
     """
     recorded = {path for path, _entry in entries}
     result: typing.Dict[str, Member] = {}
+    inodes: typing.Dict[str, typing.Tuple[int, int]] = {}
     real_root = os.path.realpath(buildroot)
     for path, entry in entries:
         if entry["kind"] == _GHOST or path == "/":
@@ -139,6 +157,14 @@ def members(
             os.readlink(local) if symlink else None,
             entry,
         )
+        if wanted == FileType.File and st.st_nlink > 1:
+            inodes[path] = (st.st_dev, st.st_ino)
+    first: typing.Dict[typing.Tuple[int, int], Member] = {}
+    for path in sorted(inodes):
+        item = result[path]
+        target = first.setdefault(inodes[path], item)
+        if target is not item and _same_file(target, item):
+            result[path] = item._replace(link=target.path)
     if parents:
         for path in list(result):
             parent = posixpath.dirname(path)
@@ -167,9 +193,12 @@ def members(
 def installed_kib(items: typing.Iterable[Member]) -> int:
     """The ``Installed-Size`` dpkg computes for ``items``, in KiB: each
     regular file and symlink rounds up to whole KiB (a symlink is as long as
-    its target), every other object counts 1, and so does the package root."""
+    its target), a hardlink adds nothing, every other object counts 1, and so
+    does the package root."""
     total = 1
     for item in items:
+        if item.link is not None:
+            continue
         if item.type == FileType.File:
             total += -(-item.size // 1024)
         elif item.type == FileType.Symlink:
@@ -183,9 +212,11 @@ def installed_kib(items: typing.Iterable[Member]) -> int:
 
 def payload_bytes(items: typing.Iterable[Member]) -> int:
     """The bytes ``items`` occupy: each regular file's size plus the length of
-    each symlink's target."""
+    each symlink's target; a hardlink adds nothing."""
     total = 0
     for item in items:
+        if item.link is not None:
+            continue
         if item.type == FileType.File:
             total += item.size
         elif item.type == FileType.Symlink:
@@ -251,11 +282,15 @@ def tar_bytes(
             FileType.Directory: tarfile.DIRTYPE,
             FileType.Symlink: tarfile.SYMTYPE,
         }[item.type]
+        if item.link is not None:
+            kind = tarfile.LNKTYPE
         info = header(prefix + item.path.lstrip("/"), kind, item.mode, item.mtime)
         info.uname, info.gname = owners(item) if owners else (item.owner, item.group)
-        info.size = item.size
+        info.size = 0 if item.link is not None else item.size
         if item.target is not None:
             info.linkname = item.target
+        elif item.link is not None:
+            info.linkname = prefix + item.link.lstrip("/")
         if pax is not None:
             info.pax_headers = pax(item)
         put(info, item.local)

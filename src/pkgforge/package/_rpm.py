@@ -91,8 +91,18 @@ class RpmFormat(PackageFormat):
         try:
             for name in ("SPECS", "RPMS", "BUILD", "BUILDROOT", "SOURCES", "SRPMS"):
                 (top / name).mkdir()
-            items = members(
-                entries, context.buildroot, epoch=context.epoch, parents=False
+            items = sorted(
+                (
+                    item
+                    for payload in payloads
+                    for item in members(
+                        payload.entries,
+                        context.buildroot,
+                        epoch=context.epoch,
+                        parents=False,
+                    )
+                ),
+                key=lambda item: item.path,
             )
             (top / "payload.tar").write_bytes(
                 tar_bytes(items, format=tarfile.GNU_FORMAT)
@@ -128,16 +138,18 @@ class RpmFormat(PackageFormat):
             if context.arch:
                 argv += ["--target", context.arch]
             _run_tool([*argv, str(spec_path)], what="package -f rpm")
-            return self._collect(payloads, top / "RPMS", context.output)
+            return self._collect(payloads, top / "RPMS", context)
         finally:
             shutil.rmtree(top, ignore_errors=True)
 
     @staticmethod
     def _collect(
-        payloads: typing.Sequence[PackagePayload], built: Path, output: Path
+        payloads: typing.Sequence[PackagePayload],
+        built: Path,
+        context: BuildContext,
     ) -> typing.List[Path]:
-        """Move the rpms ``rpmbuild`` wrote below ``built`` into ``output``, in
-        payload order."""
+        """Hand the rpms ``rpmbuild`` wrote below ``built`` to the context's
+        writer as the packages in its output directory, in payload order."""
         found = sorted(built.rglob("*.rpm"))
         result = []
         for payload in payloads:
@@ -153,9 +165,7 @@ class RpmFormat(PackageFormat):
                     f"package -f rpm: rpmbuild wrote {len(matches)} files for "
                     f"{payload.name}, expected one"
                 )
-            target = output / matches[0].name
-            if target.exists():
-                target.unlink()
-            shutil.move(str(matches[0]), str(target))
+            target = context.output / matches[0].name
+            context.writer.move(matches[0], target)
             result.append(target)
         return result

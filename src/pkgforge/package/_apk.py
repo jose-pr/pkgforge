@@ -11,7 +11,6 @@ from pathlib import Path
 
 from .._sysfiles import SYSUSERS_DIR, created_accounts
 from ..config import ProjectConfig
-from ..dbdump import _write_files
 from ..entry import DEFAULT, FileKind, FileType
 from ..exceptions import DumpError, UsageError
 from . import BuildContext, PackageFormat, PackagePayload
@@ -191,14 +190,16 @@ class ApkFormat(PackageFormat):
         self, payloads: typing.Sequence[PackagePayload], context: BuildContext
     ) -> typing.List[Path]:
         when = stamp(context.epoch)
-        files: typing.Dict[Path, bytes] = {}
+        files = []
         for payload in payloads:
             arch = self.arch_name(payload, context)
             version = _version(payload)
             data = self._package(payload, context, version, arch, when)
-            files[context.output / f"{payload.name}-{version}.apk"] = data
-        _write_files(files)
-        return list(files)
+            path = context.output / f"{payload.name}-{version}.apk"
+            with context.writer.create(path) as handle:
+                handle.write(data)
+            files.append(path)
+        return files
 
     def _package(
         self,

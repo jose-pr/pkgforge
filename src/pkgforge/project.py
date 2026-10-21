@@ -1326,10 +1326,11 @@ class Project:
         in the build root with its recorded type, and files the DB does not
         record are not shipped. Owners and modes come from the DB, so a package
         built from a build root owned by anyone holds the same bytes. The
-        packages go into the directory ``output`` (created if missing); ``arch``
-        names the architecture of an ``any`` package in the format's own
-        spelling (default: this machine's) and ``compression`` is one the format
-        offers (default: its first).
+        packages go into the directory ``output`` (created with the first
+        package, and not left behind by a failed build); ``arch`` names the
+        architecture of an ``any`` package in the format's own spelling
+        (default: this machine's) and ``compression`` is one the format offers
+        (default: its first).
 
         Returns:
             The paths written, the main package first, then each

@@ -23,6 +23,10 @@ every format.
     options:
       show_root_heading: true
 
+::: pkgforge.package.PackageWriter
+    options:
+      show_root_heading: true
+
 ## Built-in formats
 
 ::: pkgforge.package.ApkFormat

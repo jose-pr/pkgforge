@@ -7,6 +7,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `pkgforge.package.PackageWriter`, and the `BuildContext.writer` field: a
+  `PackageFormat.build` creates the files it writes through it, which is what
+  keeps a build all or nothing.
 - `pkgforge package -f apk` builds each package as an Alpine package (apk v2)
   itself, with no `abuild`: `NAME-VERSION-rREL.apk`, two gzip members holding
   `.PKGINFO` (with the `datahash` of the data member) and, when they have a
@@ -517,6 +520,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the build root, put that directory's file into the package. It now exits 2 with
   `PATH: a symlink leads outside --buildroot` before writing anything, the check
   `install` and `scan` already make.
+- A failed `pkgforge package` left the `-o` directory behind: `-f rpm` without
+  `rpmbuild`, or any error after the first package, exited 1 but had already
+  created it. The directory is now made with the first package file, each file is
+  written beside its final name and renamed into place only when every package
+  is built, and a failure (Ctrl-C included) removes what the build created and
+  leaves an existing package of the same name as it was.
+- `pkgforge package` shipped each file of a hardlinked set as a separate copy. In
+  a `tar`, `deb`, `arch` or `apk` package the first one (by DB path) is a regular
+  file and the others are hardlinks to it, so they install as one inode and the
+  installed size counts the data once; `-f rpm` keeps the set too. Files that
+  differ in recorded mode, owner, group or capability, or whose partner is in
+  another package, stay copies.
 
 ## [0.2.0] - 2026-09-29
 

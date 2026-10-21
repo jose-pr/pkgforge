@@ -12,7 +12,6 @@ from pathlib import Path
 
 from .._sysfiles import SYSUSERS_DIR, TMPFILES_DIR, created_accounts, sysusers_text
 from ..config import ProjectConfig
-from ..dbdump import _write_files
 from ..entry import DEFAULT, FileType
 from ..exceptions import UsageError
 from . import BuildContext, PackageFormat, PackagePayload
@@ -201,15 +200,17 @@ class ArchFormat(PackageFormat):
     ) -> typing.List[Path]:
         assert context.compression is not None
         when = stamp(context.epoch)
-        files: typing.Dict[Path, bytes] = {}
+        files = []
         for payload in payloads:
             arch = self.arch_name(payload, context)
             version = f"{payload.main.version}-{_pkgrel(payload.main.release)}"
             name = f"{payload.name}-{version}-{arch}.pkg.tar"
             data = self._package(payload, context, version, arch, when)
-            files[context.output / (name + SUFFIXES[context.compression])] = data
-        _write_files(files)
-        return list(files)
+            path = context.output / (name + SUFFIXES[context.compression])
+            with context.writer.create(path) as handle:
+                handle.write(data)
+            files.append(path)
+        return files
 
     def _package(
         self,
