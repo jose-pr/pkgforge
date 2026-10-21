@@ -138,9 +138,9 @@ Each `[[packages]]` element becomes a `%package -n NAME` in the spec and a
 its own `NAME.install`, `NAME.dirs`, `NAME.postinst` and so on. An entry ships
 in the first of these that names a package:
 
-1. the flag: `-P NAME` on `install`, `mkdir` and `symlink`;
-2. the first matching `[[rules]]` element's `package`, or the `package` of the
-   `[[stage]]` step;
+1. the flag: `-P NAME` on `install`, `mkdir` and `symlink`, or the `package` of
+   the `[[stage]]` step;
+2. the first matching `[[rules]]` element's `package`;
 3. the `[package]` name.
 
 Adding a package is a `[[packages]]` element and a rule or step that fills it;
