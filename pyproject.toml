@@ -30,8 +30,9 @@ dependencies = ["anycfg>=0.15.1,<0.16", "duho>=0.7.7,<0.8"]
 
 [project.optional-dependencies]
 yaml = ["pyyaml>=6.0,<7"]
+zstd = ["zstandard>=0.25,<0.26"]
 dev = [
-    "pkgforge[yaml]",
+    "pkgforge[yaml,zstd]",
     "black>=26.1,<27; python_version >= '3.10'",
     "build",
     "pytest",
