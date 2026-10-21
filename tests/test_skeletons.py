@@ -456,6 +456,61 @@ def test_skeleton_still_writes_the_package_files(tmp_path, make_entry):
     assert {"control", "changelog", "rules", "source"} <= names
 
 
+@pytest.mark.parametrize(
+    "where, key, package, packages",
+    [
+        ("[package]", "summary", {"summary": "S ${misc:Depends}"}, None),
+        ("[package]", "description", {"description": "One.\n\nTwo ${Newline}"}, None),
+        ("[package]", "homepage", {"homepage": "https://e.org/${x}"}, None),
+        ("[package]", "maintainer", {"maintainer": "M ${a-b} <m@example.org>"}, None),
+        (
+            "[[packages]] tool-doc",
+            "summary",
+            None,
+            [{"name": "tool-doc", "summary": "Docs ${source:Version}"}],
+        ),
+    ],
+)
+def test_skeleton_refuses_substvar_in_text(
+    tmp_path, make_entry, where, key, package, packages
+):
+    data = {
+        "name": "tool",
+        "version": "1.0",
+        "summary": "A tool",
+        "maintainer": MAINTAINER,
+    }
+    data.update(package or {})
+    config = ProjectConfig.from_dict(
+        {
+            "package": data,
+            "packages": packages or [{"name": "tool-doc", "summary": "Docs"}],
+        }
+    )
+    with pytest.raises(UsageError) as error:
+        _skeleton(tmp_path, make_entry, config)
+    text = str(error.value)
+    assert text.startswith(f"debian --skeleton: {where} {key} holds ${{")
+    assert text.endswith("which dpkg-gencontrol replaces and cannot escape: reword it")
+    assert not (tmp_path / "debian").exists()
+
+
+def test_skeleton_keeps_substvar_in_depends(tmp_path, make_entry):
+    config = _config(
+        package={
+            "name": "tool",
+            "version": "1.0",
+            "summary": "A tool",
+            "maintainer": MAINTAINER,
+            "debian": {"depends": ["libtool (= ${source:Version})"]},
+        }
+    )
+    control = (_skeleton(tmp_path, make_entry, config) / "control").read_text(
+        encoding="utf-8"
+    )
+    assert "libtool (= ${source:Version})" in control
+
+
 # -- keeping edits ------------------------------------------------------------
 
 

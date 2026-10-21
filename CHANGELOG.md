@@ -159,6 +159,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `postrm` removes on purge.
 
 ### Changed
+- `dbdump -f debian --skeleton` exits 2 for a `${NAME}` in the `summary`,
+  `description`, `homepage` or `maintainer` of a package (`[package]` or a
+  `[[packages]]` element). It used to write the text, and dpkg-gencontrol then
+  replaced the variable in the built package's control file; there is no way to
+  escape it, so reword the text. A `depends` item may still hold one.
 - `dbdump -f rpmspec` names the spec format; `rpm` is the only alias of
   `rpmspecfiles` now. Use `-f rpmspecfiles` (or `-f rpm`) where you meant the
   `%files` lines.

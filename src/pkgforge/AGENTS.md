@@ -862,7 +862,10 @@ whole file is validated before any command runs: a problem is one
   it also renders the files its user edits, which need a directory OUTPUT and
   `context.config_path` (`UsageError` naming `--config`, `PKGFORGE_CONFIG` and
   `./pkgforge.cfg` otherwise) and `[package]` `version`, `summary` and
-  `maintainer` plus a `summary` per `[[packages]]` element: `control`
+  `maintainer` plus a `summary` per `[[packages]]` element, and no `${NAME}` in
+  the `summary`, `description`, `homepage` or `maintainer` of any package
+  (`UsageError`, before anything is written: dpkg-gencontrol replaces it and
+  nothing escapes it; `depends` items are not checked): `control`
   (source stanza with `Section` from `[package.debian] section`, else `misc`,
   `Priority` else `optional`, `Build-Depends: debhelper-compat (= 13),
   dh-sequence-installsysusers`, `Rules-Requires-Root: binary-targets`; then a
@@ -1244,7 +1247,9 @@ there with a `UsageError`. See [Environment variables](#environment-variables).
   `control`, `changelog`, `rules`, `source/format`); `--force` replaces an
   existing one, and an existing `rpmspec` file (exit 2 for `--force` with
   neither, for `--skeleton` with a format that has none or without a directory
-  OUTPUT, and for a skeleton when no config file was found).
+  OUTPUT, and for a skeleton when no config file was found, or when the
+  `summary`, `description`, `homepage` or `maintainer` of a package holds a
+  `${NAME}` that dpkg-gencontrol would replace).
   Render surviving (post-`--exclude`) DB entries via the format registry
   above. `-f` accepts a `NAME` or an `ALIASES` entry (`rpm` for
   `rpmspecfiles`, `deb` for `debian`); an alias and its canonical name always

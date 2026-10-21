@@ -13,6 +13,7 @@ import shlex
 import typing
 from pathlib import Path
 
+from ..config import ProjectConfig
 from ..entry import (
     BASE_GROUPS,
     BASE_USERS,
@@ -112,6 +113,12 @@ _SCRIPT_HEADER = f"#!/bin/sh\n{_MARKER}\nset -e\n\n#DEBHELPER#\n"
 _GHOST = FileKind.Ghost.value
 _CONFIG_KINDS = frozenset((FileKind.Config.value, FileKind.ConfigNoReplace.value))
 _WHITESPACE_RE = re.compile(r"\s")
+#: A dpkg-gencontrol variable: it replaces one in every control field, and no
+#: escape keeps the text as written.
+_SUBSTVAR_RE = re.compile(r"\$\{[-:0-9A-Za-z]+\}")
+#: The ``[package]`` keys, and the ``[[packages]]`` ones, that reach ``control``
+#: as free text.
+_CONTROL_TEXT = ("summary", "description", "homepage", "maintainer")
 #: ``dpkg-statoverride --list`` matches its argument with fnmatch(3), so these
 #: characters of a path are backslash-escaped there; ``--add`` and ``--remove``
 #: take the path as written.
@@ -255,11 +262,28 @@ def _description_lines(summary: str, text: typing.Optional[str]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _refuse_substvars(config: ProjectConfig) -> None:
+    """Raise :class:`UsageError` for a ``${NAME}`` in the free text of
+    ``[package]`` or a ``[[packages]]`` element, which dpkg-gencontrol would
+    replace."""
+    tables = [("[package]", config.package)]
+    tables.extend((f"[[packages]] {sub.name}", sub) for sub in config.packages)
+    for where, table in tables:
+        for key in _CONTROL_TEXT:
+            match = _SUBSTVAR_RE.search(getattr(table, key, None) or "")
+            if match:
+                raise UsageError(
+                    f"debian --skeleton: {where} {key} holds {match.group(0)}, "
+                    "which dpkg-gencontrol replaces and cannot escape: reword it"
+                )
+
+
 def _control(context: DumpContext) -> str:
     """The ``control`` file: the source stanza, then one stanza per package."""
     config = context.config
     main = config.package
     assert main is not None
+    _refuse_substvars(config)
     main_arch = "all" if main.arch == "all" else "any"
     source = [
         f"Source: {main.name}",
@@ -521,7 +545,10 @@ class DebianFiles(MultiArtifactFormat):
     now), ``rules`` (the ``debian/tmp`` recipe, naming the project file, mode
     755) and ``source/format``. They need a directory OUTPUT, the project file's
     path and ``[package]`` ``version``, ``summary`` and ``maintainer``; one that
-    exists is kept with a warning unless ``force``.
+    exists is kept with a warning unless ``force``. A ``${NAME}`` in the
+    ``summary``, ``description``, ``homepage`` or ``maintainer`` of any package
+    is :class:`~pkgforge.exceptions.UsageError`: dpkg-gencontrol replaces it and
+    nothing escapes it.
 
     Every artifact is written for every declared package, so no stale one
     survives. Writing refuses, before it writes anything: an existing
