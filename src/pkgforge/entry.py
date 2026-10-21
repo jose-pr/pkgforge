@@ -272,8 +272,8 @@ def _check_kind_caps(path: str, kind: str, caps: str, ftype: object) -> None:
 
 
 def check_meta(meta: typing.Mapping[str, str]) -> None:
-    """Raise :class:`UsageError` if ``meta`` holds the key ``rpmprefix``, which
-    no dump reads any more: ``kind`` and ``caps`` replace it."""
+    """Raise :class:`UsageError` if ``meta`` holds the key ``rpmprefix``: no
+    dump reads it, and ``kind`` and ``caps`` say what it would."""
     if "rpmprefix" in meta:
         raise UsageError("meta key 'rpmprefix' is no longer read: use kind or caps")
 

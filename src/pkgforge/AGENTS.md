@@ -180,8 +180,7 @@ tool's last stderr line.
     one lowercase `setcap` clause without spaces (`cap_net_raw=ep`,
     `cap_net_raw,cap_net_admin+ep`), else `UsageError`.
   - **`check_meta(meta: Mapping[str, str]) -> None`** — raises `UsageError`
-    for the key `rpmprefix`, which nothing reads any more: use `kind` or
-    `caps`.
+    for the key `rpmprefix`, which no dump reads: use `kind` or `caps`.
 - **`BASE_USERS`** / **`BASE_GROUPS`** — `frozenset[str]` of the account names
   every Debian system has (base-passwd's static `passwd.master` and
   `group.master`, e.g. `root`, `daemon`, `www-data`; `adm` is a group only). An
