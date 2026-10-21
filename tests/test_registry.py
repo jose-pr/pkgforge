@@ -106,9 +106,11 @@ def test_duplicate_suffix_is_refused(restore_registries, tmp_path):
 
 
 def test_duplicate_format_name_and_alias_are_refused(restore_registries):
-    for body in ({"NAME": "rpm"}, {"NAME": "probe", "ALIASES": ("rpmspec",)}):
+    for body in ({"NAME": "rpm"}, {"NAME": "probe", "ALIASES": ("rpm",)}):
         with pytest.raises(ValueError, match="RPMSpecFiles"):
             type("ProbeFormat", (PerEntryFormat,), body)
+    with pytest.raises(ValueError, match="RPMSpec"):
+        type("ProbeFormat", (PerEntryFormat,), {"NAME": "rpmspec"})
     assert DumpFormat.get("rpm") is RPMSpecFiles
     assert "probe" not in DumpFormat._registry
 

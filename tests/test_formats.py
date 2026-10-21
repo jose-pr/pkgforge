@@ -106,7 +106,7 @@ def test_dump_format_alias_pre419():
 
 @pytest.mark.parametrize(
     "alias,canonical",
-    [("rpm", "rpmspecfiles"), ("rpmspec", "rpmspecfiles"), ("deb", "debian")],
+    [("rpm", "rpmspecfiles"), ("deb", "debian")],
 )
 def test_dump_format_alias_resolves_to_canonical(alias, canonical):
     assert DumpFormat.get(alias) is DumpFormat.get(canonical)

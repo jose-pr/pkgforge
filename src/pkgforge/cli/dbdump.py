@@ -11,7 +11,7 @@ from pathlib import Path
 import duho
 
 from ..db import Db, parse_jsonl
-from ..dbdump import DumpFormat, dump
+from ..dbdump import _prepare, dump
 from ..entry import DEFAULT
 from ..exceptions import DbError, UsageError
 from ._common import ExcludeArgs, ProjectCmd, _open_stdout, _refuse_mcp_stdin
@@ -20,22 +20,23 @@ __all__ = ["DbDump"]
 
 
 class DbDump(ExcludeArgs, ProjectCmd):
-    """Dump the file DB into a packaging manifest (rpmspecfiles or debian)."""
+    """Dump the file DB into a packaging manifest (rpmspecfiles, rpmspec or debian)."""
 
     _parsername_ = "dbdump"
     _logger_name_ = "pkgforge.dbdump"
 
     format: str
     (
-        "output format: rpmspecfiles (aliases rpm, rpmspec; rpm 4.19+), "
+        "output format: rpmspecfiles (alias rpm; rpm 4.19+), "
         "rpmspecfiles-pre419 (alias rpm-pre419; rpm older than 4.19), "
+        "rpmspec or rpmspec-pre419 (the whole spec, written from pkgforge.cfg), "
         "debian (alias deb), or a registered DumpFormat subclass's NAME"
     )
     ("--format", "-f")
     output: Path = Path("-")
     (
         "OUTPUT: a file for a per-entry format (e.g. rpmspecfiles; one "
-        "package), an existing directory for one files-PACKAGE.txt per "
+        "package) or for rpmspec, an existing directory for one files-PACKAGE.txt per "
         "package, or a directory for a multi-artifact format (e.g. debian, "
         "created if missing); '-' for stdout (concatenated, sectioned, for a "
         "multi-artifact format)"
@@ -47,6 +48,15 @@ class DbDump(ExcludeArgs, ProjectCmd):
         "prefix (--own, or own in pkgforge.cfg)"
     )
     ("--dirs",)
+    skeleton: bool = False
+    (
+        "also write the packaging skeleton: control, changelog, rules and "
+        "source/format (debian); an existing file is kept unless --force"
+    )
+    ("--skeleton",)
+    force: bool = False
+    "replace existing skeleton files (rpmspec, --skeleton)"
+    ("--force",)
 
     def _check_target(self) -> typing.Tuple[str, typing.Optional[Path]]:
         """The format's canonical name and the OUTPUT path (``None`` for
@@ -55,11 +65,11 @@ class DbDump(ExcludeArgs, ProjectCmd):
         Runs before the DB is read, so a bad ``--format`` or OUTPUT exits 2
         without touching stdin.
         """
-        fmt = DumpFormat.get(self.format)
-        if str(self.output) == DEFAULT:
-            return fmt.NAME, None
-        fmt().check_output(self.output)
-        return fmt.NAME, self.output
+        output = None if str(self.output) == DEFAULT else self.output
+        fmt, target = _prepare(
+            self.format, output, skeleton=self.skeleton, force=self.force
+        )
+        return fmt.NAME, target
 
     def _stdin_db(self) -> Db:
         """Read the DB as JSON Lines from stdin (``--db -``).
@@ -110,9 +120,19 @@ class DbDump(ExcludeArgs, ProjectCmd):
                 exclude=self.exclude,
                 own=own,
                 config=project.config,
+                config_path=project.config_path,
+                skeleton=self.skeleton,
+                force=self.force,
             )
         else:
-            rendered = project.dump(fmt, output, exclude=self.exclude, dirs=self.dirs)
+            rendered = project.dump(
+                fmt,
+                output,
+                exclude=self.exclude,
+                dirs=self.dirs,
+                skeleton=self.skeleton,
+                force=self.force,
+            )
         if output is None:
             with _open_stdout() as out:
                 if isinstance(rendered, bytes):

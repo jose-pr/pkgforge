@@ -5,9 +5,11 @@ manifest. `null` (removed) entries and `--exclude` matches are skipped.
 
 | Format | Aliases | Shape | Output |
 | --- | --- | --- | --- |
-| `rpmspecfiles` | `rpm`, `rpmspec` | per-entry lines | a file or `-` (stdout), or an existing directory (one list per package) |
+| `rpmspecfiles` | `rpm` | per-entry lines | a file or `-` (stdout), or an existing directory (one list per package) |
 | `rpmspecfiles-pre419` | `rpm-pre419` | per-entry lines | a file or `-` (stdout), or an existing directory (one list per package) |
-| `debian` | `deb` | multiple artifacts | a **directory**, or `-` (stdout, sectioned); needs `[package] name` |
+| `rpmspec` | | the whole spec (rpm 4.19+) | a file or `-` (stdout); needs `[package]` `name`, `version`, `summary` and `license`; kept if it exists, unless `--force` |
+| `rpmspec-pre419` | | the whole spec (older rpm) | as `rpmspec` |
+| `debian` | `deb` | multiple artifacts | a **directory**, or `-` (stdout, sectioned); needs `[package] name`; with `--skeleton` also `control`, `changelog`, `rules` and `source/format` |
 
 Before any format renders, every surviving entry is checked: the key must
 be an absolute path with no empty, `.` or `..` segment; `type` must be

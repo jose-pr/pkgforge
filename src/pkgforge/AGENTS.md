@@ -218,14 +218,17 @@ operation loggers `pkgforge.install`, `pkgforge.scan`, `pkgforge.initdb`,
 DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
 
 - **`Project(buildroot: StrPath, db: StrPath | DbProvider | None = None, *,
-  db_format: str | None = None, config: ProjectConfig | None = None)`** — a
+  db_format: str | None = None, config: ProjectConfig | None = None,
+  config_path: StrPath | None = None)`** — a
   build root plus an optional file DB.
   `db_format` is a registered format name (else inferred from the `db`
   suffix, else `jsonl`). Validates and stores; opens nothing, holds no
   resource, so it is not a context manager, and is not thread-safe. With
   `db=None` no file is written and every operation returns the records it
   would have written. Attributes: `buildroot: Path`, `db: DbProvider | None`,
-  `config: ProjectConfig` (`ProjectConfig()` when none was given).
+  `config: ProjectConfig` (`ProjectConfig()` when none was given) and
+  `config_path: Path | None`, the absolute path of the file `config` was read
+  from (`from_config` sets it; a generated `debian/rules` points at it).
   Raises `TypeError` (a non-path `buildroot`/`db`, or a `config` that is not a
   `ProjectConfig`), `ValueError` (`db="-"`, or a `DbProvider` together with
   `db_format`), `UsageError` (unknown `db_format`).
@@ -350,8 +353,14 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   chmod'ed. The DB is read once per `install`, `scan`, `mkdir`, `symlink` or
   `stage` call, and only when an entry needs it. `record=False` and removals write none.
 - **`dump(fmt: str, output: StrPath | None = None, *, exclude: Sequence[str] =
-  (), dirs: str = "all") -> Rendered`** — render the file DB with the format
-  `fmt` (a name or alias). `dirs="owned"` keeps a directory entry only at or
+  (), dirs: str = "all", skeleton: bool = False, force: bool = False) ->
+  Rendered`** — render the file DB with the format
+  `fmt` (a name or alias). `skeleton=True` also writes the files a format's user
+  edits (`debian`: `control`, `changelog`, `rules`, `source/format`) into a
+  directory `output`; they and an `rpmspec` file are kept, with a WARNING, when
+  they exist, unless `force=True` (`UsageError` for `skeleton` with a format
+  that has none or without a directory `output`, for `force` with neither
+  `skeleton` nor `rpmspec`, and for a skeleton with no `config_path`). `dirs="owned"` keeps a directory entry only at or
   below a prefix of `config.own` (`UsageError` for another value, or with no
   prefixes). The format and OUTPUT shape are checked first, then the DB must
   exist (`UsageError` for `db=None` or a missing file); with `output` the
@@ -616,12 +625,18 @@ whole file is validated before any command runs: a problem is one
 ## `dbdump` format registry (`dbdump/`)
 
 - **`DumpFormat(pkgforge._registry.Registered, abc.ABC)`** — a packaging
-  manifest format, selected by `dbdump -f NAME`. A subclass registers
+  manifest format, selected by `dbdump -f NAME`. A format is built as
+  `DumpFormat(*, skeleton: bool = False)` (`UsageError("NAME has no skeleton")`
+  for `skeleton` when the class has none); class attributes `SKELETON: bool`
+  (the format writes a skeleton with `skeleton=True`) and `KEEP_EXISTING: bool`
+  (everything it writes is a skeleton: an existing OUTPUT is kept unless
+  `force`) are `False` by default. A subclass registers
   itself by declaring its own `NAME`/`ALIASES`, or is advertised in the
   `pkgforge.dump_formats` entry-point group (same mechanism and duplicate rule
   as `DbProvider`, see above; `DumpFormat.get(name)`/`DumpFormat.names()`
-  work the same way too). Subclass one of the two shapes below, not
-  `DumpFormat` directly.
+  work the same way too). Subclass one of the two shapes below; `RPMSpec`
+  subclasses `DumpFormat` itself because it writes one file with its own
+  `check_output`/`write`.
 - **`Rendered`** — type alias `bytes | dict[str, bytes]`: one file's bytes
   (a `PerEntryFormat`) or `{filename: bytes}` (a `MultiArtifactFormat`, or a
   `PerEntryFormat` given a directory).
@@ -635,7 +650,8 @@ whole file is validated before any command runs: a problem is one
   `UsageError`.
 - **`dump(db: Mapping[str, FileEntry | None], fmt: str, output: StrPath | None
   = None, *, exclude: Sequence[str] = (), own: Sequence[str] | None = None,
-  config: ProjectConfig | None = None) -> Rendered`** — the dump pipeline
+  config: ProjectConfig | None = None, config_path: StrPath | None = None,
+  skeleton: bool = False, force: bool = False) -> Rendered`** — the dump pipeline
   over an already-loaded DB: look up `fmt` (a name or alias), check `output`'s
   shape (before anything is rendered), drop removed entries, those matching
   an `exclude` statement (an absolute glob is relative to the DB path) and, with
@@ -645,11 +661,16 @@ whole file is validated before any command runs: a problem is one
   whole (a file, or a directory created if missing) logging `Wrote %s` per file
   on `pkgforge.dbdump`. Returns the rendered bytes. `UsageError` for an unknown
   format or statement, `UnsupportedOutputError` for a wrong-shape `output`,
-  `DumpError` for an entry the format cannot represent.
+  `DumpError` for an entry the format cannot represent. `config_path` is the
+  file `config` came from (a skeleton's `debian/rules` names it). `skeleton`
+  and `force` are as for `Project.dump`; a kept file is logged as WARNING
+  `kept existing PATH (pass --force to replace it)` on `pkgforge.dbdump` and not
+  returned by `write`.
 - The format contract: `render(entries: FileEntries, context: DumpContext) ->
   Rendered` (writes nothing), `check_output(output: Path) -> None` (raises
   `UnsupportedOutputError`; there is no `-` case) and `write(rendered, output:
-  Path) -> list[Path]` (whole or nothing; returns the files written).
+  Path, *, force: bool = False) -> list[Path]` (whole or nothing; returns the
+  files written, a kept skeleton file excepted).
 - **`PerEntryFormat(DumpFormat)`** — renders one line per DB entry. Abstract
   `render_entry(path, entry) -> bytes`; `_render_lines(entries) -> bytes`
   (default: joins every `render_entry` call -- a format MAY override it to
@@ -664,7 +685,7 @@ whole file is validated before any command runs: a problem is one
   at all: a sibling `.<name>.pkgforge-tmp` is written first and renamed over
   it. `check_output` accepts a file, a directory or an absent path.
   Built in: **`RPMSpecFiles`** (`dbdump/_rpm.py`; `NAME = "rpmspecfiles"`,
-  `ALIASES = ("rpm", "rpmspec")`) — RPM `%files` lines:
+  `ALIASES = ("rpm",)`) — RPM `%files` lines:
   `%attr(mode,owner,group) "path"`, a `%dir` prefix for directories,
   `%caps(CAPS)` for an entry with `caps`, and the entry's kind first
   (`%config`, `%config(noreplace)`, `%doc`, `%license`, `%ghost`; nothing for
@@ -700,23 +721,44 @@ whole file is validated before any command runs: a problem is one
   Measured against real rpmbuild runs on rpm 4.14.3, 4.16.1 and 4.18.2 (see
   the formats guide's rpm-older-than-4.19 table for the full per-class
   verdicts); choose whichever of the two matches the build host's own
-  `rpm --version`. **Accounts on rpm below 4.19**: rpm 4.19+ creates the
-  accounts of a shipped `/usr/lib/sysusers.d/NAME.conf` before unpacking, so
-  `%attr` can name them; older rpm needs the spec to do it:
-  the spec has a `%pre` running `systemd-sysusers - <<'PKGFORGE_SYSUSERS' || :`
-  over the sysusers text, and a `%post` running `systemd-tmpfiles --create
-  /usr/lib/tmpfiles.d/NAME.conf >/dev/null 2>&1 || :`. rpm 4.14 reads a `%pre
-  -f` file when it parses the spec, before `%install` has written it, so the
-  text is expanded into the `%pre` with `%(...)`, which runs `pkgforge sysfiles`
-  into a scratch root with no file DB. Both are harmless on 4.19+.
-  `examples/hello.spec` is the worked recipe.
+  `rpm --version`.
+- **`RPMSpec(DumpFormat)`** (`dbdump/_rpmspec.py`; `NAME = "rpmspec"`,
+  `KEEP_EXISTING = True`) and **`RPMSpecPre419(RPMSpec)`** (`NAME =
+  "rpmspec-pre419"`) — the whole RPM spec, written from `pkgforge.cfg`; OUTPUT a
+  file or `-` (a directory is `UnsupportedOutputError`). The spec has, in
+  order: marker comments; a `%{!?pkgforge_config:%{error:...}}` guard that stops
+  `rpmbuild` unless the build is given `--define "pkgforge_config PATH"`, the
+  path of `pkgforge.cfg` (no absolute path is embedded); `%global
+  __os_install_post %{nil}` and `%global debug_package %{nil}` (the package holds
+  the recorded files unchanged); `Name`, `Version`, `Release` (`release`, else
+  `1`), `Summary`, `License`, `URL`, `BuildArch: noarch` (arch `all`), one
+  `Requires:` per `[package.rpm] requires` item; `%description` (else the
+  summary); per `[[packages]]` element `%package -n`, `Summary`, `BuildArch:
+  noarch` when it is `all` and the main package is not, `Requires`,
+  `%description -n`; a `%install` that runs `pkgforge stage --init` into
+  `%{buildroot}` with the file DB in `%{_builddir}` and writes one
+  `files-PACKAGE.txt` per package there with `dbdump -f rpmspecfiles`
+  (`-pre419` for `RPMSpecPre419`); a `%post` (`systemd-tmpfiles --create
+  /usr/lib/tmpfiles.d/NAME.conf`) in the package that records that file; and one
+  `%files [-n P] -f ...` per package. `RPMSpecPre419` adds a `%pre` in the package
+  that records `/usr/lib/sysusers.d/NAME.conf`: `systemd-sysusers -
+  <<'PKGFORGE_SYSUSERS' || :` over the sysusers text (rpm 4.19+ creates the
+  accounts of the shipped file before unpacking, so `%attr` can name them; older
+  rpm needs the spec to do it). Every configuration text has `%` doubled. Needs
+  `[package]` `name`, `version`, `summary` and `license`, and a `summary` per
+  `[[packages]]` element (`UsageError` listing what is missing, such as
+  `rpmspec needs [package] version, license and [[packages]] 0 summary`); an
+  `any` subpackage of an `all` main package is `UsageError`. An existing spec is
+  kept, with a WARNING, unless `force`. `examples/hello.spec` is the worked
+  result.
 - **`MultiArtifactFormat(DumpFormat)`** — renders several named artifacts
   into a directory. Abstract `render(entries, context) -> dict[str, bytes]`; concrete
   `write(rendered, output)` (creates the directory, writes every artifact to a
   sibling `.<name>.pkgforge-tmp` and renames them all into place only once every
   write succeeded; a failure removes the temp files and leaves earlier OUTPUT
   content as it was). `check_output` refuses an existing non-directory.
-  Built in: **`DebianFiles`** (`dbdump/_debian.py`; `NAME = "debian"`, `ALIASES = ("deb",)`) —
+  Built in: **`DebianFiles`** (`dbdump/_debian.py`; `NAME = "debian"`, `ALIASES = ("deb",)`,
+  `SKELETON = True`) —
   needs `[package] name` (`UsageError` otherwise) and names every per-package
   file for its package, because debhelper reads `debian/PKG.NAME` before
   `debian/NAME` and refuses the nameless form from compat 15 in a source with
@@ -800,7 +842,25 @@ whole file is validated before any command runs: a problem is one
   batch runs no per-entry check). Each `install`/`dirs` line is escaped per
   entry by `_dh_src`/`_dh_dest`. Every
   artifact is written as UTF-8 with `surrogateescape` (a non-UTF-8 name
-  round-trips its original bytes). The install destination is split with
+  round-trips its original bytes). With `skeleton=True` (`dbdump --skeleton`)
+  it also renders the files its user edits, which need a directory OUTPUT and
+  `context.config_path` (`UsageError` naming `--config`, `PKGFORGE_CONFIG` and
+  `./pkgforge.cfg` otherwise) and `[package]` `version`, `summary` and
+  `maintainer` plus a `summary` per `[[packages]]` element: `control`
+  (source stanza with `Section` from `[package.debian] section`, else `misc`,
+  `Priority` else `optional`, `Build-Depends: debhelper-compat (= 13),
+  dh-sequence-installsysusers`, `Rules-Requires-Root: binary-targets`; then a
+  stanza per package, `Architecture` `all` or `any`, `Depends:
+  ${misc:Depends}[, ${shlibs:Depends} for any], ${pkgforge:Depends}[, items]`,
+  and the description), `changelog` (`NAME (VERSION[-RELEASE]) unstable;
+  urgency=medium`, dated `SOURCE_DATE_EPOCH` else now, in UTC), `rules` (mode 755;
+  stages into `debian/tmp` in `override_dh_auto_install`, runs `dbdump -f debian
+  debian/` there, after `dh_prep`, and `sh debian/fixperms debian` after
+  `dh_fixperms`; the config path is relative to OUTPUT's parent when below it,
+  else absolute) and `source/format` (`3.0 (quilt)` when `release` is set, else
+  `3.0 (native)`). A skeleton file that exists is kept, with a WARNING, unless
+  `force`; the files built from the DB are always rewritten. The install
+  destination is split with
   `posixpath`, not `os.path` -- DB paths are always POSIX-style
   ("/"-separated), and `ntpath` also treats a literal backslash as a
   separator, which split a path containing one (e.g. a source named
@@ -822,12 +882,14 @@ whole file is validated before any command runs: a problem is one
   second `add` of a path win; load a removed path as `None`; after `compact()`
   load every live entry and no `None`; and have every write made inside
   `batch()` visible to a fresh instance after it exits.
-- A format must: render `bytes` (`PerEntryFormat`) or a `{name: bytes}` dict of
-  non-empty values (`MultiArtifactFormat`) for the sample entries, which ship in
-  the one package `contract` (the context names it); render the same entries to
+- A format must: render `bytes` (`PerEntryFormat`, `RPMSpec`) or a `{name: bytes}`
+  dict of non-empty values (`MultiArtifactFormat`) for the sample entries, which
+  ship in the one package `contract` (the context names it, with a version,
+  summary, license and maintainer); render the same entries to
   the same output twice; keep that type for no entries; refuse the wrong output
   shape with `UnsupportedOutputError` and accept the right one in `check_output`
-  (a `PerEntryFormat` accepts a file, a directory and an absent path); and
+  (a `PerEntryFormat` accepts a file, a directory and an absent path; a format
+  that renders bytes accepts a file and an absent path); and
   `write` returns the paths it wrote with bytes equal to `render`.
 
 ```python
@@ -1094,8 +1156,13 @@ there with a `UsageError`. See [Environment variables](#environment-variables).
   `--dirs {all,owned}` (default `all`) keeps, with `owned`, only the directory
   entries at or below an owned prefix (exit 2 with none set), also with
   `--db -`.
+  `--skeleton` also writes the files a format's user edits (`debian`:
+  `control`, `changelog`, `rules`, `source/format`); `--force` replaces an
+  existing one, and an existing `rpmspec` file (exit 2 for `--force` with
+  neither, for `--skeleton` with a format that has none or without a directory
+  OUTPUT, and for a skeleton when no config file was found).
   Render surviving (post-`--exclude`) DB entries via the format registry
-  above. `-f` accepts a `NAME` or an `ALIASES` entry (`rpm`/`rpmspec` for
+  above. `-f` accepts a `NAME` or an `ALIASES` entry (`rpm` for
   `rpmspecfiles`, `deb` for `debian`); an alias and its canonical name always
   produce identical output. The packages come from `[package]` and
   `[[packages]]` of the project file: `debian` needs `[package] name` and

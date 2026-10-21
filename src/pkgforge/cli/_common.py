@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import contextvars
 import dataclasses
 import os
 import sys
@@ -261,6 +262,13 @@ class ExcludeArgs(Cmd):
     ("--exclude", "-X")
 
 
+#: The configuration file the loader last read, for the command duho then
+#: selects (duho keeps the chosen path to itself).
+_CONFIG_PATH: "contextvars.ContextVar[typing.Optional[Path]]" = contextvars.ContextVar(
+    "pkgforge_config_path", default=None
+)
+
+
 def _load_config(path: Path, source: str) -> typing.Dict[str, typing.Any]:
     """The ``_config_loader_`` of the root: read ``path``, check the whole file
     before any command runs and return its mapping for duho to layer.
@@ -279,6 +287,7 @@ def _load_config(path: Path, source: str) -> typing.Dict[str, typing.Any]:
         ProjectConfig.from_dict(data)
     except UsageError as exc:
         raise UsageError(f"{path}: {exc}") from exc
+    _CONFIG_PATH.set(path.resolve())
     return data
 
 
@@ -290,6 +299,8 @@ class ProjectCmd(LoggingArgs, Cmd):
     _config_data: typing.ClassVar[typing.Optional[typing.Mapping[str, typing.Any]]] = (
         None
     )
+    #: The path of that file.
+    _config_path: typing.ClassVar[typing.Optional[Path]] = None
 
     db: duho.Arg[
         typing.Optional[Path],
@@ -333,6 +344,7 @@ class ProjectCmd(LoggingArgs, Cmd):
         it is how a command gets the file's tables.
         """
         self._config_data = config
+        self._config_path = _CONFIG_PATH.get()
 
     def _project(self) -> "Project":
         """The project these options describe."""
@@ -350,6 +362,7 @@ class ProjectCmd(LoggingArgs, Cmd):
             db_format=self.db_format or None,
             # duho has layered the command line over the file's own list.
             config=dataclasses.replace(config, own=tuple(self.own)),
+            config_path=self._config_path,
         )
 
     def _emit(self, records: FileRecords) -> None:

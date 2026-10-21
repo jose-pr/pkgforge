@@ -215,9 +215,20 @@ _FORMAT_ENTRIES: typing.List[typing.Tuple[str, FileEntry]] = [
 ]
 
 
-#: Every format renders with one package, ``contract``; the entries above ship
-#: in it (``-`` is the main package).
-_CONTEXT = DumpContext(config=ProjectConfig(package=PackageInfo(name="contract")))
+#: Every format renders with one package, ``contract``, that has what a spec or
+#: a control file needs; the entries above ship in it (``-`` is the main
+#: package).
+_CONTEXT = DumpContext(
+    config=ProjectConfig(
+        package=PackageInfo(
+            name="contract",
+            version="1.0",
+            summary="contract package",
+            license="MIT",
+            maintainer="Example Maintainer <maintainer@example.org>",
+        )
+    )
+)
 
 
 @_check
@@ -236,7 +247,10 @@ def _format_render_type(cls: typing.Type[DumpFormat], work: Path) -> None:
             "render() does not return a dict of non-empty str to non-empty bytes",
         )
     else:
-        raise AssertionError("not a PerEntryFormat or MultiArtifactFormat subclass")
+        _require(
+            isinstance(rendered, bytes) and rendered,
+            "render() does not return non-empty bytes",
+        )
 
 
 @_check
@@ -271,6 +285,8 @@ def _format_check_output(cls: typing.Type[DumpFormat], work: Path) -> None:
     if issubclass(cls, PerEntryFormat):
         # A directory holds one list per package.
         right = (a_file, a_directory, absent)
+    elif isinstance(fmt.render(list(_FORMAT_ENTRIES), _CONTEXT), bytes):
+        right = (a_file, absent)
     else:
         right = (a_directory, absent)
         try:

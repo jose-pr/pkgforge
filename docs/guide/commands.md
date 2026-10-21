@@ -250,13 +250,32 @@ and for a file that doesn't exist -- nothing is created.
 ## `dbdump`
 
 Render the file DB into a packaging manifest. See [Dump formats](formats.md).
-`FORMAT` is a format's own name (`rpmspecfiles`, `debian`) or one of its
-aliases (`rpm`/`rpmspec` for `rpmspecfiles`, `deb` for `debian`) -- either
-spelling produces identical output.
+`FORMAT` is a format's own name (`rpmspecfiles`, `rpmspec`, `debian`) or one of
+its aliases (`rpm` for `rpmspecfiles`, `deb` for `debian`) -- either spelling
+produces identical output.
 
 ```bash
-pkgforge dbdump -f FORMAT [-X PATTERN] [--dirs {all,owned}] [OUTPUT]
+pkgforge dbdump -f FORMAT [-X PATTERN] [--dirs {all,owned}] [--skeleton] [--force] [OUTPUT]
 ```
+
+`--skeleton` makes `debian` also write `control`, `changelog`, `rules` and
+`source/format` into the OUTPUT directory, and `-f rpmspec` (or
+`rpmspec-pre419`, for rpm older than 4.19) writes the whole spec to a file or
+`-`. Both are written from the [project file](config.md) and are meant to be
+edited, so a file that exists is kept, with a WARNING, unless `--force`. `--force`
+with a format that writes no such file, `--skeleton` with a format that has no
+skeleton or without a directory OUTPUT, and a project file missing a key the
+files need, exit 2.
+
+```bash
+pkgforge dbdump -f rpmspec hello.spec
+pkgforge dbdump -f debian --skeleton debian
+```
+
+`debian/rules` runs `pkgforge --config CFG`, with the path of the project file
+(`--config`, `PKGFORGE_CONFIG` or `./pkgforge.cfg`) relative to the directory
+above OUTPUT when it lies below it; the spec takes the path at build time:
+`rpmbuild -bb --define "pkgforge_config PATH" hello.spec`.
 
 `--dirs owned` keeps a directory entry only when it is at or below an owned
 prefix (`--own`, or `own` in the [project file](config.md#owned-directories)) and

@@ -118,8 +118,9 @@ class Project:
     text; local paths are :data:`~pkgforge.entry.StrPath`.
 
     ``config`` is the parsed ``pkgforge.cfg``
-    (:class:`~pkgforge.config.ProjectConfig`); :meth:`from_config` builds a
-    project from a file.
+    (:class:`~pkgforge.config.ProjectConfig`) and ``config_path`` the file it
+    was read from, when known (a generated ``debian/rules`` points at it);
+    :meth:`from_config` builds a project from a file.
 
     Raises:
         TypeError: ``buildroot`` or ``db`` is not a path (or provider), or
@@ -134,6 +135,8 @@ class Project:
     db: typing.Optional[DbProvider]
     #: The project configuration; an empty one when none was given.
     config: ProjectConfig
+    #: The absolute path of the file ``config`` was read from, or ``None``.
+    config_path: typing.Optional[Path]
 
     _batch_provider: typing.Optional[DbProvider] = None
     # The parsed [[rules]] and whether any rule or default is set, with the
@@ -165,6 +168,7 @@ class Project:
         *,
         db_format: typing.Optional[str] = None,
         config: typing.Optional[ProjectConfig] = None,
+        config_path: typing.Optional[StrPath] = None,
     ) -> None:
         if config is None:
             config = ProjectConfig()
@@ -173,6 +177,9 @@ class Project:
                 f"config must be a ProjectConfig, not {config.__class__.__name__}"
             )
         self.config = config
+        self.config_path = (
+            None if config_path is None else _path(config_path, "config_path").resolve()
+        )
         self._begin_operation()
         self.buildroot = _path(buildroot, "buildroot")
         fmt = _check_db_format(db_format)
@@ -216,7 +223,7 @@ class Project:
             db = config.db
         if db_format is None and not isinstance(db, DbProvider):
             db_format = config.db_format
-        return cls(buildroot, db, db_format=db_format, config=config)
+        return cls(buildroot, db, db_format=db_format, config=config, config_path=path)
 
     # -- paths -------------------------------------------------------------
 
@@ -1269,6 +1276,8 @@ class Project:
         *,
         exclude: typing.Sequence[str] = (),
         dirs: str = "all",
+        skeleton: bool = False,
+        force: bool = False,
     ) -> dbdump.Rendered:
         """Render the file DB with the format ``fmt`` (see
         :func:`pkgforge.dbdump.dump`).
@@ -1280,6 +1289,11 @@ class Project:
         ``"all"`` or ``"owned"``: the latter keeps a directory entry only at or
         below a prefix of ``config.own``.
 
+        With ``skeleton``, ``debian`` also writes ``control``, ``changelog``,
+        ``rules`` and ``source/format`` into a directory ``output``; they and an
+        ``rpmspec`` file are kept when they exist unless ``force``. ``debian``'s
+        ``rules`` points at ``config_path``, which a skeleton therefore needs.
+
         Returns:
             The rendered bytes (``bytes``, or ``{filename: bytes}``).
 
@@ -1288,17 +1302,17 @@ class Project:
                 ``"owned"`` or is ``"owned"`` with no ``own`` prefixes, the
                 file DB is missing, an entry ships in a package the
                 configuration does not declare, a file ``output`` would hold
-                the entries of two packages, or the format needs ``[package]
-                name`` and the configuration has none.
+                the entries of two packages, the format needs keys the
+                configuration lacks (``[package] name``; for a spec or a
+                skeleton also ``version``, ``summary`` and more), ``skeleton``
+                names a format with none, has no directory ``output`` or has no
+                ``config_path`` to point at, or ``force`` fits neither.
             UnsupportedOutputError: ``output`` has the wrong shape for ``fmt``.
             InvalidEntryError: an entry no format can render.
             DumpError: an entry ``fmt`` cannot represent.
         """
         own = self._dump_own(dirs)
-        fmt_cls = dbdump.DumpFormat.get(fmt)
-        target = None if output is None else Path(os.fspath(output))
-        if target is not None:
-            fmt_cls().check_output(target)
+        instance, target = dbdump._prepare(fmt, output, skeleton=skeleton, force=force)
         db = self._existing_db()
         loaded = self.load()
         if not loaded:
@@ -1307,11 +1321,14 @@ class Project:
             )
         return dbdump.dump(
             loaded,
-            fmt_cls.NAME,
+            instance.NAME,
             target,
             exclude=exclude,
             own=own,
             config=self.config,
+            config_path=self.config_path,
+            skeleton=skeleton,
+            force=force,
         )
 
     def verify(self, *, exclude: typing.Sequence[str] = ()) -> typing.List[VerifyIssue]:

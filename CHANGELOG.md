@@ -7,6 +7,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `dbdump -f rpmspec` (`RPMSpec`) and `rpmspec-pre419` (`RPMSpecPre419`, for rpm
+  older than 4.19) write the whole spec from `pkgforge.cfg`: the preamble, a
+  `%package -n` block per `[[packages]]` element, a `%install` that runs
+  `pkgforge stage --init` and writes one `%files` list per package, the `%post`
+  that creates the `tmpfiles.d` paths (and, below rpm 4.19, the `%pre` that
+  creates the accounts) and one `%files -f` per package. Build it with
+  `rpmbuild -bb --define "pkgforge_config PATH" NAME.spec`. It needs
+  `[package]` `name`, `version`, `summary` and `license` and a `summary` for each
+  subpackage, and exits 2 naming what is missing.
+- `dbdump --skeleton` (`skeleton=True` of `Project.dump` and
+  `pkgforge.dbdump.dump`) makes `-f debian` also write `control`, `changelog`,
+  `rules` (a `debian/tmp` recipe that runs `pkgforge stage` and the dump) and
+  `source/format`, with `Build-Depends: debhelper-compat (= 13),
+  dh-sequence-installsysusers` and a stanza per package. It needs a directory
+  OUTPUT, the path of `pkgforge.cfg` (`--config`, `PKGFORGE_CONFIG` or
+  `./pkgforge.cfg`) and `[package]` `version`, `summary` and `maintainer`.
+- A spec or skeleton file that exists is kept, with a WARNING, so edits survive
+  regenerating; `--force` (`force=True`) replaces it. `--force` with a format that
+  writes no such file, and `--skeleton` with a format that has no skeleton or
+  without a directory OUTPUT, exit 2.
+- `Project.config_path` (and `Project(..., config_path=)`) is the file the
+  configuration was read from; `DumpFormat.SKELETON` and
+  `DumpFormat.KEEP_EXISTING` mark a format that writes files its user edits.
 - An entry records the `package` it ships in. `install`, `mkdir` and `symlink`
   take `-P/--package NAME` (`package=` of `Project.install`, `mkdir` and
   `symlink`), `package` in `[[rules]]` and in every `[[stage]]` step names it for
@@ -118,6 +141,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `postrm` removes on purge.
 
 ### Changed
+- `dbdump -f rpmspec` names the spec format; `rpm` is the only alias of
+  `rpmspecfiles` now. Use `-f rpmspecfiles` (or `-f rpm`) where you meant the
+  `%files` lines.
+- `DumpFormat.write` takes a keyword `force` (default `False`); a format that
+  overrides `write` accepts it.
 - `dbdump -f debian` writes one set of files per package, named for it:
   `PKG.install`, `PKG.dirs`, `PKG.conffiles`, `PKG.postinst`, `PKG.postrm` and
   `PKG.substvars` for `[package]` and each `[[packages]]` name, and once

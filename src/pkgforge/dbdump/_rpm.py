@@ -121,7 +121,7 @@ class RPMSpecFiles(PerEntryFormat):
     """
 
     NAME = "rpmspecfiles"
-    ALIASES = ("rpm", "rpmspec")
+    ALIASES = ("rpm",)
     #: rpm builds an empty package from a list of one empty line, and refuses
     #: a list of no bytes or of comments only.
     EMPTY = b"\n"

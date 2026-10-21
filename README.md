@@ -151,9 +151,11 @@ reading an existing file auto-detects its actual format.
 
 | Format | Aliases | Output |
 | --- | --- | --- |
-| `rpmspecfiles` | `rpm`, `rpmspec` | RPM `%files` lines (`%attr(...)`, `%dir`, `%caps(...)`, and `%config`, `%doc`, `%license` or `%ghost` from the entry kind) to a file or `-` (one package), or into an existing directory as one `files-PACKAGE.txt` per package; rpm 4.19+ |
+| `rpmspecfiles` | `rpm` | RPM `%files` lines (`%attr(...)`, `%dir`, `%caps(...)`, and `%config`, `%doc`, `%license` or `%ghost` from the entry kind) to a file or `-` (one package), or into an existing directory as one `files-PACKAGE.txt` per package; rpm 4.19+ |
 | `rpmspecfiles-pre419` | `rpm-pre419` | Same, for rpm older than 4.19 (measured on 4.14/4.16/4.18): refuses a space, a glob character, or `%` instead of packaging the wrong file |
-| `debian` | `deb` | per package `P.install`, `P.dirs`, `P.conffiles`, `P.postinst`, `P.postrm` and `P.substvars`, and once `not-installed` and `fixperms`, into an output directory (or `-`, sectioned); needs `[package] name` |
+| `rpmspec` | | The whole spec, written from `pkgforge.cfg` (rpm 4.19+): one `%files -f` per package and a `%install` that runs `pkgforge stage`; an existing file is kept unless `--force` |
+| `rpmspec-pre419` | | Same, for rpm older than 4.19 (a `%pre` creates the accounts) |
+| `debian` | `deb` | per package `P.install`, `P.dirs`, `P.conffiles`, `P.postinst`, `P.postrm` and `P.substvars`, and once `not-installed` and `fixperms`, into an output directory (or `-`, sectioned); needs `[package] name`. With `--skeleton` also `control`, `changelog`, `rules` and `source/format`, kept unless `--force` |
 
 Output of the Quick start above:
 

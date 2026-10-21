@@ -3,8 +3,11 @@
 The packaging-manifest format registry and its built-in formats. A
 third-party format subclasses `PerEntryFormat` or `MultiArtifactFormat` with
 its own `NAME` and advertises it in the `pkgforge.dump_formats` entry-point
-group; see [Adding a format](../guide/formats.md#adding-a-format). The checks
-every format must pass are in [Contract suite](testing.md).
+group; see [Adding a format](../guide/formats.md#adding-a-format). A format
+that writes files its user edits sets `DumpFormat.SKELETON` (written with
+`dump(..., skeleton=True)`) or `DumpFormat.KEEP_EXISTING`; such a file is kept,
+with a warning, unless `force=True`. The checks every format must pass are in
+[Contract suite](testing.md).
 
 ::: pkgforge.exceptions.DumpError
     options:
@@ -45,6 +48,14 @@ every format must pass are in [Contract suite](testing.md).
       show_root_heading: true
 
 ::: pkgforge.dbdump.RPMSpecFilesPre419
+    options:
+      show_root_heading: true
+
+::: pkgforge.dbdump.RPMSpec
+    options:
+      show_root_heading: true
+
+::: pkgforge.dbdump.RPMSpecPre419
     options:
       show_root_heading: true
 

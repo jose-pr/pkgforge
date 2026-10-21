@@ -246,7 +246,6 @@ def test_dbdump_registered_format_accepted(tmp_path, cli, restore_registries):
     "alias,canonical",
     [
         ("rpm", "rpmspecfiles"),
-        ("rpmspec", "rpmspecfiles"),
         ("rpm-pre419", "rpmspecfiles-pre419"),
         ("deb", "debian"),
     ],

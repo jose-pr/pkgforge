@@ -13,6 +13,11 @@ Two shapes of format are supported, each a :class:`DumpFormat` subclass:
 Every format renders with a :class:`DumpContext`: the project configuration
 that names the packages, and the output being written.
 
+A format can also write a skeleton, a file its user is meant to edit
+(:attr:`DumpFormat.SKELETON`, ``dbdump --skeleton``; :attr:`DumpFormat.KEEP_EXISTING`
+for a format whose whole output is one). A skeleton file that already exists is
+kept, with a warning, unless ``force`` is given.
+
 A third party adds a format by subclassing one of the two with its own
 ``NAME`` (and, optionally, ``ALIASES``): defining the subclass registers it,
 and listing it in the ``pkgforge.dump_formats`` entry-point group
@@ -207,6 +212,49 @@ def _write_files(files: typing.Dict[Path, bytes]) -> None:
                 temp.unlink()
 
 
+def _require_keys(
+    fmt: str,
+    config: ProjectConfig,
+    keys: typing.Sequence[str],
+    sub_keys: typing.Sequence[str],
+) -> None:
+    """Raise :class:`~pkgforge.exceptions.UsageError` naming every ``[package]``
+    key in ``keys`` (and ``name``) that ``config`` leaves unset, and every
+    ``[[packages]]`` element missing one of ``sub_keys``."""
+    package = config.package
+    missing = [] if package is not None else ["name"]
+    missing.extend(
+        key for key in keys if package is None or not getattr(package, key, None)
+    )
+    parts = [f"[package] {', '.join(missing)}"] if missing else []
+    for index, sub in enumerate(config.packages):
+        parts.extend(
+            f"[[packages]] {index} {key}"
+            for key in sub_keys
+            if not getattr(sub, key, None)
+        )
+    if not parts:
+        return
+    listed = parts[0] if len(parts) == 1 else f"{', '.join(parts[:-1])} and {parts[-1]}"
+    raise UsageError(f"{fmt} needs {listed}")
+
+
+def _keep_existing(
+    files: typing.Dict[Path, bytes], force: bool
+) -> typing.Dict[Path, bytes]:
+    """``files`` without the skeleton files that already exist, each logged as
+    kept; all of them with ``force``."""
+    if force:
+        return files
+    kept = {}
+    for path, data in files.items():
+        if path.exists():
+            _LOGGER.warning("kept existing %s (pass --force to replace it)", path)
+        else:
+            kept[path] = data
+    return kept
+
+
 #: What a format renders: one file's bytes, or ``{filename: bytes}``.
 Rendered = typing.Union[bytes, typing.Dict[str, bytes]]
 
@@ -262,16 +310,30 @@ class DumpFormat(Registered, abc.ABC):
 
     A subclass registers by declaring its own ``NAME`` (plus, optionally,
     ``ALIASES``); see :class:`pkgforge._registry.Registered`. Subclass
-    :class:`PerEntryFormat` or :class:`MultiArtifactFormat`, not this class
-    directly -- they supply :meth:`check_output` and :meth:`write` for their
-    respective output shape.
+    :class:`PerEntryFormat` or :class:`MultiArtifactFormat` -- they supply
+    :meth:`check_output` and :meth:`write` for their respective output shape --
+    or this class, supplying both, for a format with another shape.
+
+    ``skeleton`` (``dbdump --skeleton``) asks a format with :attr:`SKELETON` to
+    write the files its user edits as well.
     """
 
     NAME: typing.ClassVar[str] = ""
     ALIASES: typing.ClassVar[typing.Tuple[str, ...]] = ()
+    #: Whether the format writes a skeleton with ``skeleton=True``: files its
+    #: user edits, written only when missing (or with ``force``).
+    SKELETON: typing.ClassVar[bool] = False
+    #: Whether everything the format writes is a skeleton: an existing OUTPUT
+    #: is kept unless ``force`` is given.
+    KEEP_EXISTING: typing.ClassVar[bool] = False
     _registry: typing.ClassVar[typing.Dict[str, type]] = {}
     _KIND = "format"
     _GROUP = "pkgforge.dump_formats"
+
+    def __init__(self, *, skeleton: bool = False) -> None:
+        if skeleton and not self.SKELETON:
+            raise UsageError(f"{self.NAME} has no skeleton")
+        self.skeleton = skeleton
 
     @abc.abstractmethod
     def render(self, entries: FileEntries, context: DumpContext) -> Rendered:
@@ -283,9 +345,12 @@ class DumpFormat(Registered, abc.ABC):
         shape for this format."""
 
     @abc.abstractmethod
-    def write(self, rendered: Rendered, output: Path) -> typing.List[Path]:
+    def write(
+        self, rendered: Rendered, output: Path, *, force: bool = False
+    ) -> typing.List[Path]:
         """Write ``rendered`` to ``output``, whole or not at all; return the
-        files written."""
+        files written. A skeleton file that exists is kept (and not returned)
+        unless ``force``."""
 
 
 class PerEntryFormat(DumpFormat):
@@ -339,7 +404,9 @@ class PerEntryFormat(DumpFormat):
     def check_output(self, output: Path) -> None:
         """Any path fits: a file, or a directory for one list per package."""
 
-    def write(self, rendered: Rendered, output: Path) -> typing.List[Path]:
+    def write(
+        self, rendered: Rendered, output: Path, *, force: bool = False
+    ) -> typing.List[Path]:
         if isinstance(rendered, bytes):
             _write_files({output: rendered})
             return [output]
@@ -365,10 +432,13 @@ class MultiArtifactFormat(DumpFormat):
                 f"directory or '-', got existing file {output}"
             )
 
-    def write(self, rendered: Rendered, output: Path) -> typing.List[Path]:
+    def write(
+        self, rendered: Rendered, output: Path, *, force: bool = False
+    ) -> typing.List[Path]:
         artifacts = typing.cast(typing.Dict[str, bytes], rendered)
-        output.mkdir(parents=True, exist_ok=True)
         files = {output / name: data for name, data in artifacts.items()}
+        for directory in {path.parent for path in files}:
+            directory.mkdir(parents=True, exist_ok=True)
         _write_files(files)
         return list(files)
 
@@ -406,6 +476,34 @@ def _surviving_entries(
     return entries
 
 
+def _prepare(
+    fmt: str,
+    output: typing.Optional[StrPath],
+    *,
+    skeleton: bool = False,
+    force: bool = False,
+) -> typing.Tuple[DumpFormat, typing.Optional[Path]]:
+    """The format instance for ``fmt`` and the OUTPUT path (``None`` for
+    stdout), after checking the flags and the output fit the format.
+
+    Raises :class:`~pkgforge.exceptions.UsageError` for an unknown format,
+    ``skeleton`` with a format that has none or without a directory OUTPUT, and
+    ``force`` where nothing is a skeleton;
+    :class:`~pkgforge.exceptions.UnsupportedOutputError` for an OUTPUT of the
+    wrong shape.
+    """
+    fmt_cls = DumpFormat.get(fmt)
+    if force and not (skeleton or fmt_cls.KEEP_EXISTING):
+        raise UsageError("--force applies to -f rpmspec and --skeleton")
+    instance = fmt_cls(skeleton=True) if skeleton else fmt_cls()
+    target = None if output is None else Path(os.fspath(output))
+    if skeleton and target is None:
+        raise UsageError("--skeleton writes into a directory")
+    if target is not None:
+        instance.check_output(target)
+    return instance, target
+
+
 def dump(
     db: typing.Mapping[str, typing.Optional[FileEntry]],
     fmt: str,
@@ -414,6 +512,9 @@ def dump(
     exclude: typing.Sequence[str] = (),
     own: typing.Optional[typing.Sequence[str]] = None,
     config: typing.Optional[ProjectConfig] = None,
+    config_path: typing.Optional[StrPath] = None,
+    skeleton: bool = False,
+    force: bool = False,
 ) -> Rendered:
     """Render the live entries of ``db`` with the format ``fmt``.
 
@@ -422,33 +523,40 @@ def dump(
     (``/``-rooted prefixes), so is every directory entry that is neither a
     prefix nor below one; entries of other types are untouched. The rest are
     sorted by path and validated. ``config`` names the packages the entries
-    ship in (default: an empty configuration, one unnamed package). With
-    ``output`` the result is also written whole: a file for a per-entry format
-    (or a directory holding one list per package), a directory (created if
-    missing) for a multi-artifact one.
+    ship in (default: an empty configuration, one unnamed package) and
+    ``config_path`` is the file it was read from, for a format that points at
+    it. With ``output`` the result is also written whole: a file for a
+    per-entry format (or a directory holding one list per package), a
+    directory (created if missing) for a multi-artifact one.
+
+    With ``skeleton`` a format that has one (``debian``) also writes the files
+    its user edits, into a directory ``output``. A skeleton file, or for
+    ``rpmspec`` the spec, that already exists is kept with a warning unless
+    ``force``.
 
     Returns the rendered bytes (a ``bytes`` value, or ``{filename: bytes}``).
     Raises :class:`~pkgforge.exceptions.UsageError` for an unknown format or
-    exclude statement, an entry of a package ``config`` does not declare, or a
-    format that needs ``[package] name``;
+    exclude statement, an entry of a package ``config`` does not declare, a
+    format that needs ``[package] name`` or other keys, ``skeleton`` with a
+    format that has none or without a directory ``output``, or ``force`` where
+    nothing is a skeleton;
     :class:`~pkgforge.exceptions.UnsupportedOutputError`
     for an ``output`` of the wrong shape (checked before anything is
     rendered), :class:`~pkgforge.exceptions.InvalidEntryError` for an entry no
     format can render and :class:`~pkgforge.exceptions.DumpError` for one this
     format cannot.
     """
-    instance = DumpFormat.get(fmt)()
-    target = None if output is None else Path(os.fspath(output))
-    if target is not None:
-        instance.check_output(target)
+    instance, target = _prepare(fmt, output, skeleton=skeleton, force=force)
     entries = _surviving_entries(db, exclude, own)
     _validate_entries(entries)
     context = DumpContext(
-        config=config if config is not None else ProjectConfig(), output=target
+        config=config if config is not None else ProjectConfig(),
+        config_path=None if config_path is None else Path(os.fspath(config_path)),
+        output=target,
     )
     rendered = instance.render(entries, context)
     if target is not None:
-        for written in instance.write(rendered, target):
+        for written in instance.write(rendered, target, force=force):
             _LOGGER.info("Wrote %s", written)
     return rendered
 
@@ -458,6 +566,7 @@ def dump(
 # --------------------------------------------------------------------------
 
 from ._rpm import RPMSpecFiles, RPMSpecFilesPre419  # noqa: E402
+from ._rpmspec import RPMSpec, RPMSpecPre419  # noqa: E402
 from ._debian import DebianFiles  # noqa: E402
 
 __all__ = [
@@ -466,8 +575,10 @@ __all__ = [
     "DumpFormat",
     "MultiArtifactFormat",
     "PerEntryFormat",
+    "RPMSpec",
     "RPMSpecFiles",
     "RPMSpecFilesPre419",
+    "RPMSpecPre419",
     "Rendered",
     "dump",
 ]
