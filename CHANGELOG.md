@@ -6,154 +6,210 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Upgrading from 0.2.0
+Every entry under Removed is also a break; its replacement is named there.
+- Install PyYAML for a `yaml` DB: `pip install 'pkgforge[yaml]'`.
+- Re-create every 0.2.0 file DB: a record lacks `kind`, `caps` and `package`, so
+  loading it fails. Run `pkgforge initdb` and stage again.
+- Call `pkgforge.cli.main(argv)` where you called `pkgforge.main(argv)`, or use
+  `pkgforge.Project` from a build script; import the entry functions from
+  `pkgforge.entry` and the exceptions from `pkgforge.exceptions`.
+- Rename `JsonlDb`, `YamlDb`, `SqliteDb`, `RpmSpecFiles`, `RpmSpecFilesPre419`,
+  `Debian` and `pkgforge.dbdump.Entries` to `JSONLinesDb`, `YAMLDb`,
+  `SQLiteDb`, `RPMSpecFiles`, `RPMSpecFilesPre419`, `DebianFiles` and
+  `pkgforge.FileEntries`, and `lookup(name)` to `get(name)`.
+- Port a dump format of your own from `dump(entries, output, logger)` to
+  `render(entries, context)`, `check_output(output)` and `write(rendered,
+  output, *, force=False)`.
+- Rename a third-party backend or format whose `NAME`, alias or suffix clashes
+  with another class's: the second one raises `ValueError`.
+- Rewrite an absolute `install`/`scan` `-X` pattern that names the install path
+  (`-X /opt/app/build/tmp`) relative to the source (`-X /tmp`), and
+  `PathMatch(stmts, installroot=...)` as `PathMatch(stmts, root=...)`.
+- Replace `dbdump --stdin` with `dbdump --db -`, `DUHO_TRACEBACK` with
+  `PKGFORGE_TRACEBACK`, and `-f rpmspec` (the `%files` lines) with `-f
+  rpmspecfiles` or `-f rpm`: `rpmspec` is the spec format.
+- Pass `--db-format` for a file DB whose suffix does not name its format: its
+  content is not sniffed.
+- Run `pkgforge initdb` before `dbdump` or `compact` on a DB that does not exist
+  yet: both exit 2 for it.
+- Record owners and groups by account name, not number, and declare every
+  account outside Debian's base-passwd set in `[[users]]` or `[[groups]]` of a
+  `pkgforge.cfg` (`create = false` for one that exists on the target).
+- Replace `-O rpmprefix=...` with `-k/--kind` and `--caps`.
+- For `dbdump -f debian`, add a `pkgforge.cfg` with `[package] name`, delete
+  the nameless `install`, `dirs`, `permissions` and `fixperms` files the dump
+  wrote into `debian/`, and run `sh debian/fixperms debian` (the debian
+  directory, not the package's) from `override_dh_fixperms`.
+
 ### Added
-- `pkgforge.package.PackageWriter`, and the `BuildContext.writer` field: a
-  `PackageFormat.build` creates the files it writes through it, which is what
-  keeps a build all or nothing; a directory in the way of any package fails
-  the build before a single package is renamed into place.
-- `pkgforge package -f apk` builds each package as an Alpine package (apk v2)
-  itself, with no `abuild`: `NAME-VERSION-rREL.apk`, two gzip members holding
-  `.PKGINFO` (with the `datahash` of the data member) and, when they have a
-  command, `.pre-install`/`.pre-upgrade` and `.post-install`/`.post-upgrade`,
-  then the payload with the DB's owner names and a SHA-1 checksum on every file
-  and symlink. The scripts create the configured accounts and ghost
-  directories and set file capabilities. Install it with `apk add
-  --allow-untrusted`; apk v3 packages and signatures are not written. It needs
-  `[package]` `version` and `summary`, a `summary` per `[[packages]]` element,
-  and a version and release apk accepts.
-- `[package.apk] depends` (and the same table under `[[packages]]`) lists the
-  `depend` items of the Alpine package.
-- `pkgforge package -f arch` builds each package as a pacman package itself,
-  with no `makepkg` or fakeroot: `NAME-VERSION-PKGREL-ARCH.pkg.tar.zst` (or
-  `.xz`, `.gz` with `--compression`), holding `.PKGINFO`, `.MTREE` and, when it
-  has a command, `.INSTALL`. pacman ignores the owner names of a tar, so every
-  header is `root:root` and `.INSTALL` creates the configured accounts and
-  applies each other owner, group, setuid mode and file capability; `pacman
-  -Qkk` reports an owner mismatch for those paths. It needs `[package]`
-  `version` and `summary`, and a `summary` per `[[packages]]` element.
-- `[package.pacman] depends` (and the same table under `[[packages]]`) lists the
-  `depend` items of the Arch package.
-- `pkgforge package -f rpm` builds each package as an `.rpm` through `rpmbuild`,
-  from the staged tree and the file DB, with no hand-written spec:
-  `NAME-VERSION-RELEASE.ARCH.rpm` in the output directory. The spec is the one
-  `dbdump -f rpmspec` writes (the `rpmspec-pre419` variant below rpm 4.19), so the
-  modes, owners, kinds and scriptlets match a build of that spec. It needs
-  `rpmbuild` on `PATH` and `[package]` `version`, `summary` and `license`; rpm
-  owns the payload, so `--compression` is refused, and `--arch` is passed as
-  `rpmbuild --target`. Without the systemd rpm macros it logs a warning and
-  leaves the unit scriptlets out.
-- `pkgforge package -f deb` builds each package as a `.deb` itself, with no
-  `dpkg-deb`, debhelper or fakeroot: `NAME_VERSION[-RELEASE]_ARCH.deb`, with the
-  control file, `conffiles`, `md5sums` and the `postinst`, `prerm` and `postrm`
-  scripts debhelper would build from the same `pkgforge.cfg` (sysusers, tmpfiles,
-  the systemd units, `dpkg-statoverride` for an account created at install time,
-  `setcap`). `--compression` is `xz` (the default), `gz`, `zst` or `none`;
-  `--arch` names the architecture of an `any` package. It needs `[package]`
-  `version`, `summary` and `maintainer`, and a `summary` per `[[packages]]`
-  element. A compressed `control.tar` or `data.tar` over 9999999999 bytes, more
-  than an ar header holds, exits 1, as `dpkg-deb` refuses it.
-- `pkgforge package -f tar` (`Project.package`, `pkgforge.package.build`) builds
-  one archive per declared package straight from the file DB and the build
-  root, named `NAME-VERSION[-RELEASE].tar[.gz|.xz|.zst]`: user and group names
-  and modes come from the DB, and two builds of one build root are
-  byte-identical with `SOURCE_DATE_EPOCH` set. `-o` picks the directory,
-  `--compression` one of `gz`, `xz`, `zst` and `none`. A format is a
-  `PackageFormat` subclass, selected by `NAME` or advertised in the
-  `pkgforge.package_formats` entry-point group.
-- A `zstd` extra (`pip install "pkgforge[zstd]"`) provides zstd compression below
-  Python 3.14, which has `compression.zstd`.
-- A guide page, "From pkgforge.cfg to packages", walks the `hello` example
-  from `pkgforge stage` and `pkgforge verify` through `dbdump -f rpmspec` and
-  `rpmbuild`, and `dbdump -f debian --skeleton` and `dpkg-buildpackage`, or
-  `pkgforge package -f deb|rpm|arch|apk|tar`, to two packages per format; it
-  also tabulates what each format needs, writes and runs at install time. The
-  commands guide has a `package` section, the project-file guide the
-  `[package.pacman]` and `[package.apk]` tables, the formats guide the unit
-  scriptlets and the skeleton's `${...}` refusal, and `tests/test_docs.py` runs
-  the page's commands.
+- `pkgforge.cfg`, a TOML project file read from `--config/-c FILE` (before the
+  subcommand), else `PKGFORGE_CONFIG` (an empty value means no file), else
+  `./pkgforge.cfg`. `db`, `db_format` and `buildroot` in it are defaults below the
+  command line and the environment, and relative paths are relative to the
+  file. `${package.name}` and any other key of the file can be reused in its
+  text values (`$${` is a literal `${`). A YAML file's `!include` and `!load` are
+  refused. The whole file is validated before any command runs: a problem is one
+  `pkgforge: error:` line, status 2. `pkgforge.config` holds the schema
+  (`ProjectConfig` and one dataclass per table) and `load(path)`; `Project(...,
+  config=, config_path=)`, `Project.config`, `Project.config_path` and
+  `Project.from_config(path)` use it.
+- `[package]` (`name`, `version`, `release`, `arch`, `summary`, `license`,
+  `homepage`, `maintainer`, `description`, each checked when the file is read;
+  `name` is a lowercase package name `[a-z0-9][a-z0-9+.-]+`) with
+  `[package.rpm] requires`, `[package.debian] depends`, `section` and
+  `priority`, `[package.pacman] depends` and `[package.apk] depends`, and
+  `[[packages]]`, the subpackages built from the same source.
+- `[defaults]` and `[[rules]]` fill the `mode`, `owner`, `group`, `kind`, `caps`
+  and `package` an entry leaves at `-` when it is recorded: the first rule whose
+  `match` (`-X` statements) fits the DB path, then `[defaults]` (`dir_mode`,
+  `exec_mode` or `file_mode` by type and execute bit, `owner`, `group`). A flag
+  wins. `install` without `-m` stages the file with the resolved mode, and
+  `install --record-tree` (and `record_tree = true` in a `[[stage]]` step)
+  chmods each child to its resolved mode, or records the child's mode from disk
+  when no rule or default gives one.
+- `own` in `pkgforge.cfg` and `--own PREFIX` (repeatable) name the directories a
+  package owns: recording an entry at or below one also records each missing
+  ancestor directory down from the prefix. `dbdump --dirs owned`
+  (`Project.dump(dirs=)`, `own=` of `pkgforge.dbdump.dump`) keeps only the
+  directories at or below an owned prefix, so a manifest claims no directory the
+  distribution owns.
+- Entry kinds and file capabilities: an entry records a `kind` (`file`,
+  `config`, `config-noreplace`, `doc`, `license` or `ghost`; unset is `file`)
+  and `caps` (one `setcap` clause such as `cap_net_bind_service=ep`), set with
+  `install -k/--kind` and `--caps`, `mkdir -k`, `symlink -k`, `[[rules]]` and
+  `[[stage]]`. `pkgforge.entry` gains `FileKind`, `normalize_kind` and
+  `normalize_caps`. `rpmspecfiles` starts a line with `%config`,
+  `%config(noreplace)`, `%doc`, `%license` or `%ghost` and writes `%caps(CAPS)`;
+  `dbdump -f debian` writes `P.conffiles` (config files outside `/etc`),
+  `not-installed` (ghost files, so `dh_missing --fail-missing` accepts them), a
+  `setcap` line per capability in `P.postinst`, and `${pkgforge:Depends}` in
+  `P.substvars` naming `libcap2-bin`. Ghost entries are left out of `install`,
+  `dirs` and `fixperms`.
+- An entry records the `package` it ships in: `-P/--package NAME` on `install`,
+  `mkdir` and `symlink`, `package` in `[[rules]]` and `[[stage]]`, else the
+  `[package]` name. A name the configuration does not declare exits 2 before
+  anything is staged; `pkgforge.entry.normalize_package` checks one.
+- `[[users]]` and `[[groups]]` declare the accounts the package's files belong
+  to (`UserAccount`, `GroupAccount`): `name`, and for a user `description`,
+  `home`, `shell` and supplementary `groups`; `create = false` marks an account
+  that exists on the target. `pkgforge.entry.BASE_USERS` and `BASE_GROUPS` are
+  Debian's base-passwd names, which need no declaration.
+- `pkgforge sysfiles` (`Project.sysfiles`) writes and records
+  `/usr/lib/sysusers.d/NAME.conf` for the accounts the package creates and
+  `/usr/lib/tmpfiles.d/NAME.conf` for its ghost directories; `stage` runs it.
+  rpm 4.19+ and debhelper act on the files when the package is installed, so a
+  file owned by a service user is staged without that user existing at build
+  time. `dbdump -f debian` leaves an entry owned by a created account out of
+  `fixperms`: `P.postinst` applies it with a guarded `dpkg-statoverride
+  --update --add` (an administrator's override is kept) and `P.postrm` removes
+  it on purge. The Debian recipes need `dh $@ --with installsysusers`
+  (debhelper 13.10 or later).
+- `pkgforge stage [--init]` (`Project.stage`) runs the `[[stage]]` steps in
+  order: install a source at a destination, or record a directory, an empty file
+  or a symlink. Every source is checked before the first step runs.
+- `pkgforge mkdir [-p] DEST...` and `pkgforge symlink TARGET LINK`
+  (`Project.mkdir`, `Project.symlink`) record a directory or a symbolic link
+  that has no source.
+- `pkgforge verify [-X STMT]... [-f text|json]` (`Project.verify`, returning
+  `VerifyIssue` tuples) checks the build root against the file DB before
+  `rpmbuild` or `dh_missing` runs: a file or symlink no entry records
+  (`unrecorded`), an entry whose path is gone (`missing`, never for a `ghost`),
+  a changed type (`type`) and a retargeted symlink (`target`). It exits 1 when
+  it finds any, and 2 with no file DB or no build root.
 - `dbdump -f rpmspec` (`RPMSpec`) and `rpmspec-pre419` (`RPMSpecPre419`, for rpm
   older than 4.19) write the whole spec from `pkgforge.cfg`: the preamble, a
   `%package -n` block per `[[packages]]` element, a `%install` that runs
   `pkgforge stage --init` and writes one `%files` list per package, the `%post`
   that creates the `tmpfiles.d` paths (and, below rpm 4.19, the `%pre` that
-  creates the accounts) and one `%files -f` per package. Build it with
-  `rpmbuild -bb --define "pkgforge_config PATH" NAME.spec`. It needs
-  `[package]` `name`, `version`, `summary` and `license` and a `summary` for each
-  subpackage, and exits 2 naming what is missing. A description line whose first
-  non-blank character is `%` or `#` exits 2: rpm would read it as a section
-  (`%post`), a conditional or a comment.
-- `dbdump --skeleton` (`skeleton=True` of `Project.dump` and
-  `pkgforge.dbdump.dump`) makes `-f debian` also write `control`, `changelog`,
-  `rules` (a `debian/tmp` recipe that runs `pkgforge stage` and the dump) and
+  creates the accounts), `%systemd_post`, `%systemd_preun` and
+  `%systemd_postun_with_restart` for the systemd units a package records
+  (`*.service`, `*.socket`, `*.timer` and `*.path` directly in
+  `/usr/lib/systemd/system`; they expand to nothing without systemd-rpm-macros,
+  EL8: systemd), and one `%files -f` per package. Build it with `rpmbuild -bb
+  --define "pkgforge_config PATH" NAME.spec`. It needs `[package]` `name`,
+  `version`, `summary` and `license` and a `summary` per subpackage, and exits 2
+  naming what is missing; a description line whose first non-blank character is
+  `%` or `#` exits 2, since rpm would read it as a section, a conditional or a
+  comment.
+- `dbdump -f debian --skeleton` (`skeleton=True` of `Project.dump` and
+  `pkgforge.dbdump.dump`) also writes `control`, `changelog`, `rules` (a
+  `debian/tmp` recipe that runs `pkgforge stage` and the dump) and
   `source/format`, with `Build-Depends: debhelper-compat (= 13),
   dh-sequence-installsysusers` and a stanza per package. It needs a directory
-  OUTPUT, the path of `pkgforge.cfg` (`--config`, `PKGFORGE_CONFIG` or
-  `./pkgforge.cfg`) and `[package]` `version`, `summary` and `maintainer`.
+  OUTPUT, the path of `pkgforge.cfg` and `[package]` `version`, `summary` and
+  `maintainer`; a `${NAME}` in the `summary`, `description`, `homepage` or
+  `maintainer` of a package exits 2, since dpkg-gencontrol would replace it and
+  nothing escapes it.
 - A spec or skeleton file that exists is kept, with a WARNING, so edits survive
-  regenerating; `--force` (`force=True`) replaces it. `--force` with a format that
-  writes no such file, and `--skeleton` with a format that has no skeleton or
-  without a directory OUTPUT, exit 2.
-- `Project.config_path` (and `Project(..., config_path=)`) is the file the
-  configuration was read from; `DumpFormat.SKELETON` and
-  `DumpFormat.KEEP_EXISTING` mark a format that writes files its user edits.
-- An entry records the `package` it ships in. `install`, `mkdir` and `symlink`
-  take `-P/--package NAME` (`package=` of `Project.install`, `mkdir` and
-  `symlink`), `package` in `[[rules]]` and in every `[[stage]]` step names it for
-  the entries they match, and an entry left unset takes the `[package]` name. A
-  name the configuration does not declare exits 2 before anything is staged.
-  `pkgforge.entry.normalize_package` checks a name.
-- `pkgforge.dbdump.DumpContext` (`config`, `config_path`, `output`), the second
-  argument of every format's `render`.
-- `[[packages]]` declares the subpackages built from the same source
-  (`SubPackageInfo`, `ProjectConfig.packages`): `name`, `summary`, `description`,
-  `arch`, `rpm` and `debian`.
-- `[package]` takes `homepage`, `[package.rpm]` (`RpmInfo`: `requires`) and
-  `[package.debian]` (`DebianInfo`: `depends`, `section`, `priority`).
-- `pkgforge verify [-X STMT]... [-f text|json]` (and `Project.verify`, returning
-  `VerifyIssue` tuples) checks the build root against the file DB before
-  `rpmbuild` or `dh_missing` runs: a file or symlink no entry records
-  (`unrecorded`), an entry whose path is gone (`missing`, never for a `ghost`), a
-  changed type (`type`) and a retargeted symlink (`target`). It exits 1 when it
-  finds any, 2 for no file DB or no build root, and logs under `pkgforge.verify`.
-- `pkgforge stage [--init]` (and `Project.stage`) runs the `[[stage]]` steps of
-  `pkgforge.cfg` in order: install a source at a destination, or record a
-  directory, an empty file or a symlink. It replaces a hand-written staging
-  script; every source is checked before the first step runs.
-- `pkgforge mkdir [-p] DEST...` and `pkgforge symlink TARGET LINK` (and
-  `Project.mkdir`, `Project.symlink`) record a directory or a symbolic link
-  that has no source, so a package can own an empty directory or ship a link
-  without a scratch directory or `install -t symlink -O target=`. Both log
-  under their own operation logger.
-- `[defaults]` and `[[rules]]` of `pkgforge.cfg` are applied when an entry is
-  recorded by `install` or `scan`: a `mode`, `owner` or `group` left at `-` is
-  taken from the first rule whose `match` fits the path, then from `[defaults]`
-  (`dir_mode`, `exec_mode` or `file_mode` by type and execute bit). A flag still
-  wins, and `install` without `-m` stages the file with the resulting mode.
-- `own` in `pkgforge.cfg` and `--own PREFIX` (repeatable, on every command) name
-  the directories a package owns: recording an entry at or below one also
-  records each missing ancestor directory down from the prefix, as a directory
-  entry. `dbdump --dirs owned` (`Project.dump(dirs=)`, and `own=` of
-  `pkgforge.dbdump.dump`) keeps only the directories at or below an owned
-  prefix, so a manifest no longer claims directories the distribution owns.
-- `pkgforge.cfg`, a TOML project file read from the working directory, from
-  `--config/-c FILE` (before the subcommand) or from `PKGFORGE_CONFIG`
-  (`--config` wins; an empty `PKGFORGE_CONFIG` means no file). `db`,
-  `db_format` and `buildroot` in it are defaults below the command line and the
-  environment; relative paths are relative to the file. `${package.name}` and
-  any other key of the file can be reused in its text values. `[package]` and
-  `[[stage]]` are validated and kept on `Project.config`; `pkgforge stage` runs
-  the steps. A bad file is one `pkgforge: error:` line, status 2.
-- `pkgforge.config` (`ProjectConfig`, `PackageInfo`, `EntryDefaults`,
-  `EntryRule`, `StageStep`, `load`), `Project(..., config=)`, `Project.config`
-  and `Project.from_config(path)`.
-- pkgforge depends on `anycfg>=0.15.1,<0.16` to read the file; it is imported
-  only when a file is read.
-- Third-party DB backends and dump formats are found through the entry-point
-  groups `pkgforge.dbs` and `pkgforge.dump_formats` (`name = module:Class`):
-  installing the package is enough for `--db-format NAME`, a `--db` suffix
-  and `dbdump -f NAME` to select it, with no import in the calling code.
-  `DbProvider.names()` and `DumpFormat.names()` include advertised names
-  without loading them.
+  regenerating; `--force` (`force=True`) replaces it. `--force` with a format
+  that writes no such file, and `--skeleton` with a format that has no skeleton
+  or without a directory OUTPUT, exit 2. `DumpFormat.SKELETON` and
+  `DumpFormat.KEEP_EXISTING` mark such a format.
+- `pkgforge package -f FORMAT [-o DIR] [--arch NAME] [--compression KIND]`
+  (`Project.package`, `pkgforge.package.build`) builds one package per declared
+  package straight from the file DB and the build root, with the DB's modes and
+  owner names, and prints each path:
+  - `deb`: `NAME_VERSION[-RELEASE]_ARCH.deb`, without `dpkg-deb`, debhelper or
+    fakeroot, with the control file, `conffiles`, `md5sums` and the `postinst`,
+    `prerm` and `postrm` scripts debhelper would build from the same
+    `pkgforge.cfg` (sysusers, tmpfiles, the systemd units, `dpkg-statoverride`
+    for an account created at install time, `setcap`); `--compression` `xz`
+    (default), `gz`, `zst` or `none`. A compressed member over 9999999999 bytes,
+    more than an ar header holds, exits 1.
+  - `rpm`: `NAME-VERSION-RELEASE.ARCH.rpm` through `rpmbuild`, from the spec
+    `dbdump -f rpmspec` writes (`rpmspec-pre419` below rpm 4.19); `--arch` is
+    passed as `--target`, and without the systemd rpm macros it logs a warning
+    and leaves the unit scriptlets out.
+  - `arch`: `NAME-VERSION-PKGREL-ARCH.pkg.tar.zst` (or `.xz`, `.gz`), without
+    `makepkg` or fakeroot. pacman ignores the owner names of a tar, so every
+    header is `root:root` and `.INSTALL` creates the accounts and applies each
+    other owner, group, setuid mode and capability.
+  - `apk`: `NAME-VERSION-rREL.apk` (apk v2, unsigned: `apk add
+    --allow-untrusted`), without `abuild`; its scripts create the accounts and
+    ghost directories and set capabilities.
+  - `tar`: `NAME-VERSION[-RELEASE].tar[.gz|.xz|.zst]`, `--compression` `gz`,
+    `xz`, `zst` or `none`.
+
+  A recorded path that is missing or of another type, or whose parent is a
+  symlink leading outside the build root, exits 2 before anything is written.
+  The files of a hardlinked set ship as one file and hardlinks to it. Payloads
+  are streamed, so memory does not grow with them (about 100 MiB of compressor
+  state for xz or zstd). A build is all or nothing: files are written beside
+  their final names and renamed into place once every package is built, and a
+  failure (Ctrl-C included) removes what the build created. With
+  `SOURCE_DATE_EPOCH` set, two `deb`, `arch`, `apk` or `tar` builds of one build
+  root are byte-identical. A format is a `PackageFormat` subclass, selected by
+  `NAME` or advertised in the `pkgforge.package_formats` entry-point group, that
+  writes through `BuildContext.writer`, a `PackageWriter`.
+- A `zstd` extra (`pip install 'pkgforge[zstd]'`) provides zstd compression
+  below Python 3.14, which has `compression.zstd`.
+- `pkgforge.Project`, the Python API for build scripts: `Project(buildroot,
+  db=None, *, db_format=None, config=None, config_path=None)` with `init`,
+  `load`, `entries`, `compact`, `install`, `scan`, `mkdir`, `symlink`, `stage`,
+  `sysfiles`, `dump`, `verify` and `package`. It does what the commands do,
+  takes and returns plain Python values, prints nothing and returns the records
+  it wrote (with no file DB, those are the only result). `install(type=)` takes
+  a `FileType` and `exclude=` statement text. `pkgforge.FileRecords` and
+  `pkgforge.StrPath` are its types.
+- `pkgforge.dbdump.dump(db, fmt, output=None, *, exclude=(), own=None,
+  config=None, config_path=None, skeleton=False, force=False)` renders an
+  already-loaded DB; `pkgforge.dbdump.Rendered` is the result type and
+  `pkgforge.dbdump.DumpContext` the context a format renders with.
+- `pkgforge.db.jsonl_line(path, entry)` and `pkgforge.db.parse_jsonl(text,
+  source="text")` write and read the JSON Lines records the `jsonl` backend
+  stores.
+- `dbdump --db -` reads the file DB as JSON Lines from standard input, so
+  `pkgforge install --db - ... | pkgforge dbdump --db - -f rpm` works. Stdin
+  must be a pipe, a socket or a regular file: a terminal, a closed stdin or a
+  device such as `/dev/null` exits 2 instead of dumping an empty manifest.
+  `compact` and `scan --drop-stale` refuse `--db -` (exit 2).
+- Third-party DB backends, dump formats and package formats are found through
+  the entry-point groups `pkgforge.dbs`, `pkgforge.dump_formats` and
+  `pkgforge.package_formats` (`name = module:Class`): installing the package is
+  enough for `--db-format NAME`, a `--db` suffix, `dbdump -f NAME` and `package
+  -f NAME` to select it. `names()` includes advertised names without loading
+  them.
 - `pkgforge.testing`: `check_db_provider(cls, directory)` and
   `check_dump_format(cls, directory)` run the checks every DB backend and dump
   format must pass, so a third-party class is tested against the same contract
@@ -161,86 +217,122 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   individual checks.
 - `--debug` prints the traceback of an error before its one-line
   `pkgforge: error:` message, like `PKGFORGE_TRACEBACK`.
-- `pkgforge.Project`, a Python API for build scripts: `Project(buildroot, db=None,
-  *, db_format=None)` with `init`, `load`, `entries`, `compact`, `install`,
-  `scan` and `dump`. It does what the `install`, `scan`, `initdb`, `compact`
-  and `dbdump` commands do, takes and returns plain Python values, prints
-  nothing and returns the records it wrote (with no file DB, those are the
-  only result). `pkgforge.FileRecords` and `pkgforge.StrPath` are its types.
-- `pkgforge.dbdump.dump(db, fmt, output=None, *, exclude=(), own=None)` renders an
-  already-loaded DB, and `pkgforge.dbdump.Rendered` is the result type.
-- `pkgforge.db.jsonl_line(path, entry)` and `pkgforge.db.parse_jsonl(text,
-  source="text")` write and read the JSON Lines records the `jsonl` backend
-  stores.
-- Entry kinds and file capabilities. An entry records a `kind` (`file`,
-  `config`, `config-noreplace`, `doc`, `license` or `ghost`) and `caps` (one
-  `setcap` clause such as `cap_net_bind_service=ep`), set with `install -k/--kind`
-  and `--caps`, `mkdir -k`, `symlink -k`, `kind` and `caps` in `[[rules]]` and
-  `kind` (every step) and `caps` (`src` and `file` steps) in `[[stage]]`. A flag
-  beats a rule; an unset kind is `file`. `pkgforge.entry` gains `FileKind`,
-  `normalize_kind` and `normalize_caps`, and `Project.install`, `mkdir` and
-  `symlink` take `kind` (`install` also `caps`).
-- `rpmspecfiles` starts a line with `%config`, `%config(noreplace)`, `%doc`,
-  `%license` or `%ghost` for the entry's kind and writes `%caps(CAPS)` for its
-  capabilities.
-- `dbdump -f debian` also writes `conffiles` (config files outside `/etc`),
-  `not-installed` (ghost files, so `dh_missing --fail-missing` accepts them) and
-  `postinst` (`#DEBHELPER#` plus a `setcap` line per capability; the package
-  needs `Depends: libcap2-bin`). Ghost entries are left out of `install`, `dirs`
-  and `fixperms`.
-- `[[users]]` and `[[groups]]` in `pkgforge.cfg` declare the accounts the
-  package's files belong to (`UserAccount`, `GroupAccount` in `pkgforge.config`;
-  `ProjectConfig.users` and `.groups`): `name`, and for a user `description`,
-  `home`, `shell` and supplementary `groups`; `create = false` marks an account
-  that already exists on the target and takes `name` only. `pkgforge.entry.BASE_USERS` and
-  `BASE_GROUPS` are Debian's base-passwd names, which need no declaration.
-- `pkgforge sysfiles` (and `Project.sysfiles`) writes `/usr/lib/sysusers.d/NAME.conf`
-  for the accounts `[[users]]` and `[[groups]]` create and
-  `/usr/lib/tmpfiles.d/NAME.conf` for the ghost directories in the file DB, and
-  records both; `stage` runs it after its steps. rpm 4.19+ and debhelper act on
-  the files when the package is installed, so a file owned by a service user no
-  longer needs the user to exist at build time. `examples/hello.spec` shows the
-  `%pre` and `%post` older rpm needs.
-- `dbdump -f debian` writes a `postrm`, and for a file or directory owned by an
-  account the package creates the `postinst` runs a guarded `dpkg-statoverride
-  --update --add` (kept if the administrator already set an override) that
-  `postrm` removes on purge.
+- The example `examples/pkgforge.cfg` declares two packages, `hello` and
+  `hello-doc`; `examples/hello.spec` and `examples/debian/` are generated from
+  it. A guide page, "From pkgforge.cfg to packages", builds them with
+  `rpmbuild`, `dpkg-buildpackage` and `pkgforge package`, and tabulates what
+  each format needs, writes and runs at install time.
 
 ### Changed
-- The spec `dbdump -f rpmspec` (and `rpmspec-pre419`) writes runs
-  `%systemd_post`, `%systemd_preun` and `%systemd_postun_with_restart` for the
-  systemd units a package records (`*.service`, `*.socket`, `*.timer` and
-  `*.path` directly in `/usr/lib/systemd/system`). It used to ship a unit and
-  never enable it per the distribution's preset, stop it on removal or restart
-  it on upgrade. The lines expand to nothing where rpm has no systemd macros,
-  so the build needs systemd-rpm-macros (EL8: systemd) installed. Regenerate an
-  existing spec with `--force`, or add the three lines to it by hand.
-- `dbdump -f debian --skeleton` exits 2 for a `${NAME}` in the `summary`,
-  `description`, `homepage` or `maintainer` of a package (`[package]` or a
-  `[[packages]]` element). It used to write the text, and dpkg-gencontrol then
-  replaced the variable in the built package's control file; there is no way to
-  escape it, so reword the text. A `depends` item may still hold one.
-- `dbdump -f rpmspec` names the spec format; `rpm` is the only alias of
-  `rpmspecfiles` now. Use `-f rpmspecfiles` (or `-f rpm`) where you meant the
-  `%files` lines.
-- `DumpFormat.write` takes a keyword `force` (default `False`); a format that
-  overrides `write` accepts it.
-- `examples/` builds two packages, `hello` and `hello-doc`, and its `hello.spec`
-  and `debian/` are written by `dbdump -f rpmspec` and `dbdump -f debian
-  --skeleton` from `examples/pkgforge.cfg`. Build the spec with `--define
-  "pkgforge_config PATH"` where it took `--define "proj DIR"`.
-- `dbdump -f debian` writes one set of files per package, named for it:
+- Requires `duho>=0.7.7,<0.8` (was `>=0.6.0,<0.7`) and `anycfg>=0.15.1,<0.16`,
+  which reads `pkgforge.cfg` and is imported only when a file is read. PyYAML is
+  the optional `yaml` extra instead of a core dependency: `pip install
+  'pkgforge[yaml]'` to keep a `yaml` DB, which otherwise exits 1 with a message
+  naming the extra. The command line keeps its flags, its `--help` text and its
+  0, 1 and 2 exit statuses.
+- Ctrl-C ends the command with status 130 and no output.
+- `PKGFORGE_TRACEBACK` replaces `DUHO_TRACEBACK` as the switch that prints the
+  traceback before the `pkgforge: error:` line, and `DUHO_TRACEBACK` has no
+  effect on pkgforge: set `PKGFORGE_TRACEBACK=1` where you set
+  `DUHO_TRACEBACK=1`. A closed output pipe is silent with status 1 either way.
+- The console script is `pkgforge.cli:main` (was `pkgforge:main`); `python -m
+  pkgforge` runs the same. `pkgforge.cli` is the command line, not library API:
+  from Python, use `pkgforge.Project`.
+- The package root exports the library names only: `Project`, `VerifyIssue`,
+  `FileEntry`, `FileType`, `FileEntries`, `FileRecords`, `StrPath`,
+  `DbProvider`, `open_db`, `DumpFormat`, `PackageFormat`, the exceptions and
+  `__version__`. Import `apply_entry`, `entry_from_path`, `normalize_mode` and
+  `resolve_entry` from `pkgforge.entry`. `import pkgforge` loads neither `duho`
+  nor the command line.
+- Every exception class is in `pkgforge.exceptions` (and `pkgforge`), not in
+  `pkgforge.db`, `pkgforge.dbdump` or `pkgforge.exclude`.
+  `ExcludeSyntaxError` is a `UsageError` only (it was also an
+  `argparse.ArgumentTypeError`).
+- Classes with an acronym in the name spell it in capitals: `JsonlDb` is
+  `JSONLinesDb`, `YamlDb` `YAMLDb`, `SqliteDb` `SQLiteDb`, `RpmSpecFiles`
+  `RPMSpecFiles`, `RpmSpecFilesPre419` `RPMSpecFilesPre419`, and the `debian`
+  format class `Debian` is `DebianFiles`. Format and DB names, aliases and
+  suffixes are the same. `pkgforge.dbdump.Entries` is `pkgforge.FileEntries`.
+- `PathMatchStmt` subclasses `argparse.Namespace` (was `duho.NS`), and
+  `PathMatch` takes `PathMatch(stmts, root=None)`: the `installroot` argument
+  is gone, and a path outside `root` raises `ValueError`.
+- On `install` and `scan`, an absolute `-X` pattern is relative to the input,
+  like `tar --exclude`, where 0.2.0 matched it against the install path:
+  `install -X /tmp ./build /opt/app` excludes `./build/tmp`, `install -X
+  '/docs/**' app-1.0.tgz /opt` excludes the archive's `docs/` members, and
+  `scan -X /cache /usr/share/app` excludes `/usr/share/app/cache`. A pattern
+  that carries the destination (`-X /opt/app/build/tmp`) matches nothing: drop
+  that prefix. A pattern without a leading `/` matches at any depth, and
+  `dbdump` matches the DB paths, as in 0.2.0.
+- `-X` rejects a path in microseconds for glob patterns that took seconds (eight
+  `**` segments, or many `*` in one segment), does not warn about `&&`, `~~` or
+  `||` inside a `[...]` class, and matches faster over a large DB in `dbdump`.
+- A dump format implements `render(entries, context)`, `check_output(output)`
+  and `write(rendered, output, *, force=False)`, where 0.2.0 had
+  `DumpFormat.dump(entries, output, logger)` and `render(entries)`. `context` is
+  a `pkgforge.dbdump.DumpContext` holding the configuration, its path and the
+  OUTPUT, and `-` (standard output) is handled by the `dbdump` command. A
+  format of your own moves its `dump` code to `write`, takes the `context`
+  argument, accepts `force` and drops its `-` case; `PerEntryFormat` groups the
+  entries per package and its `check_output` accepts a directory.
+- A DB backend or dump format whose `NAME`, alias or suffix another class holds
+  raises `ValueError` when the class is created and is not registered, where it
+  replaced the earlier class (for a suffix, the newer class won): rename the
+  new one. `DbProvider.compact()` drops removed paths, and the contract suite
+  fails a third-party `compact` that keeps them.
+- A file DB record has three more fields, `kind`, `caps` and `package`, and the
+  `sqlite` table their columns. A 0.2.0 DB fails to load with `missing field
+  kind; this DB was written by an older pkgforge: run initdb and record again`:
+  run `pkgforge initdb` and stage again.
+- Every DB loader (`jsonl`, `yaml`, `sqlite`) enforces one strict record
+  schema and fails with one `pkgforge: error: <file>: <path>: ...` line, status
+  1, where 0.2.0 coerced or defaulted: a number for a mode, owner or group, a
+  missing field, a `null` type and an unknown field are refused. Re-record the
+  DB.
+- The file DB format is `--db-format`, else the `--db` suffix, else `jsonl`;
+  0.2.0 also read an unrecognized text file as YAML. A file whose content is
+  not in that format fails to load with an error that names the format and
+  suggests `--db-format`: pass `--db-format` for a file with another suffix.
+- `dbdump` and `compact` exit 2 when no DB is configured or `--db` names a file
+  that does not exist (`no file DB at PATH; run pkgforge initdb`), where they
+  logged a WARNING and exited 0. An existing empty DB exits 0 with a WARNING.
+  Run `pkgforge initdb` first, or pass the right path.
+- `dbdump` refuses a DB entry that is not well formed, with one `pkgforge:
+  error:` line naming the entry, status 2, and writes nothing: a key that is
+  not an absolute path with no `.`/`..`/empty segment, a `type` other than
+  `file`, `directory` or `symlink`, a mode that is not 1-4 octal digits, `-` or
+  `--`, an owner or group that is not an account name, `-` or `--`, and a
+  `kind`, `caps` or `package` value that is not valid. Fix or re-record the
+  entry.
+- `install` and `scan` refuse an `--owner`/`--group` that is not an account
+  name (`[A-Za-z_][A-Za-z0-9_.-]*`, `-` or `--`), with status 2 before anything
+  is staged or recorded: a numeric owner such as `1000` is refused, so use the
+  account name.
+- An owner or group outside Debian's base-passwd set must be declared in
+  `[[users]]` or `[[groups]]` of `pkgforge.cfg`, or recording it is exit 2;
+  0.2.0 recorded any name. The check covers `-o`/`-g`, `[defaults]`,
+  `[[rules]]`, `[[stage]]` and the names that `--` reads from disk, so `scan
+  --owner=--` over files owned by an ordinary account needs that account
+  declared (`create = false`).
+- `install` and `scan` with no `--db` (or `--db -`) print their JSON Lines
+  records once the operation has succeeded, instead of one by one as they are
+  written.
+- `rpmspec` is the name of the spec format, where 0.2.0 took it as an alias of
+  `rpmspecfiles`: use `-f rpmspecfiles` (or `-f rpm`) for the `%files` lines.
+  A per-entry format (`rpmspecfiles`, `rpmspecfiles-pre419`) writes the entries
+  of one package into a file or `-`, and refuses a DB holding entries of two
+  packages (exit 2); given an existing directory it writes `files-PACKAGE.txt`
+  for every package of `pkgforge.cfg`.
+- `dbdump -f debian` writes one set of files per package, named for it, where
+  0.2.0 wrote a nameless `install`, `dirs`, `permissions` and `fixperms`:
   `PKG.install`, `PKG.dirs`, `PKG.conffiles`, `PKG.postinst`, `PKG.postrm` and
   `PKG.substvars` for `[package]` and each `[[packages]]` name, and once
-  `not-installed` and `fixperms`. It needs `[package] name` (exit 2 without it).
-  Rename the nameless files you wrote into `debian/` to `PKG.install` and so on,
-  and delete the old ones: debhelper reads `debian/PKG.NAME` first and ignores the
-  nameless file beside it, so a `debian/postinst` the dump wrote never ran next to
-  a `PKG.postinst`, and compat 15 refuses it for a source with several binary
-  packages. `fixperms` takes the debian directory, not the package's:
-  `sh debian/fixperms debian`. `Depends: ${pkgforge:Depends}` in `debian/control`
-  names `libcap2-bin` for a package with a `caps` entry when the dump runs after
-  `dh_prep` (see the `debian/tmp` recipe).
+  `not-installed` and `fixperms`. It needs `[package] name` in `pkgforge.cfg`
+  (exit 2 without it). Delete the nameless files the dump wrote into
+  `debian/`: debhelper reads `debian/PKG.NAME` first and ignores the nameless
+  file beside it, and compat 15 refuses it for a source with several binary
+  packages. `fixperms` takes the debian directory, not the package's: run `sh
+  debian/fixperms debian`.
 - `dbdump -f debian` refuses, before it writes anything (exit 2), to replace a
   hand-written debhelper file: an existing `install`, `dirs`, `not-installed`,
   `postinst`, `postrm` or `fixperms` without the line `# Generated by pkgforge
@@ -248,304 +340,111 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `postrm` that debhelper would ignore, and a `PKG.conffiles` listing a path the
   dump would drop. Move such lines into `pkgforge.cfg` or the package-named file
   and delete the stray one.
-- A per-entry format (`rpmspecfiles`, `rpmspecfiles-pre419`) writes the entries
-  of one package into a file or `-`, and refuses a DB holding entries of two
-  packages (exit 2). Given an existing directory it writes `files-PACKAGE.txt`
-  for every package of `pkgforge.cfg` (`%files -n PACKAGE -f
-  .../files-PACKAGE.txt`); a package with no entry gets one empty line, which rpm
-  builds as an empty package. An entry of a package `pkgforge.cfg` does not
-  declare is an error. A spec dumping a file with `dbdump` passes `--config`.
-- `DumpFormat.render` takes `(entries, context)`, a `pkgforge.dbdump.DumpContext`
-  holding the configuration, its path and the OUTPUT; `pkgforge.dbdump.dump` takes
-  `config=`, which `Project.dump` and the CLI pass. A format of your own adds the
-  argument; `PerEntryFormat` supplies the per-package grouping.
-  `PerEntryFormat.check_output` no longer refuses a directory.
-- A file DB record carries a `package` key, and the `sqlite` table a `package`
-  column. A DB written before fails to load with an error ending `this DB was
-  written by an older pkgforge: run initdb and record again`: run `pkgforge
-  initdb` and stage again.
-- `[package] name` and the `[[packages]]` names must be lowercase package names
-  (`[a-z0-9][a-z0-9+.-]+`), and `version`, `release`, `arch` (`all` or `any`)
-  and `maintainer` (`Name <address>`) are checked when the file is read.
-- `dbdump -f debian` leaves an entry owned by an account the package creates out
-  of `fixperms`; `postinst` applies it instead. Such a symlink, or an entry with
-  no recorded mode, is an error. A directory OUTPUT whose `postrm` was not
-  generated by pkgforge is refused like a hand-written `postinst`.
-- The Debian recipes need `dh $@ --with installsysusers` (debhelper 13.10 or
-  later), so the accounts exist before `postinst` runs.
-- An owner or group outside Debian's base-passwd set must be declared in
-  `[[users]]` or `[[groups]]`, or recording it is an error (exit 2). The check
-  covers `-o`/`-g`, `[defaults]`, `[[rules]]`, `[[stage]]` and the names that
-  `--` reads from disk, so `scan --owner=--` over files owned by an ordinary
-  account needs that account declared (`create = false`). Before, any name was
-  recorded as written.
-- `install --record-tree` (and `record_tree = true` in a `[[stage]]` step)
-  chmods each child to the mode a `[[rules]]` element or `[defaults]` gives it.
-  Before, the mode was only recorded and the file kept its own, so the package
-  did not match the build root. Owned directories and `scan` entries are still
-  recorded only.
-- A `#!yaml` `pkgforge.cfg` can no longer `!include` other files: the file
-  describes one package, and an include is now an error (exit 2). Put the
-  content in the file itself.
-- `install --record-tree` children take the mode of a matching `[[rules]]`
-  element or of `[defaults]` before the mode on disk; with neither, the mode is
-  still read from disk.
-- `Project.install(type=)` takes a `FileType` or `None`; a `str` is now a
-  `TypeError`. Pass `FileType("directory")` instead of `"directory"`.
-- `exclude=` of `Project.install`, `Project.scan`, `Project.dump` and
-  `pkgforge.dbdump.dump` takes statement text only; a parsed `PathMatchStmt` is
-  now a `TypeError`. Pass the text you parsed it from.
-- PyYAML is now the optional `yaml` extra instead of a core dependency. The
-  `jsonl` and `sqlite` backends need nothing extra; to use the `yaml` backend
-  run `pip install 'pkgforge[yaml]'`. Without it a `yaml` DB exits 1 with a
-  message naming the extra.
-- `DbProvider.compact()` is documented to drop the tombstones of removed
-  paths (the built-in backends already did): a third-party `compact` that kept
-  them fails the contract suite.
-- A DB backend or dump format whose `NAME`, alias or suffix another one already
-  holds raises `ValueError` when the class is created, and is not registered.
-  It used to replace the earlier class silently (for a suffix, the newer class
-  won); rename the new one.
-- The console script is `pkgforge.cli:main` (was `pkgforge:main`); `python -m
-  pkgforge` and every flag, exit status and `--help` text are unchanged. The
-  commands live in `pkgforge.cli`, which is the command line and not library
-  API: use `pkgforge.Project` from Python.
-- The package root exports the library names only: `Project`, `FileEntry`,
-  `FileType`, `FileEntries`, `FileRecords`, `StrPath`, `DbProvider`,
-  `DumpFormat`, `open_db`, the exceptions and `__version__`. Import
-  `apply_entry`, `entry_from_path`, `normalize_mode` and `resolve_entry` from
-  `pkgforge.entry`. `import pkgforge` no longer loads `duho`.
-- `normalize_mode` and `normalize_name` take a `str`; the list that Python 3.9's
-  argparse produces for an attached `--` is mapped by the command line.
-- A dump format implements `render(entries)`, `check_output(output)` and
-  `write(rendered, output)`; `DumpFormat.dump(entries, output, logger)` is
-  gone, and `-` (standard output) is handled by the `dbdump` command, not by a
-  format. A third-party format that overrode `dump` or `check_output` moves
-  that code to `write` and `check_output`, and drops its `-` case.
-- `install` and `scan` with no `--db` (or `--db -`) print their JSON Lines
-  records once the operation has succeeded, instead of one by one as they are
-  written.
-- On `install` and `scan`, an absolute `-X` pattern is relative to the input,
-  like `tar --exclude`: `install -X /tmp ./build /opt/app` excludes
-  `./build/tmp`, `install -X '/docs/**' app-1.0.tgz /opt` excludes the
-  archive's `docs/` members, and `scan -X /cache /usr/share/app` excludes
-  `/usr/share/app/cache`. A pattern that carries the destination or install
-  path (`-X /opt/app/build/tmp`) now matches nothing: drop that prefix. A
-  pattern without a leading `/` still matches at any depth, and `dbdump` still
-  matches the DB paths.
-- `-X` accepts glob patterns that took seconds to reject a path before (eight
-  `**` segments, or many `*` in one segment) in microseconds, and no longer
-  warns about `&&`, `~~` or `||` inside a `[...]` class.
-- The `PathMatch` constructor takes `PathMatch(stmts, root=None)`; the
-  `installroot` argument is gone, and a path outside `root` raises
-  `ValueError`.
-- `dbdump` `-X` matching is faster on a large DB.
-- `dbdump` now refuses a DB entry that is not well formed, with one
-  `pkgforge: error:` line naming the entry and status 2, and writes nothing:
-  a key that is not an absolute path with no `.`/`..`/empty segment, a `type`
-  other than `file`, `directory` or `symlink`, a mode that is not 1-4 octal
-  digits, `-` or `--`, an owner or group that is not an account name, `-` or
-  `--`, or a control character or rpm expansion (`%(`, `%{`, `%[`) in
-  `meta.rpmprefix`. Fix the DB entry (or
-  re-record it) and run `dbdump` again.
-- `install` and `scan` refuse an `--owner`/`--group` that is not an account
-  name (`[A-Za-z_][A-Za-z0-9_.-]*`, `-` or `--`) and an `-O rpmprefix=` with a
-  control character, with status 2 and before anything is staged or
-  recorded. A numeric owner such as `1000` is refused; use the account name.
-- A file OUTPUT of `dbdump` is written whole or not at all: each file goes to
-  a sibling `.<name>.pkgforge-tmp` and is renamed into place once every write
-  has succeeded, so a failed dump no longer leaves a truncated or mixed
-  OUTPUT.
-- `rpmspecfiles` writes `-` as the `%attr` mode of a symlink, so rpmbuild no
-  longer warns `Explicit %attr() mode not applicable to symlink`.
-- Requires `duho>=0.7.7,<0.8` (was `>=0.6.0,<0.7`). The command line is
-  unchanged: the same flags, exit statuses and `--help` text.
-- `pkgforge.cli.main()` runs through `duho.run`, and the root reports its errors
-  with duho's `_errors_` and `_report_error_`. The `pkgforge: error:` line, its
-  stream and the statuses (2 for a usage mistake, 1 otherwise) are the same, and
-  `--help`, `--version` and a parser usage error still raise `SystemExit`.
-  Ctrl-C now ends with status 130 and no traceback.
-- `PKGFORGE_TRACEBACK` replaces `DUHO_TRACEBACK` as the switch that prints the
-  traceback before the `pkgforge: error:` line. Set `PKGFORGE_TRACEBACK=1`
-  where you set `DUHO_TRACEBACK=1`; `DUHO_TRACEBACK` no longer has an effect on
-  pkgforge. A closed output pipe stays silent with status 1 either way.
-- `dbdump --db -` reads the file DB as JSON Lines from standard input, so
-  `pkgforge install --db - ... | pkgforge dbdump --db - -f rpm` works. Stdin
-  must be a pipe, a socket or a regular file: a terminal, a closed stdin or a
-  device such as `/dev/null` exits 2 instead of dumping an empty manifest.
-  `compact` and `scan --drop-stale` refuse `--db -` (exit 2). Replace
-  `dbdump --stdin` with `--db -`.
-- `dbdump` and `compact` exit 2 when no DB is configured or `--db` names a file
-  that does not exist (`no file DB at PATH; run pkgforge initdb`), where they
-  logged a WARNING and exited 0. An existing empty DB still exits 0 with a
-  WARNING. Run `pkgforge initdb` first, or pass the right path.
-- The file DB format is `--db-format`, else the `--db` suffix, else `jsonl`;
-  `--db-format` and the suffix are the only inputs. A file whose content is
-  not in that format fails to load with an error that names the format and
-  suggests `--db-format`. Pass `--db-format` for a file with another suffix.
-- Every DB loader (`jsonl`, `yaml`, `sqlite`) enforces one strict record
-  schema and fails with one `pkgforge: error: <file>: <path>: ...` line (status
-  1): a path is a string starting with `/`; a record has exactly `mode`,
-  `owner`, `group` (strings), `type` (`file`, `directory` or `symlink`) and
-  `meta` (string to string). A number for a mode, owner or group, a missing
-  field, a `null` type and an unknown field were accepted before; re-record
-  the DB with the current pkgforge.
-- A text DB is split into records on `\n` only, and a leading UTF-8 byte-order
-  mark is ignored, so a record containing U+2028, U+2029 or U+0085 loads and a
-  BOM-prefixed `.jsonl` stays JSON Lines instead of being appended to as YAML.
-- Every exception class lives in `pkgforge.exceptions` (`pkgforge.errors` is
-  gone): import `DbError`, `DumpError`, `InvalidEntryError`,
-  `UnsupportedOutputError` and `ExcludeSyntaxError` from there or from
-  `pkgforge`, not from `pkgforge.db`, `pkgforge.dbdump` or `pkgforge.exclude`.
-  `ExcludeSyntaxError` is a `UsageError` only; it is no longer an
-  `argparse.ArgumentTypeError`.
-- Classes with an acronym in the name spell it in capitals: `JsonlDb` is now
-  `JSONLinesDb`, `YamlDb` `YAMLDb`, `SqliteDb` `SQLiteDb`, `RpmSpecFiles`
-  `RPMSpecFiles`, `RpmSpecFilesPre419` `RPMSpecFilesPre419`, and the `debian`
-  format class `Debian` is now `DebianFiles`. Format and DB names, aliases and
-  suffixes are unchanged.
-- `pkgforge.dbdump.Entries` is now `pkgforge.FileEntries`.
-- A file DB record has two more fields, `kind` and `caps`. A DB written
-  before them fails to load with `this DB predates kind/caps: run initdb and
-  record again`: run `initdb` and stage again.
-- `dbdump -f debian debian/` also writes `debian/postinst`. It carries a
-  `# Generated by pkgforge dbdump -f debian` line and is replaced on the next
-  dump; a `postinst` without that line makes `dbdump` exit 2 and write nothing.
-  A package with its own `postinst` dumps into another directory and merges the
-  generated lines.
 
 ### Removed
-- `[package] depends`: write `requires` under `[package.rpm]` and `depends`
-  under `[package.debian]`.
-- `examples/stage.sh`: the example package stages from `examples/pkgforge.cfg`
-  with `pkgforge stage`.
-- `DbProvider.lookup(name)` and `DumpFormat.lookup(name)`: call `get(name)`.
-- `pkgforge.main`, `pkgforge.command`, the `pkgforge.install`, `pkgforge.scan`,
-  `pkgforge.initdb` and `pkgforge.compact` modules, and `PkgForgeCmd`,
-  `PkgForge`, `FileEntryArgs`, `FileEntryBaseArgs`, `entry_from_args`,
-  `parsepath`, `ExcludeArgs` and `DbDump` in `pkgforge.dbdump`; the commands
-  are in `pkgforge.cli` and the operations are `Project` methods. Replace
-  `pkgforge.main(argv)` with `pkgforge.cli.main(argv)` (a build script should
-  call `Project` instead).
-- The `List[str]` form of `normalize_mode` and `normalize_name`.
+- `pkgforge.main`, `pkgforge.command` and the `pkgforge.install`,
+  `pkgforge.scan`, `pkgforge.initdb` and `pkgforge.compact` modules, with
+  `PkgForgeCmd`, `PkgForge`, `FileEntryArgs`, `FileEntryBaseArgs`,
+  `entry_from_args`, `parsepath`, `ExcludeArgs` and `pkgforge.dbdump.DbDump`.
+  The commands are in `pkgforge.cli` (not library API) and the operations are
+  `Project` methods: replace `pkgforge.main(argv)` with
+  `pkgforge.cli.main(argv)`, or call `Project` from a build script.
+- `pkgforge.errors`: import the exceptions from `pkgforge.exceptions` or
+  `pkgforge`.
 - The `pkgforge.install.archive`, `decompress`, `staging`, `transfer`, `record`
   and `_tool` modules and the `Install` staging methods (`_resolve`, `_stage`
-  and the like); staging is `Project.install`, and the helpers live in the
-  private `pkgforge._install` package.
-- The warning that an absolute `-X` pattern could match no install path, and
-  `PathMatch.unreachable()` and `log_unreachable()` with it.
-- `dbdump --stdin`; use `--db -`.
+  and the like); staging is `Project.install`.
+- The backend submodules `pkgforge.db.jsonl`, `pkgforge.db.yaml`,
+  `pkgforge.db.sqlite`, `pkgforge.dbdump.rpm` and `pkgforge.dbdump.debian`:
+  import the classes from `pkgforge.db` and `pkgforge.dbdump`.
+- `DbProvider.lookup(name)` and `DumpFormat.lookup(name)`: call `get(name)`.
+- `DumpFormat.dump(entries, output, logger)`: a format implements `render`,
+  `check_output` and `write` (see Changed).
 - The `FileEntry.from_args`, `from_path`, `resolve_for` and `apply` class
-  aliases; call `entry_from_path`, `resolve_entry` and `apply_entry`.
-- `PathTest.GENERATORS` and `PathTest.factory`; the registry and builder are
-  module-private.
-- `scan --type/-t`, which was hidden and ignored; `scan` now exits 2 for it.
-- The `--decompress` tool-name aliases `gzip`, `gunzip`, `xz`, `unxz`,
-  `bzip2`, `bunzip2`, `zstd`, `unzstd`, `lzma` and `unlzma`; a kind is exactly
-  `gz`, `xz`, `bz2`, `zst` or `lzma`, in any case.
-- `FileType._AUTO`; use the `AUTO` string. `list(FileType)` is `file`,
+  aliases: call `entry_from_path`, `resolve_entry` and `apply_entry`.
+- The `List[str]` form of `normalize_mode` and `normalize_name`, and an `int`
+  mode in `normalize_mode`: both take a `str`, and an int raises `UsageError`.
+- `FileType._AUTO`: use the `AUTO` string. `list(FileType)` is `file`,
   `directory`, `symlink`.
-- An `int` mode in `normalize_mode`: a mode is a string, and an int raises
-  `UsageError`.
-- The import-time binding of `PKGFORGE_DB`, `PKGFORGE_DB_FORMAT`,
-  `PKGFORGE_ROOT`, `PKGFORGE_INSTALL_METHOD` and `PKGFORGE_INSTALL_RECORD_TREE`
-  as class defaults: a command built directly in Python ignores the
-  environment; `pkgforge.cli.main()` reads it.
+- `PathTest.GENERATORS`, `PathTest.factory`, `FilterTestRe`, `filetypetest` and
+  `metatest` in `pkgforge.exclude`, and `NAME_PATTERN`, `MODE_PATTERN`,
+  `CONTROL_PATTERN` and `RPM_EXPANSION_PATTERN` in `pkgforge.entry`.
+- `PathMatch.unreachable()`, `log_unreachable()` and the warning that an
+  absolute `-X` pattern could match no install path.
+- The `RPMSpecFiles._quote` and `RPMSpecFilesPre419._quote` class hooks, which
+  `render` never called.
+- The `sniff_format` function, the `DbProvider.sniff` hook and the `for_read`
+  argument of `open_db`: `open_db(path, fmt=None)` resolves by format name or
+  suffix only (see Changed).
+- `dbdump --stdin`: use `--db -`.
+- `scan --type/-t`, which was hidden and ignored: `scan` exits 2 for it.
+- The `--decompress` tool-name aliases `gzip`, `gunzip`, `xz`, `unxz`,
+  `bzip2`, `bunzip2`, `zstd`, `unzstd`, `lzma` and `unlzma`: a kind is exactly
+  `gz`, `xz`, `bz2`, `zst` or `lzma`, in any case.
 - The archive destination-name fallback that cut a name at its last `tar` or
   `iso` segment; `.tar.zst`, `.tzst`, `.tar.lz4`, `.tar.lzma`, `.tlz`,
-  `.tar.lz` and `.cpio` are now listed suffixes.
-- Content sniffing of a file DB and the legacy leniency that came with it: an
-  unrecognized text file was read as YAML, and a mode, owner or group written
-  as a number, or a missing field, was coerced or defaulted at load.
-- The `sniff_format` function, the `DbProvider.sniff` hook and the `for_read`
-  argument of `open_db`; `open_db(path, fmt=None)` resolves by format name or
-  suffix only.
-- The `debian` format no longer writes the `permissions` artifact (and
-  `dbdump -f debian -` no longer prints its section): nothing consumed it.
-  The `fixperms` script applies the same pins.
-- The `RPMSpecFiles._quote` and `RPMSpecFilesPre419._quote` class hooks, which
-  `render` never called. The `_escape`, `_reject` and `_batch_reject_needed`
-  hooks remain.
-- The backend submodules `pkgforge.db.jsonl`, `pkgforge.db.yaml`,
-  `pkgforge.db.sqlite`, `pkgforge.dbdump.rpm` and `pkgforge.dbdump.debian`
-  (now private): import the classes from `pkgforge.db` and `pkgforge.dbdump`.
-- The public names `FilterTestRe`, `filetypetest` and `metatest` in
-  `pkgforge.exclude`, and `NAME_PATTERN`, `MODE_PATTERN`, `CONTROL_PATTERN` and
-  `RPM_EXPANSION_PATTERN` in `pkgforge.entry` (now private).
-- `meta.rpmprefix`. A `-O rpmprefix=...`, a `meta = { rpmprefix = ... }` or a
-  `meta` argument holding the key is refused (exit 2); use `-k/--kind` and
-  `--caps`, or `kind` and `caps` in `pkgforge.cfg`.
+  `.tar.lz` and `.cpio` are listed suffixes.
+- The `permissions` artifact of `dbdump -f debian` (and its section in
+  `dbdump -f debian -`): nothing consumed it, and `fixperms` applies the same
+  pins.
+- `meta.rpmprefix`: a `-O rpmprefix=...` or a `meta` argument holding the key
+  is refused (exit 2). Use `-k/--kind` and `--caps`, or `kind` and `caps` in
+  `pkgforge.cfg`.
+- The import-time binding of `PKGFORGE_DB`, `PKGFORGE_DB_FORMAT`,
+  `PKGFORGE_ROOT`, `PKGFORGE_INSTALL_METHOD` and `PKGFORGE_INSTALL_RECORD_TREE`
+  as class defaults: `pkgforge.cli.main()` reads them when it parses, and a
+  command class built directly in Python ignores the environment.
 
 ### Fixed
 - `install --method move` of a directory onto another filesystem failed with
-  `Invalid cross-device link` (and a rollback could fail the same way). It now
+  `Invalid cross-device link` (and a rollback could fail the same way). It
   moves the tree file by file, keeping modes, mtimes and symlinks, and removes
   the source.
 - `install --remove-source --method link` kept a file source and removed a
-  directory source. Both are removed now; the staged hardlinks keep the data.
-  The source is kept only when it is the destination itself.
-- A failed `install -p` left the parent directories it had created. It now
-  removes them before exiting with status 1; directories that already existed
-  are never touched.
-- `Install(source=["/x"], destination="/usr/bin", ...)()` built from Python
-  with `str` paths raised `AttributeError`. `str` and path-like values are
-  accepted, and anything else raises `UsageError`.
-- `scan --drop-stale` into a `sqlite` DB holds one connection for all its
-  removals instead of committing once per row.
-- A `%(command)` or newline in a recorded owner, group or mode, or a newline
-  in `meta.rpmprefix`, no longer reaches rpmbuild's `%files` list, where it ran
-  a command or injected a line.
-- A DB key such as `/../../x` or a relative path no longer reaches the
-  `debian` `fixperms` script, where it chmod-ed or chown-ed a path outside the
-  package directory.
-- An entry with no `type` (or `-`, or an unknown value) no longer renders as a
-  plain `%files` path that makes rpm ship the whole subtree.
-- A corrupt or truncated `.tar`, `.tar.gz`, `.tar.xz` or `.tar.bz2` archive now
-  ends with one `pkgforge: error: cannot extract ...` line and status 1
-  instead of a traceback.
-- A failing `bsdtar` or decompressor (`install -x`) now ends with one
-  `pkgforge: error: <tool> failed (exit N): <its last message>` line and
-  status 1 instead of a `CalledProcessError` traceback. The tool no longer
-  inherits standard input unless the source is `-`.
+  directory source. Both are removed; the staged hardlinks keep the data. The
+  source is kept only when it is the destination itself.
+- A failed `install -p` left the parent directories it had created. It removes
+  them before exiting with status 1; directories that already existed are never
+  touched.
+- An `Install(source=["/x"], destination="/usr/bin", ...)()` command built from
+  Python with `str` paths raised `AttributeError`. `str` and path-like values
+  are accepted, and anything else raises `UsageError`.
+- `scan --drop-stale` into a `sqlite` DB committed once per removed row; it
+  holds one connection for all its removals.
+- A `%(command)` or a newline in a recorded owner, group or mode reached
+  rpmbuild's `%files` list, where it ran a command or injected a line; `dbdump`
+  refuses the entry (exit 2).
+- A DB key such as `/../../x`, or a relative one, reached the `debian`
+  `fixperms` script, where it chmod-ed or chown-ed a path outside the package
+  directory; `dbdump` refuses it (exit 2).
+- An entry with no `type` (or `-`, or an unknown value) rendered as a plain
+  `%files` path, which made rpm ship the whole subtree; `dbdump` refuses it.
+- A corrupt or truncated `.tar`, `.tar.gz`, `.tar.xz` or `.tar.bz2` archive
+  ended in a traceback. It is one `pkgforge: error: cannot extract ...` line,
+  status 1.
+- A failing `bsdtar` or decompressor (`install -x`) ended in a
+  `CalledProcessError` traceback. It is one `pkgforge: error: <tool> failed
+  (exit N): <its last message>` line, status 1, and the tool reads standard
+  input only when the source is `-`.
 - A SQLite file DB that cannot be opened, written or read (an unwritable
   directory, a locked or non-SQLite file, a schema mismatch, a corrupt
-  `meta_json`) now ends with one `pkgforge: error: <path>: ...` line and
-  status 1 instead of a traceback.
-- A JSON Lines or YAML file DB nested too deeply to parse is now a one-line
-  error naming the file instead of a `RecursionError` traceback.
-- Under MCP, `dbdump --db -` and `install -` now return an error result
-  instead of reading the protocol channel: `dbdump --db - OUTPUT` used to
-  overwrite an existing OUTPUT with an empty manifest, and `install -` failed
-  with an `AttributeError`.
-- `pkgforge package` followed a symlinked directory in a recorded path: a hand-edited
-  DB key such as `/opt/link/secret`, with `/opt/link` a symlink to a directory outside
-  the build root, put that directory's file into the package. It now exits 2 with
-  `PATH: a symlink leads outside --buildroot` before writing anything, the check
-  `install` and `scan` already make.
-- A failed `pkgforge package` left the `-o` directory behind: `-f rpm` without
-  `rpmbuild`, or any error after the first package, exited 1 but had already
-  created it. The directory is now made with the first package file, each file is
-  written beside its final name and renamed into place only when every package
-  is built, and a failure (Ctrl-C included) removes what the build created and
-  leaves an existing package of the same name as it was.
-- `pkgforge package` held each package's whole payload, and a compressed copy of
-  it, in memory: a 200 MB payload took 750 to 860 MB of resident memory, and a
-  multi-GB payload needed that much RAM. A package is now streamed from the build
-  root through the compressor into the output file: the same 200 MB payload peaks
-  at about 40 MB with gzip or no compression, and at about 130 MB with xz or zstd,
-  which is the compressor's own fixed state and does not grow with the payload.
-  The `apk` data member is spooled to an unnamed scratch file in the output
-  directory while it is built. A zstd package is compressed as a stream, so its
-  bytes can differ from those of earlier builds of the same files (builds stay
-  reproducible; xz and uncompressed output is unchanged, and gzip output is too
-  except that Python 3.11 and 3.12 now write the header's OS byte as 255, as
-  every other version does).
-- `pkgforge package` shipped each file of a hardlinked set as a separate copy. In
-  a `tar`, `deb`, `arch` or `apk` package the first one (by DB path) is a regular
-  file and the others are hardlinks to it, so they install as one inode and the
-  installed size counts the data once; `-f rpm` keeps the set too. Files that
-  differ in recorded mode, owner, group or capability, or whose partner is in
-  another package, stay copies.
+  `meta_json`) ended in a traceback. It is one `pkgforge: error: <path>: ...`
+  line, status 1.
+- A JSON Lines or YAML file DB nested too deeply to parse ended in a
+  `RecursionError` traceback. It is a one-line error naming the file.
+- Under MCP, `dbdump --stdin` overwrote an existing OUTPUT with an empty
+  manifest and `install -` failed with an `AttributeError`, both reading the
+  protocol channel. `dbdump --db -` and `install -` return an error result
+  there.
+- A text DB was split on every Unicode line break, so a record holding U+2028,
+  U+2029 or U+0085 failed to load, and a `.jsonl` starting with a byte-order mark
+  was appended to as YAML. Records split on `\n` only and a leading BOM is
+  ignored.
+- `rpmspecfiles` wrote a symlink's recorded mode in `%attr`, and rpmbuild warned
+  `Explicit %attr() mode not applicable to symlink`; the mode is `-`.
+- A failed `dbdump` could leave a truncated or mixed OUTPUT. Each file is
+  written to a sibling `.<name>.pkgforge-tmp` and renamed into place once every
+  write has succeeded.
 
 ## [0.2.0] - 2026-09-29
 
