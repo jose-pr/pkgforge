@@ -31,7 +31,14 @@ mkdir -p %{_builddir}/pkgforge-files
 pkgforge -q --config "%{pkgforge_config}" dbdump -f rpmspecfiles %{_builddir}/pkgforge-files
 
 %post
+%{?systemd_post:%systemd_post hello.service}
 systemd-tmpfiles --create /usr/lib/tmpfiles.d/hello.conf >/dev/null 2>&1 || :
+
+%preun
+%{?systemd_preun:%systemd_preun hello.service}
+
+%postun
+%{?systemd_postun_with_restart:%systemd_postun_with_restart hello.service}
 
 %files -f %{_builddir}/pkgforge-files/files-hello.txt
 

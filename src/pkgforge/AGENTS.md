@@ -752,7 +752,14 @@ whole file is validated before any command runs: a problem is one
   `%{buildroot}` with the file DB in `%{_builddir}` and writes one
   `files-PACKAGE.txt` per package there with `dbdump -f rpmspecfiles`
   (`-pre419` for `RPMSpecPre419`); a `%post` (`systemd-tmpfiles --create
-  /usr/lib/tmpfiles.d/NAME.conf`) in the package that records that file; and one
+  /usr/lib/tmpfiles.d/NAME.conf`) in the package that records that file; in each
+  package that records a systemd unit (a live regular file named `*.service`,
+  `*.socket`, `*.timer` or `*.path` directly in `/usr/lib/systemd/system`, not a
+  template or a ghost) `%{?systemd_post:%systemd_post U...}` as the first line of
+  its one `%post`, a `%preun` with `%{?systemd_preun:%systemd_preun U...}` and a
+  `%postun` with `%{?systemd_postun_with_restart:%systemd_postun_with_restart
+  U...}` (they need systemd-rpm-macros, or EL8's systemd, when the package is
+  built, and expand to nothing without them; no `BuildRequires`); and one
   `%files [-n P] -f ...` per package. `RPMSpecPre419` adds a `%pre` in the package
   that records `/usr/lib/sysusers.d/NAME.conf`: `systemd-sysusers -
   <<'PKGFORGE_SYSUSERS' || :` over the sysusers text (rpm 4.19+ creates the

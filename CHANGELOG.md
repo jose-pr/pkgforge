@@ -168,6 +168,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `postrm` removes on purge.
 
 ### Changed
+- The spec `dbdump -f rpmspec` (and `rpmspec-pre419`) writes runs
+  `%systemd_post`, `%systemd_preun` and `%systemd_postun_with_restart` for the
+  systemd units a package records (`*.service`, `*.socket`, `*.timer` and
+  `*.path` directly in `/usr/lib/systemd/system`). It used to ship a unit and
+  never enable it per the distribution's preset, stop it on removal or restart
+  it on upgrade. The lines expand to nothing where rpm has no systemd macros,
+  so the build needs systemd-rpm-macros (EL8: systemd) installed. Regenerate an
+  existing spec with `--force`, or add the three lines to it by hand.
 - `dbdump -f debian --skeleton` exits 2 for a `${NAME}` in the `summary`,
   `description`, `homepage` or `maintainer` of a package (`[package]` or a
   `[[packages]]` element). It used to write the text, and dpkg-gencontrol then

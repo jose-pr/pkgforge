@@ -225,6 +225,65 @@ def test_spec_post_only_with_a_recorded_tmpfiles_file(make_entry):
     )
 
 
+_UNIT = "/usr/lib/systemd/system/tool.service"
+_UNIT_LINES = (
+    "\n%post\n%{?systemd_post:%systemd_post tool.service}\n",
+    "\n%preun\n%{?systemd_preun:%systemd_preun tool.service}\n",
+    "\n%postun\n"
+    "%{?systemd_postun_with_restart:%systemd_postun_with_restart tool.service}\n",
+)
+
+
+@pytest.mark.parametrize("fmt", ["rpmspec", "rpmspec-pre419"])
+def test_spec_runs_the_systemd_scriptlets_for_a_recorded_unit(make_entry, fmt):
+    spec = _spec(_entries(make_entry, (_UNIT, make_entry())), _config(), fmt)
+    for lines in _UNIT_LINES:
+        assert lines in spec
+    assert spec.index("\n%post\n") < spec.index("\n%preun\n")
+    assert spec.index("\n%postun\n") < spec.index("\n%files ")
+    assert "BuildRequires" not in spec
+
+
+@pytest.mark.parametrize(
+    "path, entry",
+    [
+        ("/usr/lib/systemd/system/tool@.service", {}),
+        ("/usr/lib/systemd/system/tool.service.d", {"type": "directory"}),
+        ("/usr/lib/systemd/system/tool.service", {"kind": "ghost"}),
+        ("/usr/lib/systemd/system/sub/tool.service", {}),
+        ("/etc/systemd/system/tool.service", {}),
+    ],
+)
+def test_spec_has_no_unit_scriptlets_for_what_is_not_a_unit(make_entry, path, entry):
+    spec = _spec(_entries(make_entry, (path, make_entry(**entry))), _config())
+    assert "systemd_" not in spec
+    assert "%post" not in spec
+
+
+def test_spec_units_and_tmpfiles_share_one_post(make_entry):
+    config = _config(users=[{"name": "tool"}])
+    spec = _spec(_accounts(make_entry) | {_UNIT: make_entry()}, config)
+    assert spec.count("\n%post\n") == 1
+    assert (
+        "\n%post\n%{?systemd_post:%systemd_post tool.service}\n"
+        "systemd-tmpfiles --create /usr/lib/tmpfiles.d/tool.conf >/dev/null 2>&1 || :\n"
+    ) in spec
+
+
+def test_spec_units_follow_the_package_that_records_them(make_entry):
+    db = _entries(
+        make_entry,
+        (_UNIT, make_entry(package="tool-doc")),
+        ("/usr/lib/systemd/system/other.timer", make_entry()),
+        ("/usr/lib/systemd/system/other.service", make_entry()),
+    )
+    spec = _spec(db, _config())
+    assert "\n%post\n%{?systemd_post:%systemd_post other.service other.timer}\n" in spec
+    assert "\n%post -n tool-doc\n%{?systemd_post:%systemd_post tool.service}\n" in spec
+    assert "\n%preun -n tool-doc\n" in spec
+    assert "\n%postun -n tool-doc\n" in spec
+
+
 def test_spec_names_the_missing_keys():
     config = ProjectConfig.from_dict(
         {
