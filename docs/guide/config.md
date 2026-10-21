@@ -144,6 +144,48 @@ read from disk with `--` included.
 A created account needs `[package] name`. A created user's group of the same name is
 implied, so a `[[groups]]` element may not repeat it.
 
+## Accounts
+
+Debian's base-passwd accounts (`pkgforge.entry.BASE_USERS` and `BASE_GROUPS`:
+`root`, `daemon`, `www-data`, `nobody`, the groups `adm`, `tty`, `disk`, `staff`,
+and so on) exist on every target and need no declaration. Any other owner or group must be
+declared, or recording it is an error (exit 2):
+
+```text
+pkgforge: error: install: owner 'jose' is neither a base-passwd account nor declared in [[users]]
+```
+
+The check runs when the file is loaded (`[defaults]`, `[[rules]]`, `[[stage]]`,
+`[[users]].groups`), before `install` and `scan` stage anything, and again for every
+record written, so an owner read from disk with `--` is checked too. With no
+project file only base names pass.
+
+`create = true` (the default) makes the package create the account at install
+time; `create = false` names one a dependency creates, which writes no line but
+still owns files at install time. A created name must match
+`[a-z_][a-z0-9_-]{0,30}`; a base-passwd name is refused as a declaration.
+
+```toml
+[package]
+name = "tool"
+
+[[users]]
+name = "tool"
+description = "tool daemon"
+home = "/var/lib/tool"
+groups = ["adm"]
+
+[[groups]]
+name = "web"
+create = false
+```
+
+`pkgforge sysfiles` records `/usr/lib/sysusers.d/NAME.conf` for the created
+accounts and `/usr/lib/tmpfiles.d/NAME.conf` for the ghost directories, and
+`pkgforge stage` runs it after the steps, so a package needs no other step for
+them. How each format uses the accounts is in
+[Build time vs install time ownership](formats.md#build-time-vs-install-time-ownership).
+
 ## Values
 
 - A mode is text of one to four octal digits: `mode = "0644"`, never `0o644` or
@@ -278,6 +320,13 @@ pkgforge: error: j.cfg: expected a quoted string, not int [at rules[0].mode (Pro
 pkgforge: error: a.cfg: ProjectConfig has no field(s) 'dbb'
 pkgforge: error: d.cfg: dest: required with src [at stage[0] (ProjectConfig)]
 pkgforge: error: PKGFORGE_CONFIG names no file: nope.cfg
+pkgforge: error: a.cfg: defaults: owner 'jose' is neither a base-passwd account nor declared in [[users]] [(ProjectConfig)]
+pkgforge: error: b.cfg: [[users]] and [[groups]] that create an account need [package] name [(ProjectConfig)]
+pkgforge: error: c.cfg: kind: config needs a regular file, not a directory [at stage[0] (ProjectConfig)]
+pkgforge: error: d.cfg: caps: invalid caps 'cap_net_raw=ep cap_net_admin=p': expected one lowercase setcap clause without spaces, such as cap_net_bind_service=ep [at rules[0] (ProjectConfig)]
+pkgforge: error: e.cfg: name: 'daemon' is a base-passwd account: it needs no entry [at users[0] (ProjectConfig)]
+pkgforge: error: g.cfg: groups[0]: 'svc' is the group of the created user of the same name: drop the [[groups]] element [(ProjectConfig)]
+pkgforge: error: h.cfg: refusing !include: the policy does not allow includes [in h.cfg; included from h.cfg, line 1]
 ```
 
 The whole file is checked before any command runs, whichever command it is. A

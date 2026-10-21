@@ -81,7 +81,7 @@ pkgforge stage --init
 ```
 
 See the [project file guide](https://jose-pr.github.io/pkgforge/guide/config/)
-for every key, the rules that decide an entry's mode, owner and group, and the
+for every key, the rules that decide an entry's mode, owner, group, kind and capabilities, the accounts a package declares, and the
 owned directories.
 
 ## Commands
@@ -95,6 +95,7 @@ owned directories.
 | `stage` | run the `[[stage]]` steps of `pkgforge.cfg` |
 | `mkdir [opts] DEST…` | create directories and record their entries |
 | `symlink [opts] TARGET LINK` | create a symbolic link and record its entry |
+| `sysfiles` | write the `sysusers.d` and `tmpfiles.d` files for the declared accounts and ghost directories, and record them |
 | `dbdump -f FORMAT [OUT]` | render the DB into a packaging manifest |
 
 `install --method {copy,link,move}` (env `PKGFORGE_INSTALL_METHOD`) stages a
@@ -149,7 +150,7 @@ reading an existing file auto-detects its actual format.
 | --- | --- | --- |
 | `rpmspecfiles` | `rpm`, `rpmspec` | RPM `%files` lines (`%attr(...)`, `%dir`, `%caps(...)`, and `%config`, `%doc`, `%license` or `%ghost` from the entry kind) to a file or `-`; rpm 4.19+ |
 | `rpmspecfiles-pre419` | `rpm-pre419` | Same, for rpm older than 4.19 (measured on 4.14/4.16/4.18): refuses a space, a glob character, or `%` instead of packaging the wrong file |
-| `debian` | `deb` | `install`, `dirs`, `fixperms`, `conffiles`, `not-installed` and `postinst` files into an output directory (or `-`, sectioned) |
+| `debian` | `deb` | `install`, `dirs`, `fixperms`, `conffiles`, `not-installed`, `postinst` and `postrm` files into an output directory (or `-`, sectioned) |
 
 Output of the Quick start above:
 

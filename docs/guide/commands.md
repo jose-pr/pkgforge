@@ -316,13 +316,14 @@ read from a source, so this is how a directory with no files of its own is
 packaged. Running it again changes nothing.
 
 ```bash
-pkgforge mkdir [-m MODE] [-o OWNER] [-g GROUP] [-O KEY=VALUE]... [-p] DEST...
+pkgforge mkdir [-m MODE] [-o OWNER] [-g GROUP] [-k KIND] [-O KEY=VALUE]... [-p] DEST...
 ```
 
 | Option | Meaning |
 | --- | --- |
 | `-m, --mode` | as for `install` |
 | `-o, --owner` / `-g, --group` | owner / group to record |
+| `-k, --kind` | `file` (default) or `ghost`, the only kinds a directory can have; a ghost directory is created at install time by the generated `tmpfiles.d` file |
 | `-O, --meta KEY=VALUE` | record free-form metadata on the entry (repeatable) |
 | `-p, --parents` | create missing parent directories |
 
@@ -337,12 +338,13 @@ stored as written and may name nothing; a symlink has no mode, so there is no
 `--mode`.
 
 ```bash
-pkgforge symlink [-o OWNER] [-g GROUP] [-O KEY=VALUE]... [-p] TARGET LINK
+pkgforge symlink [-o OWNER] [-g GROUP] [-k KIND] [-O KEY=VALUE]... [-p] TARGET LINK
 ```
 
 | Option | Meaning |
 | --- | --- |
 | `-o, --owner` / `-g, --group` | owner / group to record |
+| `-k, --kind` | `file` (default) or `ghost`, the only kinds a link can have |
 | `-O, --meta KEY=VALUE` | record free-form metadata on the entry (repeatable) |
 | `-p, --parents` | create missing parent directories of LINK |
 

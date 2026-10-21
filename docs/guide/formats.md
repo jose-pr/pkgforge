@@ -25,6 +25,25 @@ A file OUTPUT is written whole or not at all: `dbdump` writes each file to
 a sibling `.<name>.pkgforge-tmp` and renames them into place only when every
 write has succeeded.
 
+## Kinds and capabilities
+
+An entry's `kind` says how the package manager treats the file, in the same
+words for both formats (`install -k`, a rule's `kind`, a step's `kind`):
+
+| Kind | rpm | Debian |
+| --- | --- | --- |
+| `file` | no directive | an `install` line |
+| `config` | `%config` | a conffile: debhelper marks every file under `/etc/` itself, and a path elsewhere is listed in `conffiles` |
+| `config-noreplace` | `%config(noreplace)` | as `config` |
+| `doc` | `%doc` | an `install` line |
+| `license` | `%license` | an `install` line |
+| `ghost` | `%ghost` | not shipped: left out of `install`, `dirs` and `fixperms`, and a file is listed in `not-installed` |
+
+`caps` is one `setcap` clause such as `cap_net_bind_service=ep`. rpm stores it
+with `%caps(CAPS)`. A `.deb` keeps no file capabilities in its payload, so the
+generated `postinst` runs `setcap` on `configure`, and the package needs
+`Depends: libcap2-bin`.
+
 ## `rpmspecfiles`
 
 Emits one RPM `%files` line per entry:
@@ -132,7 +151,7 @@ pkgforge dbdump -f rpmspecfiles-pre419 files.txt
 
 ## `debian`
 
-Writes six artifacts into an output directory (created if needed):
+Writes seven artifacts into an output directory (created if needed):
 
 - **`install`** — `dh_install`-style `<src> <dest-dir>` lines (one per
   non-directory entry), where the source is the build-root-relative path and the
@@ -188,14 +207,23 @@ Writes six artifacts into an output directory (created if needed):
   staged but never shipped. A ghost entry is left out of `install`, `dirs` and
   `fixperms`.
 
-- **`postinst`** — a maintainer script that holds `#DEBHELPER#` and, for each
-  entry with `caps`, `setcap CAPS "$DPKG_ROOT"PATH` under
-  `if [ "$1" = configure ]`. Capabilities are not kept in a `.deb`'s payload,
-  so a package with a `caps` entry needs `Depends: libcap2-bin`. Its second
-  line marks it as generated: `dbdump` replaces such a file, and refuses
-  (exit 2, nothing written) a directory whose `postinst` lacks the marker, so
-  a hand-written script is never overwritten. A package with its own
-  `postinst` dumps into another directory and merges the lines by hand.
+- **`postinst`** — a maintainer script that holds `#DEBHELPER#` and, under
+  `if [ "$1" = configure ]`, first one guarded `dpkg-statoverride --update
+  --add OWNER GROUP MODE PATH` for each entry owned by an account the package
+  creates (see [Build time vs install time ownership](#build-time-vs-install-time-ownership)),
+  then `setcap CAPS "$DPKG_ROOT"PATH` for each entry with `caps`. Capabilities
+  are not kept in a `.deb`'s payload, so a package with a `caps` entry needs
+  `Depends: libcap2-bin`.
+
+- **`postrm`** — the same header and, under `if [ "$1" = purge ]`, a guarded
+  `dpkg-statoverride --remove PATH` for each of those entries.
+
+Their second line marks `postinst` and `postrm` as generated: `dbdump`
+replaces such a file, and refuses (exit 2, nothing written) a directory whose
+`postinst` or `postrm` lacks the marker, so a hand-written script is never
+overwritten. Dumping straight into `debian/` makes them the main package's
+scripts; a package with maintainer scripts of its own dumps into another
+directory and merges the lines by hand.
 
 `install` sources are escaped for `dh_install`/`dh_installdirs` (needs
 debhelper compat 13): a backslash before each glob character (`\ * ? [ ] { }`)
@@ -208,8 +236,8 @@ problem; a non-UTF-8 name is written
 as its original bytes.
 
 ```bash
-pkgforge dbdump -f debian debian/          # writes debian/{install,dirs,fixperms,conffiles,not-installed,postinst}
-pkgforge dbdump -f debian -                # all six to stdout under "# === <name> ===" headers
+pkgforge dbdump -f debian debian/          # writes debian/{install,dirs,fixperms,conffiles,not-installed,postinst,postrm}
+pkgforge dbdump -f debian -                # all seven to stdout under "# === <name> ===" headers
 ```
 
 !!! note
@@ -225,11 +253,11 @@ pkgforge dbdump -f debian -                # all six to stdout under "# === <nam
     `override_dh_install: dh_install --sourcedir=$(PKGFORGE_ROOT)` target to
     `debian/rules`.
 
-    Packages aren't supposed to `dpkg-statoverride` files they ship
-    themselves -- that tool is for the local admin. Run the
-    generated `fixperms` script instead, from an `override_dh_fixperms`
+    Run the generated `fixperms` script from an `override_dh_fixperms`
     target in `debian/rules`, after `dh_fixperms` (which would otherwise
-    strip the very bits being pinned, including a setuid/setgid mode):
+    strip the very bits being pinned, including a setuid/setgid mode). It
+    pins the base-passwd owners and groups; a file owned by an account the
+    package creates is left to `postinst`:
 
     ```make
     override_dh_fixperms:
@@ -250,9 +278,12 @@ pkgforge dbdump -f debian -                # all six to stdout under "# === <nam
 Both recipes assume `debian/control` has `Rules-Requires-Root:
 binary-targets` (owner and group pins need root at `binary` time), a
 `debhelper-compat (= 13)` build dependency, and a `stage.sh` that runs the
-`pkgforge install` calls. Replace `<pkg>` with the binary package name. Either way, `override_dh_fixperms` runs `dh_fixperms`
-first and the generated `fixperms` after it, because `dh_fixperms` would
-otherwise strip the very bits being pinned.
+`pkgforge install` calls. Replace `<pkg>` with the binary package name. Either
+way, `override_dh_fixperms` runs `dh_fixperms` first and the generated
+`fixperms` after it, because `dh_fixperms` would otherwise strip the very bits
+being pinned. `dh $@ --with installsysusers` needs debhelper 13.10 or later
+(Debian 12, Ubuntu 24.04); it installs the accounts' `sysusers.d` file into
+`postinst`, and a package with a `caps` entry lists `libcap2-bin` in `Depends`.
 
 **Separate stage root.** Stage into a directory of your own and hand it to
 `dh_install` with `--sourcedir`. `dh_prep` wipes `debian/tmp`, so a root of
@@ -303,6 +334,64 @@ override_dh_fixperms:
 	dh_fixperms
 	sh debian/fixperms debian/<pkg>
 ```
+
+## Build time vs install time ownership
+
+An owner or group in Debian's base-passwd set (`root`, `daemon`, `adm`,
+`www-data`, ...) exists on every target, so it is pinned at build time: rpm's
+`%attr`, and the `fixperms` script for a `.deb`. Any other name must be declared
+in [`[[users]]` or `[[groups]]`](config.md#accounts) and is owned at
+install time, because the account does not exist while the files are unpacked.
+`pkgforge sysfiles` (and `stage`) writes the payload files that create it:
+
+```text
+# /usr/lib/sysusers.d/hello.conf
+u hello - "hello example daemon" /var/lib/hello -
+# /usr/lib/tmpfiles.d/hello.conf
+d /run/hello 0755 hello hello -
+```
+
+The first has a line for each account the package creates; the second a `d`
+line for each ghost directory, so `kind = "ghost"` on a directory is how a
+package gets a runtime directory such as `/run/hello`.
+
+- **rpm 4.19 and later** reads the `sysusers.d` file from the payload and
+  creates the accounts before it unpacks, so the plain `%attr` line owns the
+  file. Every non-root name in an `%attr` also becomes a `user()` or `group()`
+  requirement, so a base-passwd name the target's distribution does not provide
+  (`www-data` on Fedora) makes the install fail its dependency check.
+- **Debian** skips such an entry in `fixperms`. `#DEBHELPER#` in `postinst`
+  runs `systemd-sysusers`, then `systemd-tmpfiles` (build with `dh $@ --with
+  installsysusers`, debhelper 13.10+); after it the generated lines run
+  `dpkg-statoverride --update --add` for the entry, unless the path already has
+  an override, so an administrator's own override is not replaced. `postrm`
+  removes the override on purge. An entry of this kind needs a recorded mode
+  and cannot be a symlink (`dbdump` exits 1), since `dpkg-statoverride` needs
+  a mode and follows a link.
+
+### Accounts on rpm older than 4.19
+
+Older rpm does not read the `sysusers.d` file, so the spec creates the accounts
+itself in `%pre`, and the tmpfiles directories in `%post`. `%pre` is expanded
+when the spec is parsed, before `%install` has run, so it asks `pkgforge
+sysfiles` for the text instead of reading a staged file. From
+`examples/hello.spec`:
+
+```spec
+# rpm below 4.19 reads a pre-install script file when it parses the spec,
+# before the install step has written anything, so the sysusers text is
+# expanded into the script here instead.
+%pre
+systemd-sysusers - <<'PKGFORGE_SYSUSERS' || :
+%(d=$(mktemp -d) && PKGFORGE_ROOT=$d PKGFORGE_DB=- pkgforge -q --config %{proj}/pkgforge.cfg sysfiles >/dev/null && cat $d/usr/lib/sysusers.d/hello.conf; rm -rf $d)
+PKGFORGE_SYSUSERS
+
+%post
+systemd-tmpfiles --create /usr/lib/tmpfiles.d/hello.conf >/dev/null 2>&1 || :
+```
+
+On rpm 4.19 and later the accounts exist already and the script changes
+nothing.
 
 ## Adding a format
 
