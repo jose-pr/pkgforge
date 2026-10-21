@@ -392,8 +392,10 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   recorded type, and files the DB does not record are not shipped. `UsageError`
   for no file DB, a missing DB file or build root, an unknown `fmt`, an `arch`
   or `compression` the format cannot take, a `[package]` key the format needs,
-  an entry of an undeclared package, or a recorded path that is missing or of
-  another type (naming the path and `pkgforge verify`); `InvalidEntryError`;
+  an entry of an undeclared package, a recorded path that is missing or of
+  another type (naming the path and `pkgforge verify`), or one whose parent is a
+  symlink leading outside the build root (`PATH: a symlink leads outside
+  --buildroot`); `InvalidEntryError`;
   `DumpError` for an entry the format cannot represent; `PkgForgeError` for a
   failed tool; `OSError`.
 - **`VerifyIssue(path: str, problem: str, recorded: str | None, found: str |

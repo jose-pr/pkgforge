@@ -12,11 +12,11 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
-import posixpath
 import typing
-from pathlib import Path, PurePath, PurePosixPath
+from pathlib import Path, PurePosixPath
 
 from . import dbdump
+from ._buildroot import under_root
 from ._install import _Installer
 from ._scan import scan as _scan
 from ._sysfiles import SYSUSERS_DIR, TMPFILES_DIR, sysusers_text, tmpfiles_text
@@ -283,28 +283,7 @@ class Project:
                 "--buildroot / (or set PKGFORGE_ROOT=/) to target the live "
                 "filesystem"
             )
-
-        # A PurePath (install's DESTINATION, always a Path) converts via its
-        # own .as_posix(): stringifying it first (os.fspath) would render it
-        # with the native separator, which is a backslash on Windows and
-        # breaks PurePosixPath parsing. A plain str (scan's PATH) is already
-        # posix-shaped text from the caller, so it goes through
-        # PurePosixPath directly.
-        if isinstance(path, PurePath):
-            posix_path = path.as_posix()
-        else:
-            posix_path = PurePosixPath(os.fspath(path)).as_posix()
-        rel = posixpath.normpath(posix_path.lstrip("/") or ".")
-        if rel == ".." or rel.startswith("../"):
-            raise UsageError(f"{path}: resolves outside --buildroot")
-        if rel == ".":
-            return root
-
-        local = Path(root, rel)
-        check = local if (follow_final and os.path.isdir(local)) else local.parent
-        if os.path.commonpath([real_root, os.path.realpath(check)]) != real_root:
-            raise UsageError(f"{path}: a symlink leads outside --buildroot")
-        return local
+        return under_root(root, real_root, path, follow_final=follow_final)
 
     # -- the file DB -------------------------------------------------------
 
@@ -1362,9 +1341,10 @@ class Project:
                 ``compression`` does not fit the format, the format needs a
                 ``[package]`` key the configuration lacks, ``SOURCE_DATE_EPOCH``
                 is not a number, an entry ships in a package the configuration
-                does not declare, a recorded path is missing from the build root
-                or has another type there, or ``zstd`` is asked for with
-                neither Python 3.14 nor the ``zstd`` extra.
+                does not declare, a recorded path is missing from the build root,
+                has another type there or lies below a symlink that leads
+                outside it, or ``zstd`` is asked for with neither Python 3.14
+                nor the ``zstd`` extra.
             InvalidEntryError: an entry no format can represent.
             DumpError: an entry ``fmt`` cannot represent (a user or group name
                 longer than a tar header holds).

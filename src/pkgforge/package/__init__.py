@@ -173,7 +173,8 @@ def build(
     compression or architecture the format cannot take, a ``[package]`` key the
     format needs, a ``SOURCE_DATE_EPOCH`` that is not a number, an entry of a
     package ``config`` does not declare, a recorded path missing from (or of
-    another type in) ``buildroot``, or a missing optional dependency;
+    another type in) ``buildroot`` or below a symlink that leads outside it,
+    or a missing optional dependency;
     :class:`~pkgforge.exceptions.InvalidEntryError` for an entry no format can
     represent and :class:`~pkgforge.exceptions.DumpError` for one this format
     cannot.

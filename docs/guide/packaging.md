@@ -121,7 +121,8 @@ which debhelper 13.9 and later (Debian 12, Ubuntu 24.04) provide. With no
 root and the file DB that section 2 left: no spec, no `debian/` directory and no
 build tool. It stages nothing and ships only what the DB records, so run
 `stage` and `verify` first; a recorded path that is missing from the build root,
-or of another type, exits 2 naming the path. It writes one file per declared
+or of another type, or below a symlink that leads outside the build root, exits 2
+naming the path. It writes one file per declared
 package, the main package first, into the `-o` directory (created when missing)
 and prints each path on its own line:
 

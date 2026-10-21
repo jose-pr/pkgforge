@@ -512,6 +512,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   instead of reading the protocol channel: `dbdump --db - OUTPUT` used to
   overwrite an existing OUTPUT with an empty manifest, and `install -` failed
   with an `AttributeError`.
+- `pkgforge package` followed a symlinked directory in a recorded path: a hand-edited
+  DB key such as `/opt/link/secret`, with `/opt/link` a symlink to a directory outside
+  the build root, put that directory's file into the package. It now exits 2 with
+  `PATH: a symlink leads outside --buildroot` before writing anything, the check
+  `install` and `scan` already make.
 
 ## [0.2.0] - 2026-09-29
 

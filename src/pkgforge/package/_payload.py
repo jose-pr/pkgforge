@@ -13,6 +13,7 @@ import time
 import typing
 from pathlib import Path
 
+from .._buildroot import under_root
 from ..entry import DEFAULT, FileEntries, FileEntry, FileKind, FileType, _file_type
 from ..exceptions import DumpError, UsageError
 
@@ -91,16 +92,18 @@ def members(
     root:root directory.
 
     Raises:
-        UsageError: a recorded path is missing from ``buildroot`` or is of
-            another type than recorded.
+        UsageError: a recorded path is missing from ``buildroot``, is of
+            another type than recorded, or has a symlinked parent that leads
+            outside ``buildroot``.
         DumpError: a user or group name is longer than a tar header holds.
     """
     recorded = {path for path, _entry in entries}
     result: typing.Dict[str, Member] = {}
+    real_root = os.path.realpath(buildroot)
     for path, entry in entries:
         if entry["kind"] == _GHOST or path == "/":
             continue
-        local = buildroot / path.lstrip("/")
+        local = under_root(buildroot, real_root, path)
         wanted = FileType(entry["type"])
         try:
             st = local.lstat()

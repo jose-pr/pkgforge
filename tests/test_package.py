@@ -14,9 +14,20 @@ from pathlib import Path
 
 import pytest
 
-from pkgforge import PackageFormat, Project, UsageError
+from pkgforge import PackageFormat, Project, UsageError, open_db
 from pkgforge.package import BuildContext, PackagePayload
 
+#: A hand-written DB record; a test overrides the fields it cares about.
+_RECORD = {
+    "mode": "644",
+    "owner": "root",
+    "group": "root",
+    "type": "file",
+    "kind": "file",
+    "caps": "-",
+    "package": "-",
+    "meta": {},
+}
 EPOCH = 1_500_000_000
 OLD = 1_000_000_000
 LONG_USER = "u" * 33
@@ -309,6 +320,23 @@ def test_package_type_changed_exit_2(staged, cli, tmp_path):
         b"directory"
     ) in result.err
     assert b"pkgforge verify" in result.err
+
+
+@pytest.mark.posix
+def test_package_member_under_a_symlink_leaving_the_root_exit_2(staged, cli, tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret").write_bytes(b"host file\n")
+    os.symlink(outside, tmp_path / "root/opt/link")
+    link = dict(_RECORD, type="symlink", mode="-")
+    secret = dict(_RECORD, type="file", mode="644")
+    provider = open_db(tmp_path / "f.jsonl")
+    provider.add("/opt/link", link)
+    provider.add("/opt/link/secret", secret)
+    result = _package(cli, tmp_path / "out")
+    assert result.rc == 2
+    assert b"/opt/link/secret: a symlink leads outside --buildroot" in result.err
+    assert not list((tmp_path / "out").glob("*"))
 
 
 @pytest.mark.posix
