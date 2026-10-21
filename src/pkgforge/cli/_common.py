@@ -12,6 +12,7 @@ from pathlib import Path
 import duho
 from duho import Cmd, LoggingArgs
 
+from ..config import _own_prefix
 from ..db import jsonl_line
 from ..entry import (
     _KINDS,
@@ -21,7 +22,6 @@ from ..entry import (
     normalize_name,
     normalize_package,
 )
-from ..config import _own_prefix
 from ..exceptions import UsageError
 from ..exclude import PathMatchStmt
 
