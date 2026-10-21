@@ -86,6 +86,7 @@ class Install(EntryArgs, KindArgs, PackageArgs, ExcludeArgs, ProjectCmd):
         typing.Union[FileType, str],
         duho.Meta(
             type=_filetype,
+            literal_value=True,
             metavar="{file,directory,symlink}",
             conflicts="type",
         ),

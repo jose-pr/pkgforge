@@ -99,12 +99,18 @@ class OwnershipArgs(Cmd):
     record an entry with no mode of its own."""
 
     group: duho.Arg[
-        str, duho.Meta(type=functools.partial(normalize_name, field="group"))
+        str,
+        duho.Meta(
+            type=functools.partial(normalize_name, field="group"), literal_value=True
+        ),
     ] = DEFAULT
     "group to record: an account name, '-' (the OS default) or '--' (resolve from the staged file)"
     ("--group", "-g")
     owner: duho.Arg[
-        str, duho.Meta(type=functools.partial(normalize_name, field="owner"))
+        str,
+        duho.Meta(
+            type=functools.partial(normalize_name, field="owner"), literal_value=True
+        ),
     ] = DEFAULT
     "owner to record: an account name, '-' (the OS default) or '--' (resolve from the staged file)"
     ("--owner", "-o")
@@ -120,7 +126,7 @@ class EntryArgs(OwnershipArgs):
     """``--mode`` and the ownership fields: the commands that record a file
     entry."""
 
-    mode: duho.Arg[str, duho.Meta(type=_parse_mode)] = DEFAULT
+    mode: duho.Arg[str, duho.Meta(type=_parse_mode, literal_value=True)] = DEFAULT
     "permission mode: 1-4 octal digits, '-' (leave default), '--' or 'auto' (resolve from the staged file)"
     ("--mode", "-m")
 
@@ -191,6 +197,9 @@ def _load_config(path: Path, source: str) -> typing.Dict[str, typing.Any]:
 class ProjectCmd(LoggingArgs, Cmd):
     """The options every command shares, and the bridge to
     :class:`~pkgforge.project.Project`."""
+
+    # No command takes a tail after "--", so one is a usage error, not ignored.
+    _allow_passthrough_ = False
 
     #: The configuration file's mapping, set when a file was read.
     _config_data: typing.ClassVar[typing.Optional[typing.Mapping[str, typing.Any]]] = (

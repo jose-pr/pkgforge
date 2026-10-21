@@ -349,14 +349,29 @@ def test_scan_attached_dir_mode_sentinel():
     assert ns.dir_mode == AUTO
 
 
-def test_detached_mode_sentinel_exits_2():
-    # A detached "-m --" is argparse's own end-of-options marker: exit 2.
+@pytest.mark.parametrize(
+    "option,field",
+    [
+        ("-m", "mode"),
+        ("-o", "owner"),
+        ("-g", "group"),
+        ("-t", "type"),
+        ("--mode", "mode"),
+    ],
+)
+def test_detached_sentinel_is_the_option_value(option, field):
     from pkgforge.cli.install import Install
 
-    parser = Install._parser_()
-    with pytest.raises(SystemExit) as excinfo:
-        parser.parse_args(["-m", "--", "src", "/dst"])
-    assert excinfo.value.code == 2
+    ns = Install._parser_().parse_args([option, "--", "src", "/dst"])
+    assert getattr(ns, field) == AUTO
+    assert ns.source == ["src"] or ns.source == [Path("src")]
+
+
+def test_detached_dir_mode_sentinel_is_the_option_value():
+    from pkgforge.cli.scan import ScanCmd
+
+    ns = ScanCmd._parser_().parse_args(["--dir-mode", "--", "/path"])
+    assert ns.dir_mode == AUTO
 
 
 def test_api_bad_mode_stages_nothing(tmp_path):

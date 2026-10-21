@@ -23,7 +23,9 @@ class ScanCmd(EntryArgs, ExcludeArgs, ProjectCmd):
     missing: bool = False
     "only record entries absent from the DB, leaving existing ones untouched"
     ("--missing",)
-    dir_mode: duho.Arg[typing.Optional[str], duho.Meta(type=_parse_mode)] = None
+    dir_mode: duho.Arg[
+        typing.Optional[str], duho.Meta(type=_parse_mode, literal_value=True)
+    ] = None
     (
         "mode for directory entries only -- 1-4 octal digits, '-', '--'/'auto' "
         "(resolve from the on-disk directory); default: '--' when --mode is "

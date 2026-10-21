@@ -65,6 +65,13 @@ class PkgForge(ConfigArgs, ProjectCmd, Cli):
         Verify,
         Package,
     )
+    # Listed in agent help and in an MCP result for a failed call.
+    _exit_codes_ = {
+        0: "success",
+        1: "an error, or verify found differences",
+        2: "usage mistake or bad configuration file",
+        130: "interrupted",
+    }
     # First match wins: a usage mistake is listed before the class it belongs to.
     _errors_ = {
         UsageError: 2,

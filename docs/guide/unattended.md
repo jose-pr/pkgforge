@@ -77,6 +77,10 @@ stderr, no traceback. Set `PKGFORGE_TRACEBACK=1` (`1`/`true`/`yes`/`on`;
 `0`/`false`/`no`/`off`/`n`/`f` are off) to also print the traceback before that
 line. A closed pipe and Ctrl-C print nothing. `pkgforge verify` also exits `1` when
 it finds a difference, with the differences on stdout and no error line.
+A tail after `--` is a usage mistake, not ignored.
+
+The table is also in the agent help (`AGENT_HELP=1 pkgforge --help`), and an MCP
+tool call that fails reports `exit code: N` with its meaning.
 
 Install shell completion by writing `pkgforge --print-completion <shell>`
 where the shell looks for it:

@@ -39,6 +39,11 @@ def under_root(
         return root
     local = Path(root, rel)
     check = local if (follow_final and os.path.isdir(local)) else local.parent
-    if os.path.commonpath([real_root, os.path.realpath(check)]) != real_root:
+    try:
+        common = os.path.commonpath([real_root, os.path.realpath(check)])
+    except ValueError:
+        # Windows: a drive-qualified path replaces the root's drive.
+        raise UsageError(f"{path}: resolves outside --buildroot") from None
+    if common != real_root:
         raise UsageError(f"{path}: a symlink leads outside --buildroot")
     return local

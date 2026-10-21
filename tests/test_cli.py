@@ -1074,3 +1074,41 @@ def test_unknown_db_format_after_subcommand_with_traceback(cli, monkeypatch):
     lines = [line for line in result.err.decode().splitlines() if line]
     assert lines[-1].startswith("pkgforge: error:")
     assert any("Traceback" in line for line in lines[:-1])
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--db", "-", "initdb", "--", "junk"],
+        ["--db", "-", "mkdir", "/a", "--", "/b"],
+        ["--db", "-", "scan", "/a", "--", "/b"],
+    ],
+)
+def test_a_tail_after_double_dash_is_a_usage_error(cli, argv):
+    result = cli(*argv)
+    assert result.rc == 2
+    err = result.err.decode()
+    assert "arguments after '--' are not accepted" in err
+    assert "Traceback" not in err
+
+
+def test_a_bare_double_dash_still_parses(cli):
+    assert cli("--db", "-", "initdb", "--").rc == 0
+
+
+@pytest.mark.skipif(os.name != "nt", reason="a drive letter exists only on Windows")
+def test_a_path_on_another_drive_is_a_usage_error(cli, tmp_path):
+    drive = "Z:" if os.path.splitdrive(str(tmp_path))[0].upper() != "Z:" else "Y:"
+    result = cli("--db", "-", "--buildroot", str(tmp_path), "mkdir", drive + "/x")
+    assert result.rc == 2
+    err = result.err.decode()
+    assert "resolves outside --buildroot" in err
+    assert "Traceback" not in err
+
+
+def test_agent_help_lists_the_exit_codes(cli, monkeypatch):
+    monkeypatch.setenv("AGENT_HELP", "1")
+    result = cli("--help")
+    assert result.rc == 0
+    codes = json.loads(result.out.decode())["exit_codes"]
+    assert set(codes) == {"0", "1", "2", "130"}

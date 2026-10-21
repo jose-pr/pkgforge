@@ -344,3 +344,16 @@ def test_host_accounts_fixture_declares_only_non_base_names(host_accounts):
         assert user.name not in BASE_USERS and user.create is False
     for group in host_accounts["groups"]:
         assert group.name not in BASE_GROUPS and group.create is False
+
+
+@pytest.mark.posix
+def test_a_detached_double_dash_is_the_owner_value(cli, tmp_path, host_accounts_cfg):
+    user, _ = _runner_names()
+    host_accounts_cfg()
+    root, db = tmp_path / "r", tmp_path / "f.jsonl"
+    root.mkdir()
+    result = cli(
+        "--db", str(db), "--buildroot", str(root), "symlink", "-o", "--", "t", "/l"
+    )
+    assert result.rc == 0, result.err
+    assert read_db(db)["/l"]["owner"] == user

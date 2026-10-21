@@ -1131,7 +1131,9 @@ there with a `UsageError`. See [Environment variables](#environment-variables).
 | `130` | Ctrl-C, silently |
 
 `pkgforge verify` also returns `1` when it found a difference, printing the
-issues on stdout and no `pkgforge: error:` line. Any other exception propagates
+issues on stdout and no `pkgforge: error:` line. A tail after `--` is a usage mistake (`2`). The table is in the agent help
+(`AGENT_HELP=1 pkgforge --help`) and in the result of a failed MCP tool call.
+Any other exception propagates
 with its traceback. Pass `--debug`, or set `PKGFORGE_TRACEBACK` to a true value
 (`1`/`true`/`yes`/`on`; `0`/`false`/`no`/`off`/`n`/`f` are off), to also print
 the traceback before the error line. External tools (`bsdtar`, the
@@ -1146,8 +1148,10 @@ decompress-on-copy) into the build root, apply its mode and ownership, and
 record the entry. `-k/--kind` is one of `file`, `config`, `config-noreplace`,
 `doc`, `license`, `ghost`; `--caps` one `setcap` clause; `-P/--package` the
 `[package]` name or a `[[packages]]` name (also on `mkdir` and `symlink`). `-D`
-is `-Tp`, `-d` is `--type directory`, and `--type=--` detects the type from the
-source, as leaving `-t` unset does; `-d` with `-t`/`--type` is exit 2.
+is `-Tp`, `-d` is `--type directory`, and `--type=--` (or `-t --`) detects the
+type from the source, as leaving `-t` unset does; `-d` with `-t`/`--type` is
+exit 2. `--mode`, `--owner`, `--group`, `--type` and `--dir-mode` take the next
+word as their value even when it is `--`.
 
 - **Archives** — without `-T`, an extracted archive lands at
   `DESTINATION/<name minus its archive suffix>` (`.tar`, `.tar.gz`/`.tgz`,

@@ -148,10 +148,9 @@ Two sentinel values let a command defer a field to the staged file:
 
 For example, `install --mode=-- ...` (or `-m--`, or `-m auto`) records whatever
 mode the staged file already has, while `install -m 644 ...` records and
-applies `644`. A detached `-m -- ...` is read by argparse as the end of
-options, not a value, and exits 2 -- write the sentinel attached, or use the
-`auto` alias (`-m` only: `owner`/`group` get no such alias, since `auto` can be
-a real account name).
+applies `644`. The sentinel may also be detached (`-m -- ...`), and `-m` has
+the `auto` alias (`owner`/`group` get none, since `auto` can be a real account
+name).
 
 `-m` is validated before anything is staged: it accepts 1-4 octal digits
 (normalized, so `0644` is stored as `644`), `-`, `--` or `auto`. An explicit

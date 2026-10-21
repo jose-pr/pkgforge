@@ -64,9 +64,9 @@ pkgforge install [options] SOURCE... DESTINATION
 
 | Option | Meaning |
 | --- | --- |
-| `-m, --mode` | 1-4 octal digits (`0644` is stored as `644`), `-` (leave default), `--`/`auto` (resolve from the staged file); ignored on disk for a symlink (recorded but not applied). Any other value, or an explicit empty value, exits 2 before anything is staged. Write `--mode=--`, `-m--` or `-m auto` -- a detached `-m --` is read as end of options and exits 2 |
-| `-o, --owner` / `-g, --group` | owner / group to record |
-| `-t, --type` | `file` / `directory` / `symlink`, in any case (auto-detected from the source if unset, or if given as `--`) |
+| `-m, --mode` | 1-4 octal digits (`0644` is stored as `644`), `-` (leave default), `--`/`auto` (resolve from the staged file); ignored on disk for a symlink (recorded but not applied). Any other value, or an explicit empty value, exits 2 before anything is staged. Write `--mode=--`, `-m--`, `-m --` or `-m auto` |
+| `-o, --owner` / `-g, --group` | owner / group to record; `--` (also detached, `-o --`) reads it from the staged file |
+| `-t, --type` | `file` / `directory` / `symlink`, in any case (auto-detected from the source if unset, or if given as `--`, also detached, `-t --`) |
 | `-d` | shortcut for `--type directory`; not allowed with `-t`/`--type` (exit 2) |
 | `-p, --parents` | create missing parent directories of the destination |
 | `-T, --no-target-directory` | treat DESTINATION as the final path, not a directory (else, for an extracted archive, its archive suffix -- `.tar`, `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz2`/`.tbz`, `.tar.xz`/`.txz`, `.iso`, `.zip`, matched case-insensitively -- is dropped from the destination name; a directory source keeps its own name unchanged) |
@@ -204,7 +204,7 @@ pkgforge scan [-m MODE] [--dir-mode MODE] [-o OWNER] [-g GROUP] [-O KEY=VALUE]..
 
 | Option | Meaning |
 | --- | --- |
-| `-m, --mode` | recorded on every **file** entry as given; `-` (default) leaves it unset, `--`/`auto` (write it as `--mode=--` or `-m--` -- a detached `-m --` is read as end of options and exits 2) reads the on-disk mode. Never applies to a directory or a symlink |
+| `-m, --mode` | recorded on every **file** entry as given; `-` (default) leaves it unset, `--`/`auto` (write it as `--mode=--`, `-m--` or `-m --`) reads the on-disk mode. Never applies to a directory or a symlink |
 | `--dir-mode` | recorded on every **directory** entry instead of `-m`; same 1-4-octal-digit/`-`/`--`/`auto` grammar. Default: `--` (from disk) when `-m`/`--mode` is itself `--`, else `-` -- an explicit `-m` value is never inherited by directories |
 | `-o, --owner` / `-g, --group` | recorded on every entry (file, directory or symlink) as given; `-` (default) leaves it unset, `--` reads the on-disk owner/group name |
 | `-O, --meta KEY=VALUE` | recorded on every entry (file, directory or symlink), same as `-m`/`-o`/`-g` (repeatable) |

@@ -105,6 +105,16 @@ def test_install_stdin_source_is_refused(server, tmp_path):
     assert not (tmp_path / "root" / "z").exists()
 
 
+def test_verify_issues_report_exit_code_1(server, tmp_path):
+    (tmp_path / "root").mkdir()
+    (tmp_path / "root" / "f").write_bytes(b"x")
+    assert server.call("initdb", {"db": "d.jsonl"}) == (False, "")
+    is_error, text = server.call("verify", {"db": "d.jsonl", "buildroot": "root"})
+    assert is_error
+    assert "unrecorded /f" in text
+    assert "exit code: 1 (an error, or verify found differences)" in text
+
+
 def test_every_command_is_served_as_a_tool(server):
     reply = server.rpc("tools/list")
     names = {tool["name"] for tool in reply["result"]["tools"]}
