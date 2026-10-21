@@ -343,9 +343,11 @@ def test_tar_hardlinks_extract_as_hardlinks(staged, cli, tmp_path):
     _link(cli, "/opt/h1")
     _link(cli, "/opt/h2")
     assert _package(cli, tmp_path / "out").rc == 0
+    # Before the extraction filters (3.9.17, 3.10.12, 3.11.4), extract() had none.
+    options = {"filter": "tar"} if hasattr(tarfile, "tar_filter") else {}
     with tarfile.open(tmp_path / "out/tool-1.2-3.tar.gz") as archive:
         for name in ("opt/h1/data", "opt/h2/data"):
-            archive.extract(archive.getmember(name), tmp_path / "x", filter="tar")
+            archive.extract(archive.getmember(name), tmp_path / "x", **options)
     assert os.stat(tmp_path / "x/opt/h2/data").st_nlink == 2
     assert os.path.samefile(tmp_path / "x/opt/h1/data", tmp_path / "x/opt/h2/data")
 
