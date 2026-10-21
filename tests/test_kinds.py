@@ -552,7 +552,7 @@ def test_debian_artifacts_for_kinds_and_caps():
         b"set -e\n\n"
         b"#DEBHELPER#\n"
         b'if [ "$1" = configure ]; then\n'
-        b'  setcap -- cap_net_raw,cap_net_admin+ep "$DPKG_ROOT"/usr/bin/t\n'
+        b'  setcap cap_net_raw,cap_net_admin+ep "$DPKG_ROOT"/usr/bin/t\n'
         b"fi\n"
     )
 
@@ -596,7 +596,7 @@ def test_a_generated_postinst_is_replaced(cli, tmp_path):
     for _ in range(2):
         result = cli("--db", str(db), "dbdump", "-f", "debian", str(out))
         assert result.rc == 0, result.err
-    assert "setcap -- cap_net_raw=ep" in (out / "postinst").read_text()
+    assert "setcap cap_net_raw=ep" in (out / "postinst").read_text()
     db.write_text(
         json.dumps({"path": "/usr/bin/t", **entry()}) + "\n", encoding="utf-8"
     )

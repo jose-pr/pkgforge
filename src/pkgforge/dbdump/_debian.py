@@ -278,8 +278,10 @@ class DebianFiles(MultiArtifactFormat):
                 )
             caps = entry["caps"]
             if caps != DEFAULT:
+                # No `--`: setcap reads it as the capability text. A capability
+                # string never starts with `-`, so nothing needs protecting.
                 setcap_lines.append(
-                    f'  setcap -- {_sh_word_cached(caps)} "$DPKG_ROOT"{_sh_word(path)}'
+                    f'  setcap {_sh_word_cached(caps)} "$DPKG_ROOT"{_sh_word(path)}'
                 )
             if entry["type"] == FileType.Directory:
                 dline = _dh_dest(rel)

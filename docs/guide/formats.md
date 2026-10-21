@@ -189,7 +189,7 @@ Writes six artifacts into an output directory (created if needed):
   `fixperms`.
 
 - **`postinst`** — a maintainer script that holds `#DEBHELPER#` and, for each
-  entry with `caps`, `setcap -- CAPS "$DPKG_ROOT"PATH` under
+  entry with `caps`, `setcap CAPS "$DPKG_ROOT"PATH` under
   `if [ "$1" = configure ]`. Capabilities are not kept in a `.deb`'s payload,
   so a package with a `caps` entry needs `Depends: libcap2-bin`. Its second
   line marks it as generated: `dbdump` replaces such a file, and refuses

@@ -1144,7 +1144,7 @@ def test_dh_install_kinds_and_caps(tmp_path, cli):
     assert sorted(conffiles) == ["/etc/kc/kc.conf", "/opt/kc/kc.conf"]
     postinst = _control_member(deb, "postinst")
     assert "#DEBHELPER#" not in postinst
-    setcap = 'setcap -- cap_net_raw=ep "$DPKG_ROOT"/usr/bin/kc'
+    setcap = 'setcap cap_net_raw=ep "$DPKG_ROOT"/usr/bin/kc'
     assert setcap in postinst
 
 
@@ -1185,9 +1185,8 @@ def test_dh_install_example_debian_builds(tmp_path):
     assert "var/log/hello.log" not in members
     deb = next((tmp_path / "work").glob("*.deb"))
     postinst = _control_member(deb, "postinst")
-    assert (
-        'setcap -- cap_net_bind_service=ep "$DPKG_ROOT"/usr/libexec/hello/helper'
-        in (postinst)
+    assert 'setcap cap_net_bind_service=ep "$DPKG_ROOT"/usr/libexec/hello/helper' in (
+        postinst
     )
 
 
@@ -1321,6 +1320,11 @@ def _example_tree(dest: Path, *, shell: bool) -> Path:
         (dest / "stage.cfg").write_text(_EXAMPLE_SHELL_CFG, encoding="utf-8")
         for name, old, new in (
             ("hello.spec", _STAGE_ONLY_SPEC, "sh %{proj}/stage.sh\n"),
+            (
+                "hello.spec",
+                "%{proj}/pkgforge.cfg sysfiles",
+                "%{proj}/stage.cfg sysfiles",
+            ),
             ("debian/rules", _STAGE_ONLY_RULES, "\tsh stage.sh\n"),
         ):
             text = (dest / name).read_text(encoding="utf-8")
@@ -1495,7 +1499,7 @@ def test_dh_install_example_accounts_and_scripts(tmp_path):
             "systemd-sysusers",
             "systemd-tmpfiles",
             "dpkg-statoverride --update --add hello hello 750 /var/lib/hello",
-            "setcap -- cap_net_bind_service=ep",
+            "setcap cap_net_bind_service=ep",
         )
     ]
     assert order == sorted(order), postinst

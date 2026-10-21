@@ -1634,10 +1634,10 @@ def test_debian_overrides_come_before_setcap():
     )
     postinst = arts["postinst"].decode()
     assert postinst.index("dpkg-statoverride --update --add svc svc 750") < (
-        postinst.index("setcap --")
+        postinst.index("setcap ")
     )
     assert postinst.index("dpkg-statoverride --update --add svc svc 755") < (
-        postinst.index("setcap --")
+        postinst.index("setcap ")
     )
 
 

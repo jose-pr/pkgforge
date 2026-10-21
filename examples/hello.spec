@@ -17,9 +17,14 @@ on older rpm.
 export PKGFORGE_ROOT=%{buildroot} PKGFORGE_DB=%{_builddir}/files.jsonl
 pkgforge -q --config %{proj}/pkgforge.cfg stage --init
 pkgforge -q dbdump -f rpmspecfiles %{_builddir}/files.txt
-{ echo "systemd-sysusers - <<'PKGFORGE_SYSUSERS' || :"; cat %{buildroot}/usr/lib/sysusers.d/hello.conf; echo PKGFORGE_SYSUSERS; } > %{_builddir}/pre.sh
 
-%pre -f %{_builddir}/pre.sh
+# rpm below 4.19 reads a pre-install script file when it parses the spec,
+# before the install step has written anything, so the sysusers text is
+# expanded into the script here instead.
+%pre
+systemd-sysusers - <<'PKGFORGE_SYSUSERS' || :
+%(d=$(mktemp -d) && PKGFORGE_ROOT=$d PKGFORGE_DB=- pkgforge -q --config %{proj}/pkgforge.cfg sysfiles >/dev/null && cat $d/usr/lib/sysusers.d/hello.conf; rm -rf $d)
+PKGFORGE_SYSUSERS
 
 %post
 systemd-tmpfiles --create /usr/lib/tmpfiles.d/hello.conf >/dev/null 2>&1 || :
