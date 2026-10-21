@@ -1016,8 +1016,9 @@ Importing `pkgforge.package` loads no optional dependency.
   description. `Depends` is `systemd | systemd-standalone-sysusers |
   systemd-sysusers` when the package ships `/usr/lib/sysusers.d/NAME.conf`,
   `libcap2-bin` with a `caps` entry, then the `[package.debian] depends` items
-  with `${binary:Version}` and `${source:Version}` replaced by the full version;
-  any other `${...}` is `UsageError` (write it as `$${...}` in the cfg).
+  with `${binary:Version}` and `${source:Version}` replaced by the full version
+  (the cfg spells each `$${...}`, since `${` there is a reference); any other
+  `${...}` is `UsageError`.
   `conffiles` lists the regular files below `/etc` and the config kinds elsewhere;
   `md5sums` every other regular file. `postinst` (under `configure`:
   `systemd-sysusers`, `systemd-tmpfiles --create` when the package ships
