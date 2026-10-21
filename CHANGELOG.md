@@ -21,7 +21,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   creates the accounts) and one `%files -f` per package. Build it with
   `rpmbuild -bb --define "pkgforge_config PATH" NAME.spec`. It needs
   `[package]` `name`, `version`, `summary` and `license` and a `summary` for each
-  subpackage, and exits 2 naming what is missing.
+  subpackage, and exits 2 naming what is missing. A description line whose first
+  non-blank character is `%` or `#` exits 2: rpm would read it as a section
+  (`%post`), a conditional or a comment.
 - `dbdump --skeleton` (`skeleton=True` of `Project.dump` and
   `pkgforge.dbdump.dump`) makes `-f debian` also write `control`, `changelog`,
   `rules` (a `debian/tmp` recipe that runs `pkgforge stage` and the dump) and

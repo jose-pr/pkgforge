@@ -114,6 +114,46 @@ def test_spec_one_files_section_per_package(make_entry):
     assert "\n%description -n tool-doc\nThe docs.\n" in spec
 
 
+@pytest.mark.parametrize(
+    "description, where",
+    [
+        ("One.\n%post\ntouch /tmp/x", r"\[package\] description line 2 .*'%'"),
+        ("One.\n  %if 0\nTwo.", r"\[package\] description line 2 .*'%'"),
+        ("One.\n  # gone", r"\[package\] description line 2 .*'#'"),
+    ],
+)
+def test_spec_refuses_a_description_line_rpm_reads_as_syntax(description, where):
+    package = {
+        "name": "tool",
+        "version": "1.0",
+        "summary": "A tool",
+        "license": "MIT",
+        "description": description,
+    }
+    with pytest.raises(UsageError, match=rf"^rpmspec: {where}"):
+        _spec({}, _config(package=package, packages=[]))
+
+
+def test_spec_refuses_a_subpackage_summary_rpm_reads_as_syntax():
+    config = _config(packages=[{"name": "tool-doc", "summary": "%prep"}])
+    with pytest.raises(
+        UsageError, match=r"^rpmspec: \[\[packages\]\] tool-doc summary line 1"
+    ):
+        _spec({}, config)
+
+
+def test_spec_keeps_a_percent_inside_a_description_line():
+    package = {
+        "name": "tool",
+        "version": "1.0",
+        "summary": "A tool",
+        "license": "MIT",
+        "description": "Runs %(id) and 50 % of %post.",
+    }
+    spec = _spec({}, _config(package=package, packages=[]))
+    assert "\n%description\nRuns %%(id) and 50 %% of %%post.\n" in spec
+
+
 def test_spec_buildarch_follows_the_main_package(make_entry):
     main_all = _spec({}, _config())
     sub_part = main_all.split("%package -n tool-doc", 1)[1]

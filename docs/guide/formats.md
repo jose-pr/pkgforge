@@ -186,7 +186,9 @@ with `rpmspecfiles` (or `rpmspecfiles-pre419`); a `%post` that runs
 `systemd-tmpfiles` for a package that records a `tmpfiles.d` file (and, for
 `rpmspec-pre419`, a `%pre` that creates the accounts); and one `%files -n NAME -f`
 per package. Text taken from the file has `%` doubled, so it is never a macro.
-An existing spec is kept with a WARNING unless `--force`. Build it with
+A description line whose first non-blank character is `%` or `#` exits 2: rpm
+would read it as a section such as `%post`, a conditional or a comment, even
+with the `%` doubled. An existing spec is kept with a WARNING unless `--force`. Build it with
 `rpmbuild -bb --define "pkgforge_config PATH" NAME.spec`.
 
 ## `debian`

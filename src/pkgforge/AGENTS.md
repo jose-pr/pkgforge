@@ -744,7 +744,10 @@ whole file is validated before any command runs: a problem is one
   that records `/usr/lib/sysusers.d/NAME.conf`: `systemd-sysusers -
   <<'PKGFORGE_SYSUSERS' || :` over the sysusers text (rpm 4.19+ creates the
   accounts of the shipped file before unpacking, so `%attr` can name them; older
-  rpm needs the spec to do it). Every configuration text has `%` doubled. Needs
+  rpm needs the spec to do it). Every configuration text has `%` doubled, and a
+  description line (or a summary standing in for one) whose first non-blank
+  character is `%` or `#` is `UsageError`: rpm expands a line before it looks for
+  a section or conditional, and drops a `#` line as a comment. Needs
   `[package]` `name`, `version`, `summary` and `license`, and a `summary` per
   `[[packages]]` element (`UsageError` listing what is missing, such as
   `rpmspec needs [package] version, license and [[packages]] 0 summary`); an

@@ -30,8 +30,24 @@ def _tag(name: str, value: str) -> str:
     return f"{name + ':':<16}{_percent(value)}\n"
 
 
-def _description(text: typing.Optional[str], fallback: str) -> str:
-    return _percent(text if text else fallback).rstrip("\n") + "\n"
+def _description(
+    fmt: str, where: str, text: typing.Optional[str], fallback: str
+) -> str:
+    """The ``%description`` body: ``text``, else the summary ``fallback``.
+
+    rpm expands a line before it looks for a section or a conditional, so a
+    line whose first non-blank character is ``%`` would start one even with
+    its ``%`` doubled, and it drops a line starting with ``#`` as a comment:
+    both are refused, naming ``where`` (the table)."""
+    key, body = ("description", text) if text else ("summary", fallback)
+    for number, line in enumerate(body.split("\n"), 1):
+        first = line.lstrip(" ")[:1]
+        if first in ("%", "#"):
+            raise UsageError(
+                f"{fmt}: {where} {key} line {number} starts with {first!r}, "
+                "which rpm reads as spec syntax: reword that line"
+            )
+    return _percent(body).rstrip("\n") + "\n"
 
 
 class RPMSpec(DumpFormat):
@@ -45,7 +61,9 @@ class RPMSpec(DumpFormat):
     Needs ``[package]`` ``name``, ``version``, ``summary`` and ``license``, and a
     ``summary`` for each ``[[packages]]`` element; an ``any`` subpackage of an
     ``all`` main package is refused. Every configuration text has its ``%``
-    doubled, so no macro is read from the file. The spec holds no absolute
+    doubled, so no macro is read from the file, and a ``%description`` line
+    whose first non-blank character is ``%`` or ``#`` is refused, since rpm
+    reads it as a section, a conditional or a comment. The spec holds no absolute
     path: build it with ``rpmbuild -bb --define "pkgforge_config PATH"
     NAME.spec``, ``PATH`` being ``pkgforge.cfg``, and ``pkgforge`` on ``PATH``.
 
@@ -109,7 +127,9 @@ class RPMSpec(DumpFormat):
             lines.append(_tag("BuildArch", "noarch"))
         lines.extend(_tag("Requires", item) for item in main.rpm.requires)
         lines.append("\n%description\n")
-        lines.append(_description(main.description, main.summary or ""))
+        lines.append(
+            _description(self.NAME, "[package]", main.description, main.summary or "")
+        )
         for sub in config.packages:
             lines.append(f"\n%package -n {sub.name}\n")
             lines.append(_tag("Summary", sub.summary or ""))
@@ -117,7 +137,14 @@ class RPMSpec(DumpFormat):
                 lines.append(_tag("BuildArch", "noarch"))
             lines.extend(_tag("Requires", item) for item in sub.rpm.requires)
             lines.append(f"\n%description -n {sub.name}\n")
-            lines.append(_description(sub.description, sub.summary or ""))
+            lines.append(
+                _description(
+                    self.NAME,
+                    f"[[packages]] {sub.name}",
+                    sub.description,
+                    sub.summary or "",
+                )
+            )
 
         lines.append("\n%install\n")
         lines.append(
