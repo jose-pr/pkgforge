@@ -159,7 +159,10 @@ For each of the three, in this order, the first that has a value wins:
 4. Nothing: the field stays `-`, which dump formats leave to the OS. A symlink
    never gets a mode.
 
-The staged file carries the mode that was recorded.
+An installed source, and what a `dir` or `file` step creates, is staged with the
+mode that was recorded. The entries below a `record_tree = true` step and the
+owned directories are recorded only: their files keep the mode they have on
+disk.
 
 ```toml
 [defaults]

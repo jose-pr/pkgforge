@@ -286,8 +286,8 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   an `own` prefix is preceded, in the returned records and the DB, by each
   ancestor directory at or below a prefix (the prefix included) that the DB does
   not hold yet: type `directory`, resolved like any entry, recorded and never
-  chmod'ed. The DB is read once per `install` or `scan` call, and only when an
-  entry needs it. `record=False` and removals write none.
+  chmod'ed. The DB is read once per `install`, `scan`, `mkdir`, `symlink` or
+  `stage` call, and only when an entry needs it. `record=False` and removals write none.
 - **`dump(fmt: str, output: StrPath | None = None, *, exclude: Sequence[str] =
   (), dirs: str = "all") -> Rendered`** — render the file DB with the format
   `fmt` (a name or alias). `dirs="owned"` keeps a directory entry only at or
@@ -353,9 +353,9 @@ rules are tried in order against the entry's DB path with the `-X` grammar
 symlink never gets a mode. `own` lists the directories the package owns: an
 entry recorded at or below one also records the missing ancestor directories
 down from the prefix, and `dbdump --dirs owned` keeps only directories at or
-below one. `[[stage]]` is parsed, validated and stored on `Project.config`;
-nothing applies it yet. Command
-tables such as `[install]` and any other key are not part of the schema.
+below one. `[[stage]]` is stored on `Project.config` and run by
+`Project.stage` (`pkgforge stage`). Command tables such as `[install]` and any
+other key are not part of the schema.
 
 Which file the command line reads: `--config/-c FILE`, else `PKGFORGE_CONFIG`
 (the file must exist; empty means no file), else `pkgforge.cfg` in the working
