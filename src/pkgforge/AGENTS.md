@@ -281,7 +281,9 @@ DB key) are `/`-rooted POSIX `str`; local paths are `StrPath`.
   that rule sets), then from `[defaults]`, else they stay `"-"` (a
   `--record-tree` child's mode is then read from disk). A symlink never gets a
   mode. `install` without `-m` also chmods the staged file to the mode it
-  resolved to. With no rule and no default nothing changes.
+  resolved to, and `--record-tree` chmods each child to its resolved mode (mode
+  only, no chown); owned parents and `scan` entries are recorded only. With no
+  rule and no default nothing changes.
 - **Owned directories** — with `config.own` set, an entry written at or below
   an `own` prefix is preceded, in the returned records and the DB, by each
   ancestor directory at or below a prefix (the prefix included) that the DB does

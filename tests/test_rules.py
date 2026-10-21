@@ -179,6 +179,55 @@ def test_record_tree_children_take_the_rule_before_the_disk(tmp_path):
     assert db["/opt/tree/ruled/file"]["mode"] == "640"
     assert db["/opt/tree/plain"]["mode"] == "664"
     assert db["/opt/tree/link"]["mode"] == "-"
+    # A child is chmod'ed to its rule's mode; with no rule the disk is kept.
+    root = tmp_path / "root/opt/tree"
+    assert os.stat(root / "ruled/file").st_mode & 0o777 == 0o640
+    assert os.stat(root / "plain").st_mode & 0o777 == 0o664
+
+
+@pytest.mark.posix
+def test_record_tree_children_are_chmoded_to_the_defaults(tmp_path):
+    p = project(
+        tmp_path,
+        "db.jsonl",
+        defaults=EntryDefaults(dir_mode="700", exec_mode="711"),
+        rules=(rule("/opt/p/t/x", mode="750"),),
+    )
+    p.init()
+    src = tmp_path / "src"
+    write(src / "t/x/f", mode=0o755)
+    (src / "t/x").chmod(0o755)
+    p.install([src / "t"], "/opt/p/t", into=False, parents=True, record_tree=True)
+    base = tmp_path / "root/opt/p/t"
+    assert os.stat(base / "x").st_mode & 0o777 == 0o750
+    assert os.stat(base / "x/f").st_mode & 0o777 == 0o711
+    db = recorded(tmp_path / "db.jsonl")
+    assert db["/opt/p/t/x"]["mode"] == "750"
+    assert db["/opt/p/t/x/f"]["mode"] == "711"
+
+
+@pytest.mark.posix
+def test_a_scan_records_the_rule_mode_and_leaves_the_disk(tmp_path):
+    p = project(tmp_path, rules=(rule("/opt/**", mode="640"),))
+    write(tmp_path / "root/opt/f", mode=0o600)
+    assert dict(p.scan("/opt"))["/opt/f"]["mode"] == "640"
+    assert os.stat(tmp_path / "root/opt/f").st_mode & 0o777 == 0o600
+
+
+@pytest.mark.posix
+def test_an_owned_parent_is_recorded_not_chmoded(tmp_path):
+    p = project(
+        tmp_path,
+        "db.jsonl",
+        own=("/opt/p",),
+        rules=(rule("/opt/p", mode="750"),),
+    )
+    p.init()
+    write(tmp_path / "root/opt/p/f", mode=0o644)
+    (tmp_path / "root/opt/p").chmod(0o755)
+    list(p.scan("/opt/p"))
+    assert recorded(tmp_path / "db.jsonl")["/opt/p"]["mode"] == "750"
+    assert os.stat(tmp_path / "root/opt/p").st_mode & 0o777 == 0o755
 
 
 @pytest.mark.posix

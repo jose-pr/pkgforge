@@ -161,9 +161,10 @@ For each of the three, in this order, the first that has a value wins:
    never gets a mode.
 
 An installed source, and what a `dir` or `file` step creates, is staged with the
-mode that was recorded. The entries below a `record_tree = true` step and the
-owned directories are recorded only: their files keep the mode they have on
-disk.
+mode that was recorded. The entries below a `record_tree = true` step are chmod'ed to the
+mode they resolved to (a rule or `[defaults]`; with neither, they keep the mode
+they have on disk). The owned directories and the entries `scan` records are
+recorded only: they keep the mode they have on disk.
 
 ```toml
 [defaults]

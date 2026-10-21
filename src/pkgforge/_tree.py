@@ -8,10 +8,19 @@ from __future__ import annotations
 
 import logging
 import os
+import stat
 import typing
 from pathlib import Path
 
-from .entry import AUTO, DEFAULT, FileEntry, FileType, _file_type, _resolve_stat
+from .entry import (
+    AUTO,
+    DEFAULT,
+    FileEntry,
+    FileType,
+    _file_type,
+    _resolve_stat,
+    apply_entry,
+)
 from .exceptions import PkgForgeError
 from .exclude import PathMatch
 
@@ -39,7 +48,9 @@ class TreeRecorder:
     their own, rooted at the tree they walk: ``scan``'s at PATH,
     ``install``'s record-tree at DESTINATION. ``write(dbpath, entry)`` is the
     caller's recording callback; ``logger`` receives the skip and exclusion
-    messages.
+    messages. With ``apply_mode`` a non-symlink path whose resolved mode
+    differs from its on-disk permission bits is chmod'ed to it (mode only,
+    never a chown) before it is written.
     """
 
     def __init__(
@@ -53,6 +64,7 @@ class TreeRecorder:
         logger: logging.Logger,
         write: typing.Callable[[str, FileEntry], typing.Any],
         fallback: typing.Mapping[str, str] = {},
+        apply_mode: bool = False,
     ) -> None:
         self.project = project
         self.bases = bases
@@ -62,6 +74,7 @@ class TreeRecorder:
         self.logger = logger
         self.write = write
         self.fallback = fallback
+        self.apply_mode = apply_mode
         #: Paths actually written this run -- never a path skipped by -X,
         #: the file-DB skip, or a key `known` already holds.
         self.recorded = 0
@@ -118,6 +131,17 @@ class TreeRecorder:
                     ):
                         entry = {**entry, name: value}
                 entry = _resolve_stat(entry, path, st, lookupval=AUTO)
+                if (
+                    self.apply_mode
+                    and ftype != FileType.Symlink
+                    and entry["mode"] != DEFAULT
+                    and int(entry["mode"], 8) != stat.S_IMODE(st.st_mode)
+                ):
+                    apply_entry(
+                        {**entry, "owner": DEFAULT, "group": DEFAULT},
+                        path,
+                        logger=self.logger,
+                    )
                 self.logger.debug("Updating file entry for: %s", fspath)
                 self.write(fspath, entry)
                 self.recorded += 1

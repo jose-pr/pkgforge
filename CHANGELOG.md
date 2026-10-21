@@ -66,6 +66,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stores.
 
 ### Changed
+- `install --record-tree` (and `record_tree = true` in a `[[stage]]` step)
+  chmods each child to the mode a `[[rules]]` element or `[defaults]` gives it.
+  Before, the mode was only recorded and the file kept its own, so the package
+  did not match the build root. Owned directories and `scan` entries are still
+  recorded only.
 - A `#!yaml` `pkgforge.cfg` can no longer `!include` other files: the file
   describes one package, and an include is now an error (exit 2). Put the
   content in the file itself.

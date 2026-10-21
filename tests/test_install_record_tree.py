@@ -16,6 +16,7 @@ from __future__ import annotations
 import io
 import json
 import shutil
+import stat
 import tarfile
 from collections import Counter
 from pathlib import Path
@@ -24,6 +25,7 @@ import pytest
 
 from pkgforge.cli import main
 from pkgforge import Project
+from pkgforge.config import EntryDefaults, ProjectConfig
 
 requires_tar_filter = pytest.mark.skipif(
     not hasattr(tarfile, "data_filter"),
@@ -597,3 +599,18 @@ def test_record_tree_default_off_records_one_entry(tmp_path, cli):
     assert result.rc == 0, result.err.decode()
     loaded = Project(root, db, db_format=None).load()
     assert set(loaded) == {"/opt/app"}
+
+
+@pytest.mark.posix
+def test_a_setuid_child_keeps_its_bit_under_exec_mode(tmp_path):
+    root = tmp_path / "root"
+    src = tmp_path / "src"
+    (src / "t").mkdir(parents=True)
+    (src / "t/f").write_bytes(b"x")
+    (src / "t/f").chmod(0o755)
+    config = ProjectConfig(defaults=EntryDefaults(exec_mode="4755"))
+    project = Project(root, tmp_path / "db.jsonl", config=config)
+    project.init()
+    project.install([src / "t"], "/opt/p", into=False, parents=True, record_tree=True)
+    assert stat.S_IMODE((root / "opt/p/f").stat().st_mode) == 0o4755
+    assert project.load()["/opt/p/f"]["mode"] == "4755"
