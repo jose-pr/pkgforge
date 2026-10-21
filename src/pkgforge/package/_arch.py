@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import gzip
 import hashlib
+import io
 import re
 import shlex
 import tarfile
@@ -15,7 +15,7 @@ from ..config import ProjectConfig
 from ..entry import DEFAULT, FileType
 from ..exceptions import UsageError
 from . import BuildContext, PackageFormat, PackagePayload
-from ._compress import SUFFIXES
+from ._compress import SUFFIXES, compressor
 from ._payload import (
     Blob,
     Member,
@@ -80,7 +80,11 @@ def _mtree(
             lines.append(f"{head} type=link link={_escape(item.target or '')}")
         else:
             lines.append(f"{head} type=dir")
-    return gzip.compress(("\n".join(lines) + "\n").encode("ascii"), 9, mtime=0)
+    # Not gzip.compress, whose header OS byte depends on the Python version.
+    out = io.BytesIO()
+    with compressor(out, "gz") as stream:
+        stream.write(("\n".join(lines) + "\n").encode("ascii"))
+    return out.getvalue()
 
 
 class _Script(typing.NamedTuple):

@@ -270,8 +270,9 @@ def test_arch_mtree_matches_payload(work, cli, tmp_path, monkeypatch):
     hello = _read(tmp_path / "out" / HELLO)
     assert "opt/sp ace é/README" in hello.members
     assert "./opt/sp\\040ace\\040\\303\\251/README" in _mtree(hello)
-    # gzip header: no timestamp.
+    # gzip header: no timestamp, and the OS byte every Python writes alike.
     assert hello.data[".MTREE"][4:8] == b"\0\0\0\0"
+    assert hello.data[".MTREE"][9] == 0xFF
 
 
 @pytest.mark.posix
