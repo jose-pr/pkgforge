@@ -209,12 +209,14 @@ class ApkFormat(PackageFormat):
         when: int,
     ) -> bytes:
         items = members(payload.entries, context.buildroot, epoch=context.epoch)
-        for item in items:
+        # Ghost directories are not members, but .post-install names them.
+        texts = [(path, path) for path, _entry in payload.entries]
+        texts.extend((item.path, item.target) for item in items if item.target)
+        for path, text in texts:
             try:
-                item.path.encode("utf-8")
-                (item.target or "").encode("utf-8")
+                text.encode("utf-8")
             except UnicodeEncodeError:
-                raise DumpError(f"{item.path}: apk needs UTF-8 paths") from None
+                raise DumpError(f"{path}: apk needs UTF-8 paths") from None
         data_gz = compress(
             tar_bytes(items, format=tarfile.PAX_FORMAT, pax=_checksum, mtime=when),
             "gz",

@@ -378,6 +378,18 @@ def test_apk_non_utf8_path_exit_1(work, cli, tmp_path):
 
 
 @pytest.mark.posix
+def test_apk_non_utf8_ghost_directory_exit_1(work, cli, tmp_path):
+    _stage(cli)
+    skip_if_fs_rejects_non_utf8(tmp_path / "root")
+    ghost = "/run/" + os.fsdecode(b"bad-\xff")
+    assert cli("mkdir", "-k", "ghost", "-m", "755", ghost).rc == 0
+    result = _package(cli, tmp_path / "out")
+    assert result.rc == 1, result.err
+    assert b"apk needs UTF-8 paths" in result.err
+    assert b"Traceback" not in result.err
+
+
+@pytest.mark.posix
 def test_apk_reproducible(staged, cli, tmp_path, monkeypatch):
     monkeypatch.setenv("SOURCE_DATE_EPOCH", str(EPOCH))
     assert _package(cli, tmp_path / "a").rc == 0
