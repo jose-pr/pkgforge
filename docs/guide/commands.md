@@ -272,6 +272,7 @@ pkgforge dbdump -f rpmspec hello.spec
 pkgforge dbdump -f debian --skeleton debian
 ```
 
+[From pkgforge.cfg to .rpm and .deb](packaging.md) builds both from the example.
 `debian/rules` runs `pkgforge --config CFG`, with the path of the project file
 (`--config`, `PKGFORGE_CONFIG` or `./pkgforge.cfg`) relative to the directory
 above OUTPUT when it lies below it; the spec takes the path at build time:

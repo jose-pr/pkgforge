@@ -11,6 +11,11 @@ manifest. `null` (removed) entries and `--exclude` matches are skipped.
 | `rpmspec-pre419` | | the whole spec (older rpm) | as `rpmspec` |
 | `debian` | `deb` | multiple artifacts | a **directory**, or `-` (stdout, sectioned); needs `[package] name`; with `--skeleton` also `control`, `changelog`, `rules` and `source/format` |
 
+`rpmspec`, `rpmspec-pre419` and `debian --skeleton` write the spec and the
+`debian/` files for a whole package from `pkgforge.cfg`; the walk-through from
+the project file to the built packages is
+[From pkgforge.cfg to .rpm and .deb](packaging.md).
+
 Before any format renders, every surviving entry is checked: the key must
 be an absolute path with no empty, `.` or `..` segment; `type` must be
 `file`, `directory` or `symlink`; `mode` is 1-4 octal digits, `-` or `--`;
@@ -167,6 +172,23 @@ the wrong file.
 pkgforge dbdump -f rpmspecfiles-pre419 files.txt
 ```
 
+## `rpmspec`
+
+Writes a whole spec to a file or `-`, from `[package]` and `[[packages]]`;
+`rpmspec-pre419` is the same for rpm older than 4.19. It needs `name`,
+`version`, `summary` and `license`, and a `summary` for each subpackage (exit 2
+naming what is missing). In order it holds: a guard that stops `rpmbuild` unless
+`pkgforge_config` is defined; `__os_install_post` and `debug_package` set to
+nothing; the preamble (`Name`, `Version`, `Release`, `Summary`, `License`, `URL`,
+`BuildArch`, `Requires`) and `%description`; a `%package -n` block per
+subpackage; an `%install` that runs `pkgforge stage --init` and writes the lists
+with `rpmspecfiles` (or `rpmspecfiles-pre419`); a `%post` that runs
+`systemd-tmpfiles` for a package that records a `tmpfiles.d` file (and, for
+`rpmspec-pre419`, a `%pre` that creates the accounts); and one `%files -n NAME -f`
+per package. Text taken from the file has `%` doubled, so it is never a macro.
+An existing spec is kept with a WARNING unless `--force`. Build it with
+`rpmbuild -bb --define "pkgforge_config PATH" NAME.spec`.
+
 ## `debian`
 
 Needs `[package] name` in `pkgforge.cfg`: debhelper reads `debian/PKG.NAME`
@@ -315,6 +337,18 @@ pkgforge dbdump -f debian -                # all of them to stdout under "# === 
     `dpkg-buildpackage`, needs `DEB_RULES_REQUIRES_ROOT=binary-targets`
     exported by hand -- `dpkg-buildpackage` is what normally reads
     `Rules-Requires-Root` and exports it for you.
+
+### The skeleton
+
+`--skeleton` (a directory OUTPUT, and the project file) also writes the files a
+package needs around those: `control` (a stanza per package, `Depends:
+${misc:Depends}, ${pkgforge:Depends}` plus the declared `depends`),
+`changelog` (one entry, dated from `SOURCE_DATE_EPOCH` when set, else now),
+`rules` (the *stage into `debian/tmp`* recipe below, calling `pkgforge --config
+CFG`) and `source/format`. It needs `name`, `version`, `summary` and
+`maintainer`, and a `summary` for each subpackage. These are meant to be edited,
+so an existing one is kept with a WARNING unless `--force`. The walk-through is
+[From pkgforge.cfg to .rpm and .deb](packaging.md#4-build-the-deb).
 
 ### Debian recipes
 

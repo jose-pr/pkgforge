@@ -287,6 +287,15 @@ dest = "/etc/hello"
 sets the mode and the group, and `[defaults]` supplies the owner: `640 root:adm`.
 Giving the second step `mode = "600"` would record `600 root:adm`.
 
+## How an entry gets its package
+
+The package an entry ships in is the first of: the flag (`-P`, or the step's own
+`package`), then the first `[[rules]]` element whose `match` fits and sets
+`package`, then the `[package]` name. `[defaults]` has no `package`. With no
+`[package]` the entry is recorded as `-`, the one package there is. A name the
+file does not declare is an error (exit 2). How the generators use the packages
+is in [From pkgforge.cfg to .rpm and .deb](packaging.md#subpackages).
+
 ## Owned directories
 
 `own` lists the directories the package owns. When an entry at or below an owned
@@ -361,8 +370,9 @@ file that cannot be read is exit 1.
 
 ## The example package
 
-`examples/pkgforge.cfg` describes the `hello` package that `examples/hello.spec` and
-`examples/debian/` build:
+`examples/pkgforge.cfg` describes the `hello` and `hello-doc` packages. `examples/hello.spec`
+and `examples/debian/` are generated from it
+(see [From pkgforge.cfg to .rpm and .deb](packaging.md)):
 
 ```toml
 --8<-- "examples/pkgforge.cfg"

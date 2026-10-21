@@ -7,6 +7,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- A guide page, "From pkgforge.cfg to .rpm and .deb", walks the `hello` example
+  from `pkgforge stage` and `pkgforge verify` through `dbdump -f rpmspec` and
+  `rpmbuild`, and `dbdump -f debian --skeleton` and `dpkg-buildpackage`, to two
+  packages per format; the project-file and formats guides cover the package
+  keys, `[[packages]]` and the skeleton files, and `tests/test_docs.py` runs the
+  page's commands.
 - `dbdump -f rpmspec` (`RPMSpec`) and `rpmspec-pre419` (`RPMSpecPre419`, for rpm
   older than 4.19) write the whole spec from `pkgforge.cfg`: the preamble, a
   `%package -n` block per `[[packages]]` element, a `%install` that runs

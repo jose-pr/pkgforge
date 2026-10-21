@@ -31,6 +31,7 @@ nav:
       - Install: guide/install.md
       - Commands: guide/commands.md
       - Project file: guide/config.md
+      - From cfg to .rpm and .deb: guide/packaging.md
       - File DB & entries: guide/file-db.md
       - Exclude grammar: guide/exclude.md
       - Dump formats: guide/formats.md

@@ -28,6 +28,7 @@ INDEX = ROOT / "docs" / "index.md"
 UNATTENDED = ROOT / "docs" / "guide" / "unattended.md"
 COMMANDS = ROOT / "docs" / "guide" / "commands.md"
 CONFIG_GUIDE = ROOT / "docs" / "guide" / "config.md"
+PACKAGING = ROOT / "docs" / "guide" / "packaging.md"
 HEADER = ROOT / "src" / "pkgforge" / "AGENTS.md"
 
 # Pages whose `pkgforge ...` examples must parse.
@@ -41,6 +42,7 @@ DOC_PAGES = [
     ROOT / "docs" / "guide" / "file-db.md",
     ROOT / "docs" / "guide" / "formats.md",
     ROOT / "docs" / "guide" / "exclude.md",
+    PACKAGING,
 ]
 
 _CUT_TOKENS = {"|", ">", "<", ";", "&&"}
@@ -265,6 +267,90 @@ def test_doc_sequences_run(page, tmp_path, monkeypatch):
     )
     assert result.returncode == 0, result.stderr
     assert "Traceback" not in result.stderr
+
+
+def _can_build_deb() -> bool:
+    import grp
+    import pwd
+    from shutil import which
+
+    for tool in ("dpkg-buildpackage", "fakeroot", "dh_installdirs", "dh_fixperms"):
+        if which(tool) is None:
+            return False
+    try:
+        pwd.getpwnam("daemon")
+        grp.getgrnam("adm")
+    except KeyError:
+        return False
+    return True
+
+
+@pytest.mark.posix
+def test_packaging_walkthrough(tmp_path):
+    """The packaging guide's commands run top to bottom and produce its packages.
+
+    The staging, ``verify`` and dump steps always run; the ``rpmbuild`` and
+    ``dpkg-buildpackage`` steps run when the host has the tools.
+    """
+    from shutil import which
+
+    text = PACKAGING.read_text(encoding="utf-8")
+    have_rpm = which("rpmbuild") is not None
+    have_deb = _can_build_deb()
+    steps = []
+    for fence in _fences(text, langs=("sh",)):
+        if "rpmbuild" in fence:
+            if not have_rpm:
+                continue
+            version = subprocess.run(
+                ["rpmbuild", "--version"], capture_output=True, text=True
+            ).stdout
+            m = re.search(r"(\d+)\.(\d+)", version)
+            if m and (int(m.group(1)), int(m.group(2))) < (4, 19):
+                fence = fence.replace("-f rpmspec ", "-f rpmspec-pre419 ")
+        elif "dpkg-buildpackage" in fence:
+            if not have_deb:
+                continue
+            # dh_strip_nondeterminism is a separate package some hosts lack.
+            fence = fence.replace(
+                "dpkg-buildpackage",
+                "(command -v dh_strip_nondeterminism >/dev/null"
+                " || printf '\\noverride_dh_strip_nondeterminism:\\n' >> debian/rules)\n"
+                "dpkg-buildpackage",
+            )
+        steps.append(fence.replace("~/src/pkgforge", str(ROOT)))
+    assert len(steps) >= 3
+    assert "cp -r" in steps[0]  # the first step copies the example in
+
+    home = tmp_path / "home"
+    home.mkdir()
+    env = dict(os.environ, HOME=str(home))
+    env["PATH"] = os.pathsep.join(
+        [os.path.dirname(sys.executable), env.get("PATH", "")]
+    )
+    env.pop("PKGFORGE_CONFIG", None)
+    env.pop("PKGFORGE_DB", None)
+    env.pop("PKGFORGE_ROOT", None)
+    result = subprocess.run(
+        ["bash", "-ec", "\n".join(steps)],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+    project = tmp_path / "work" / "hello"
+    assert (project / "lists" / "files-hello-doc.txt").is_file()
+    assert (project / "hello.spec").is_file()
+    assert (project / "debian" / "control").is_file() == have_deb
+    if have_rpm:
+        rpms = home / "rpmbuild" / "RPMS" / "noarch"
+        assert (rpms / "hello-1.0-1.noarch.rpm").is_file()
+        assert (rpms / "hello-doc-1.0-1.noarch.rpm").is_file()
+    if have_deb:
+        assert (tmp_path / "work" / "hello_1.0-1_all.deb").is_file()
+        assert (tmp_path / "work" / "hello-doc_1.0-1_all.deb").is_file()
 
 
 @pytest.mark.posix

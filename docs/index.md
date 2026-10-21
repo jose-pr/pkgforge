@@ -4,7 +4,9 @@
 install metadata — mode, owner, group, type, and free-form key/value `meta` — in
 a *file DB* (JSON Lines by default; YAML or SQLite backends). That DB can then
 be dumped into packaging manifests such as an RPM `%files` list or Debian
-`install` + `dirs` + `fixperms` files.
+`install` + `dirs` + `fixperms` files, or, from a `pkgforge.cfg`, a whole RPM
+spec and `debian/` directory for one or several packages. `pkgforge verify`
+checks the build root against the DB before you build.
 
 It is a small, dependency-light helper for unattended build pipelines on Linux:
 install a source into place, remember how it should be owned and permissioned,
@@ -48,4 +50,5 @@ pkgforge dbdump -f rpmspecfiles rpm-files.txt
 pkgforge dbdump -f debian debian/
 ```
 
-See the [Guide](guide/install.md) for the full command and format reference.
+See the [Guide](guide/install.md) for the full command and format reference, and
+[From pkgforge.cfg to .rpm and .deb](guide/packaging.md) to build packages.
