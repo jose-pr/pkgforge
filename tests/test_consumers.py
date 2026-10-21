@@ -2139,3 +2139,89 @@ def test_dpkg_deb_example_installs(tmp_path):
         assert override().returncode == 1
     finally:
         _run_as_root("dpkg", "--purge", "hello", check=False)
+
+
+# --------------------------------------------------------------------------
+# package -f rpm: the .rpm pkgforge builds through rpmbuild
+# --------------------------------------------------------------------------
+
+
+def _build_direct_rpms(base: Path) -> typing.Dict[str, Path]:
+    """Stage the example under ``base`` and run ``package -f rpm`` on it;
+    returns the RPMs by package name."""
+    base.mkdir(exist_ok=True)
+    tree = _example_source(base / "work")
+    project = Project.from_config(
+        tree / "pkgforge.cfg", buildroot=base / "root", db=base / "files.jsonl"
+    )
+    project.stage(init=True)
+    return {
+        _query(path, "--qf", "%{NAME}"): path
+        for path in project.package("rpm", base / "out")
+    }
+
+
+def _rpm_rows(rpm_path: Path) -> typing.List[str]:
+    """The sorted per-file rows of ``rpm_path``: path, mode, owner, group and
+    the file flags by name."""
+    return sorted(
+        _query(
+            rpm_path,
+            "--qf",
+            f"[%{{FILENAMES}}|{_ROW_FIELDS}|%{{FILEFLAGS:fflags}}\n]",
+        ).splitlines()
+    )
+
+
+@requires_rpmbuild
+def test_rpmbuild_package_example_matches_spec_build(tmp_path):
+    """``package -f rpm`` and ``rpmbuild`` of the generated spec give the same
+    packages: names, per-file modes, owners, groups and flags, and scriptlets."""
+    direct = _build_direct_rpms(tmp_path / "direct")
+    built = _build_example_rpms(tmp_path / "spec")
+    assert sorted(direct) == sorted(built) == ["hello", "hello-doc"]
+    assert sorted(path.name for path in direct.values()) == [
+        "hello-1.0-1.noarch.rpm",
+        "hello-doc-1.0-1.noarch.rpm",
+    ]
+    for name, path in direct.items():
+        assert _rpm_rows(path) == _rpm_rows(built[name]), name
+        assert _query(path, "--scripts") == _query(built[name], "--scripts"), name
+    rows = _rpm_rows(direct["hello"])
+    assert len(rows) == 14
+    assert any(row.startswith("/etc/hello/hello.conf|100640|root|adm|") for row in rows)
+    assert any(row.startswith("/var/lib/hello|40750|hello|hello|") for row in rows)
+
+
+@requires_rpmbuild
+def test_rpmbuild_package_unit_scriptlets(tmp_path):
+    """The RPM carries the systemd scriptlets for ``hello.service`` where the
+    host's rpm has the macros, and never the unexpanded macro text."""
+    hello = _build_direct_rpms(tmp_path)["hello"]
+    scripts = _query(hello, "--scripts")
+    macros = subprocess.run(
+        ["rpm", "--eval", "%{?systemd_post:1}"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    if macros == "1":
+        assert "systemd-update-helper" in scripts or "systemctl" in scripts
+        assert "hello.service" in scripts
+    assert "systemd_post" not in scripts
+    assert "systemd_preun" not in scripts
+    assert "systemd_postun" not in scripts
+
+
+@requires_rpmbuild
+@requires_install
+def test_rpmbuild_package_example_installs(tmp_path):
+    """Installing the direct RPM creates the account, owns ``/var/lib/hello`` by
+    it, sets the capability and has ``%post`` create ``/run/hello``."""
+    rpm_path = _build_direct_rpms(tmp_path)["hello"]
+    try:
+        _run_as_root("rpm", "-i", str(rpm_path))
+        _assert_installed_example_state()
+        assert os.stat("/run/hello").st_uid == pwd.getpwnam("hello").pw_uid
+    finally:
+        _run_as_root("rpm", "-e", "hello", check=False)

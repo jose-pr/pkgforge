@@ -7,6 +7,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `pkgforge package -f rpm` builds each package as an `.rpm` through `rpmbuild`,
+  from the staged tree and the file DB, with no hand-written spec:
+  `NAME-VERSION-RELEASE.ARCH.rpm` in the output directory. The spec is the one
+  `dbdump -f rpmspec` writes (the `rpmspec-pre419` variant below rpm 4.19), so the
+  modes, owners, kinds and scriptlets match a build of that spec. It needs
+  `rpmbuild` on `PATH` and `[package]` `version`, `summary` and `license`; rpm
+  owns the payload, so `--compression` is refused, and `--arch` is passed as
+  `rpmbuild --target`. Without the systemd rpm macros it logs a warning and
+  leaves the unit scriptlets out.
 - `pkgforge package -f deb` builds each package as a `.deb` itself, with no
   `dpkg-deb`, debhelper or fakeroot: `NAME_VERSION[-RELEASE]_ARCH.deb`, with the
   control file, `conffiles`, `md5sums` and the `postinst`, `prerm` and `postrm`

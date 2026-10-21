@@ -29,6 +29,10 @@ every format.
     options:
       show_root_heading: true
 
+::: pkgforge.package.RpmFormat
+    options:
+      show_root_heading: true
+
 ::: pkgforge.package.TarFormat
     options:
       show_root_heading: true

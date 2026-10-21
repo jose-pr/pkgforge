@@ -966,6 +966,25 @@ Importing `pkgforge.package` loads no optional dependency.
   removals) are written only with a command in them. A path with a control
   character is `DumpError`, as is a conffile name with whitespace outside
   `/etc`.
+- **`RpmFormat`** — `NAME = "rpm"`, `COMPRESSIONS = ()` (rpm owns its payload, so
+  `--compression` is `UsageError`), `REQUIRED = ("version", "summary",
+  "license")`, `SUB_REQUIRED = ("summary",)`. One `NAME-VERSION-RELEASE.ARCH.rpm`
+  per package, built by `rpmbuild -bb` (no `rpmbuild` on `PATH` is `PkgForgeError`,
+  exit 1; a failed build is one with rpmbuild's last stderr line). It writes, in a
+  temporary directory, a GNU tar of the recorded non-ghost entries (no implicit
+  parent directories: the `%files` lists decide what rpm owns), the lists of
+  `dbdump -f rpmspecfiles` and the spec of `dbdump -f rpmspec`, with `%install`
+  unpacking the tar into `%{buildroot}` and copying the lists into place instead
+  of running `pkgforge stage`, and no `pkgforge_config` guard. The variant is read
+  from `rpmbuild --version`: below 4.19 the `-pre419` lists and the `%pre` that
+  creates the accounts. `--arch` is passed as `--target`; `ALL_ARCH` and `MACHINES`
+  are unused, since the spec's `BuildArch` and rpmbuild decide. The packages are
+  moved into the output directory (a file of the same name is replaced), main
+  package first, and the temporary directory is removed whether the build
+  succeeded or not. When a package records a unit and `rpmbuild --eval
+  '%{?systemd_post:1}'` is not `1`, a WARNING on `pkgforge.package` says the
+  unit scriptlets are left out (install systemd-rpm-macros). The build is not
+  byte-reproducible: rpmbuild stamps its own times.
 - **`TarFormat`** — `NAME = "tar"`, `COMPRESSIONS = ("gz", "xz", "zst",
   "none")`, `REQUIRED = ("version",)`. One `NAME-VERSION[-RELEASE].tar[.gz|.xz|
   .zst]` per package (the main package's version and release, the package's own
@@ -984,7 +1003,8 @@ staged file's permission bits, and a symlink is `0777`. The time is the staged
 mtime, at most `SOURCE_DATE_EPOCH` when it is set; with it set, every
 build-time stamp is that value too and gzip headers carry no time, so two builds
 of one build root are byte-identical (for one Python and one zstd library). Every
-ancestor directory a package does not record is added as `755 root:root`. Members
+ancestor directory a package does not record is added as `755 root:root` (not
+for `rpm`). Members
 are sorted by DB path.
 
 Compression: `gz` is gzip level 9, `xz` is preset 6 with a CRC64 check, `zst` is
@@ -1363,7 +1383,7 @@ there with a `UsageError`. See [Environment variables](#environment-variables).
 
 - **`pkgforge package -f FORMAT [-o DIR] [--arch NAME] [--compression KIND]`** —
   `Project.package`: build one package per declared package from the file DB and
-  the build root. `-f` is `deb` or `tar`; `-o` defaults to `.` and is created when
+  the build root. `-f` is `deb`, `rpm` or `tar`; `-o` defaults to `.` and is created when
   missing. Prints each path written on stdout, one per line, the main package
   first. `--arch` names the architecture of an `any` package in the format's own
   spelling (default: this machine's); `--compression` is one the format offers.

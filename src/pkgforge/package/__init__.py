@@ -220,6 +220,7 @@ def build(
 # --------------------------------------------------------------------------
 
 from ._deb import DebFormat  # noqa: E402
+from ._rpm import RpmFormat  # noqa: E402
 from ._tar import TarFormat  # noqa: E402
 
 __all__ = [
@@ -227,6 +228,7 @@ __all__ = [
     "DebFormat",
     "PackageFormat",
     "PackagePayload",
+    "RpmFormat",
     "TarFormat",
     "build",
 ]
