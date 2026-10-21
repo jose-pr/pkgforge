@@ -1128,7 +1128,7 @@ there with a `UsageError`. See [Environment variables](#environment-variables).
 | `0` | success |
 | `1` | a runtime failure (`PkgForgeError`, `OSError`), reported as one `pkgforge: error: ...` line on stderr; a closed output pipe also returns `1`, silently |
 | `2` | a usage mistake (`UsageError`, a bad configuration file included), reported as one `pkgforge: error: ...` line |
-| `130` | Ctrl-C, silently |
+| `130` | Ctrl-C, silently (`KeyboardInterrupt` propagates under `PKGFORGE_TRACEBACK`) |
 
 `pkgforge verify` also returns `1` when it found a difference, printing the
 issues on stdout and no `pkgforge: error:` line. A tail after `--` is a usage mistake (`2`). The table is in the agent help

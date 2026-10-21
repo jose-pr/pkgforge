@@ -41,6 +41,8 @@ Every entry under Removed is also a break; its replacement is named there.
   the nameless `install`, `dirs`, `permissions` and `fixperms` files the dump
   wrote into `debian/`, and run `sh debian/fixperms debian` (the debian
   directory, not the package's) from `override_dh_fixperms`.
+- Remove any tail after `--` from a command line (`pkgforge initdb -- junk`):
+  it is now a usage error, exit 2, where it was ignored.
 
 ### Added
 - `pkgforge.cfg`, a TOML project file read from `--config/-c FILE` (before the
@@ -222,19 +224,28 @@ Every entry under Removed is also a break; its replacement is named there.
   it. A guide page, "From pkgforge.cfg to packages", builds them with
   `rpmbuild`, `dpkg-buildpackage` and `pkgforge package`, and tabulates what
   each format needs, writes and runs at install time.
+- `--mode`, `--owner`, `--group`, `--type` and `--dir-mode` take the next word
+  as their value even when it is `--`, so `-o -- t /l` reads the owner from
+  disk like `--owner=--`.
+- The agent help (`AGENT_HELP=1 pkgforge --help`) lists the exit codes 0, 1, 2
+  and 130, and a failed MCP tool call reports its code, so `verify` with
+  differences ends as `exit code: 1`.
 
 ### Changed
-- Requires `duho>=0.7.7,<0.8` (was `>=0.6.0,<0.7`) and `anycfg>=0.15.1,<0.16`,
+- Requires `duho>=0.7.8,<0.8` (was `>=0.6.0,<0.7`) and `anycfg>=0.15.1,<0.16`,
   which reads `pkgforge.cfg` and is imported only when a file is read. PyYAML is
   the optional `yaml` extra instead of a core dependency: `pip install
   'pkgforge[yaml]'` to keep a `yaml` DB, which otherwise exits 1 with a message
   naming the extra. The command line keeps its flags, its `--help` text and its
   0, 1 and 2 exit statuses.
-- Ctrl-C ends the command with status 130 and no output.
+- Ctrl-C ends the command with status 130 and no output, or raises
+  `KeyboardInterrupt` under `PKGFORGE_TRACEBACK`.
 - `PKGFORGE_TRACEBACK` replaces `DUHO_TRACEBACK` as the switch that prints the
   traceback before the `pkgforge: error:` line, and `DUHO_TRACEBACK` has no
   effect on pkgforge: set `PKGFORGE_TRACEBACK=1` where you set
   `DUHO_TRACEBACK=1`. A closed output pipe is silent with status 1 either way.
+- A bad `-O` value reports duho's usage message, which still reads `expected
+  KEY=VALUE, got 'novalue'`.
 - The console script is `pkgforge.cli:main` (was `pkgforge:main`); `python -m
   pkgforge` runs the same. `pkgforge.cli` is the command line, not library API:
   from Python, use `pkgforge.Project`.
@@ -396,6 +407,9 @@ Every entry under Removed is also a break; its replacement is named there.
   command class built directly in Python ignores the environment.
 
 ### Fixed
+- On Windows, a drive-qualified path (`mkdir D:/x`) raised `ValueError: Paths
+  don't have the same drive`. It is a usage error, exit 2, saying the path
+  resolves outside `--buildroot`.
 - `install --method move` of a directory onto another filesystem failed with
   `Invalid cross-device link` (and a rollback could fail the same way). It
   moves the tree file by file, keeping modes, mtimes and symlinks, and removes

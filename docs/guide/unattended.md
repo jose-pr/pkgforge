@@ -75,7 +75,8 @@ other failure, including a closed output pipe (e.g. `pkgforge dbdump ... |
 head`); `130` Ctrl-C. On a `1` or `2`, one `pkgforge: error: ...` line goes to
 stderr, no traceback. Set `PKGFORGE_TRACEBACK=1` (`1`/`true`/`yes`/`on`;
 `0`/`false`/`no`/`off`/`n`/`f` are off) to also print the traceback before that
-line. A closed pipe and Ctrl-C print nothing. `pkgforge verify` also exits `1` when
+line. A closed pipe and Ctrl-C print nothing (Ctrl-C raises `KeyboardInterrupt` under
+`PKGFORGE_TRACEBACK`). `pkgforge verify` also exits `1` when
 it finds a difference, with the differences on stdout and no error line.
 A tail after `--` is a usage mistake, not ignored.
 

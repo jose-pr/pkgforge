@@ -49,8 +49,8 @@ class PkgForge(ConfigArgs, ProjectCmd, Cli):
     _version_ = duho.AUTO
     _distribution_ = "pkgforge"
     _completion_ = True
-    # Without a name duho uses the class name for usage, errors, --version and
-    # completion, and shell completion binds by exact, case-sensitive name.
+    # The application's name for usage, errors, --version, completion and MCP
+    # tool names, fixed wherever the class is imported from.
     _parsername_ = "pkgforge"
     _subcommands_ = (
         Install,
