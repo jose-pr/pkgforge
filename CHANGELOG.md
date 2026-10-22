@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-22
+
 ### Upgrading from 0.2.0
 Every entry under Removed is also a break; its replacement is named there.
 - Install PyYAML for a `yaml` DB: `pip install 'pkgforge[yaml]'`.
@@ -1107,7 +1109,8 @@ framework; Python 3.9+, Linux runtime.
 - Hardlink install uses `os.link` for portability across Python 3.9–3.13
   (`Path.link_to` was removed in 3.12; `Path.hardlink_to` only exists from 3.10).
 
-[Unreleased]: https://github.com/jose-pr/pkgforge/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/jose-pr/pkgforge/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/jose-pr/pkgforge/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/jose-pr/pkgforge/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/jose-pr/pkgforge/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/jose-pr/pkgforge/compare/v0.1.0...v0.1.1
